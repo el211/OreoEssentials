@@ -1,0 +1,152 @@
+name: OreoEssentials
+version: '1.0-SNAPSHOT'
+main: fr.elias.oreoEssentials.OreoEssentials
+api-version: '1.21'
+softdepend:
+  - Vault
+  - PlaceholderAPI
+
+commands:
+  spawn:
+    description: Teleport to spawn
+    permission: oreo.spawn
+  setspawn:
+    description: Set the server spawn
+    permission: oreo.setspawn
+  back:
+    description: Return to your last location
+    permission: oreo.back
+  warp:
+    description: Teleport to a warp
+    permission: oreo.warp
+  setwarp:
+    description: Create or overwrite a warp
+    permission: oreo.setwarp
+  delwarp:
+    description: Delete a warp
+    permission: oreo.delwarp
+  home:
+    description: Teleport to a home
+    permission: oreo.home
+  sethome:
+    description: Set a home
+    permission: oreo.sethome
+  delhome:
+    description: Delete a home
+    permission: oreo.delhome
+  tpa:
+    description: Request to teleport to a player
+    permission: oreo.tpa
+  tpaccept:
+    description: Accept a teleport request
+    permission: oreo.tpa
+  tpdeny:
+    description: Deny a teleport request
+    permission: oreo.tpa
+  fly:
+    description: Toggle flight
+    permission: oreo.fly
+  heal:
+    description: Heal yourself or others
+    permission: oreo.heal
+  feed:
+    description: Feed yourself or others
+    permission: oreo.feed
+  msg:
+    description: Private message a player
+    permission: oreo.msg
+  reply:
+    description: Reply to the last private message
+    aliases: [r]
+    permission: oreo.msg
+  broadcast:
+    description: Broadcast a message
+    permission: oreo.broadcast
+
+  # Economy commands
+  money:
+    description: View/give/take/set player balances
+    permission: oreo.money
+  pay:
+    description: Pay a player money
+    permission: oreo.pay
+  cheque:
+    description: Create/redeem money cheques
+    permission: rabbiteconomy.cheque.create   # your code checks this node, keep if intentional
+  deathback:
+    description: Teleport to your last death location
+    permission: oreo.deathback
+    usage: /deathback
+  homes:
+    description: List your homes or teleport to one
+    aliases: [listhomes]
+    permission: oreo.homes
+    usage: /homes [name]
+
+permissions:
+  oreo.*:
+    description: All OreoEssentials features
+    default: op
+    children:
+      oreo.spawn: true
+      oreo.setspawn: true
+      oreo.back: true
+      oreo.warp: true
+      oreo.setwarp: true
+      oreo.delwarp: true
+      oreo.home: true
+      oreo.sethome: true
+      oreo.delhome: true
+      oreo.tpa: true
+      oreo.fly: true
+      oreo.heal: true
+      oreo.feed: true
+      oreo.msg: true
+      oreo.broadcast: true
+      oreo.money: true
+      oreo.money.give: true
+      oreo.money.take: true
+      oreo.money.set: true
+      oreo.pay: true
+      oreo.cheque.create: true
+      oreo.cheque.redeem: true
+      oreo.homes: true         # ✅ booleans only under children
+      oreo.deathback: true     # ✅ booleans only under children
+      rabbiteconomy.money.give: true
+      rabbiteconomy.money.take: true
+      rabbiteconomy.money.set: true
+      rabbiteconomy.cheque.create: true
+      rabbiteconomy.cheque.redeem: true
+
+  # Essentials basics
+  oreo.spawn: { default: true }
+  oreo.setspawn: { default: op }
+  oreo.back: { default: true }
+  oreo.warp: { default: true }
+  oreo.setwarp: { default: op }
+  oreo.delwarp: { default: op }
+  oreo.home: { default: true }
+  oreo.sethome: { default: true }
+  oreo.delhome: { default: true }
+  oreo.tpa: { default: true }
+  oreo.fly: { default: op }
+  oreo.heal: { default: op }
+  oreo.feed: { default: op }
+  oreo.msg: { default: true }
+  oreo.broadcast: { default: op }
+
+  # Economy base + sub-perms
+  oreo.money: { default: op }
+  oreo.money.give: { default: op }
+  oreo.money.take: { default: op }
+  oreo.money.set: { default: op }
+  oreo.pay: { default: true }
+  oreo.cheque.create: { default: op }
+  oreo.cheque.redeem: { default: true }
+
+  # Legacy RabbitEconomy nodes (kept for compatibility with your handlers)
+  rabbiteconomy.money.give: { default: op }
+  rabbiteconomy.money.take: { default: op }
+  rabbiteconomy.money.set: { default: op }
+  rabbiteconomy.cheque.create: { default: op }
+  rabbiteconomy.cheque.redeem: { default: true }

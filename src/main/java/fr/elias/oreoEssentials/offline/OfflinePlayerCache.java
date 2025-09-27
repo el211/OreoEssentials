@@ -1,0 +1,75 @@
+// File: src/main/java/fr/elias/oreoEssentials/offline/OfflinePlayerCache.java
+package fr.elias.oreoEssentials.offline;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
+
+public class OfflinePlayerCache {
+
+    private final Map<String, UUID> nameToId = new ConcurrentHashMap<>();
+    private final Map<UUID, String> idToName = new ConcurrentHashMap<>();
+    private final Map<String, UUID> nameToIdCaseInsensitive = new ConcurrentHashMap<>();
+
+    public UUID getId(String name) {
+        if (name == null) return null;
+
+        // Prefer exact online match (fast)
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) return online.getUniqueId();
+
+        // Then our own cache (case-sensitive)
+        UUID found = nameToId.get(name);
+        if (found != null) return found;
+
+        // Then our own cache (case-insensitive)
+        return nameToIdCaseInsensitive.get(name.toLowerCase(Locale.ROOT));
+    }
+
+    public String getName(UUID id) {
+        if (id == null) return null;
+
+        Player online = Bukkit.getPlayer(id);
+        if (online != null) return online.getName();
+
+        return idToName.get(id);
+    }
+
+    public void add(String name, UUID id) {
+        if (name == null || id == null) return;
+        nameToId.put(name, id);
+        nameToIdCaseInsensitive.put(name.toLowerCase(Locale.ROOT), id);
+        idToName.put(id, name);
+    }
+
+    public void remove(String name) {
+        if (name == null) return;
+        UUID id = nameToId.remove(name);
+        nameToIdCaseInsensitive.remove(name.toLowerCase(Locale.ROOT));
+        if (id != null) idToName.remove(id);
+    }
+
+    public boolean contains(UUID id) {
+        return id != null && idToName.containsKey(id);
+    }
+
+    public boolean contains(String name) {
+        if (name == null) return false;
+        return nameToId.containsKey(name) || nameToIdCaseInsensitive.containsKey(name.toLowerCase(Locale.ROOT));
+    }
+
+    public void remove(UUID id) {
+        if (id == null) return;
+        String name = idToName.remove(id);
+        if (name != null) {
+            nameToId.remove(name);
+            nameToIdCaseInsensitive.remove(name.toLowerCase(Locale.ROOT));
+        }
+    }
+
+    public List<String> getNames() {
+        return new ArrayList<>(nameToId.keySet());
+    }
+}

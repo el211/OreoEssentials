@@ -1,0 +1,71 @@
+# File: src/main/resources/config.yml
+# ===========================
+# OreoEssentials - config.yml
+# ===========================
+
+homes:
+  maxPerPlayer: 5
+  permissionBased: true      # uses highest "oreo.homes.<N>" permission if true
+
+tpa:
+  timeoutSeconds: 60
+
+# -------- Essentials data store --------
+essentials:
+  storage: "json"            # yaml | json | mongodb
+
+# Mongo settings used by Essentials MongoStorage (ConfigService -> MongoStorage)
+storage:
+  mongo:
+    uri: "mongodb://localhost:27017"
+    database: "oreo"
+    collectionPrefix: "oreo_"   # collections: <prefix>spawn, <prefix>warps, <prefix>playerdata
+
+# -------- Economy (Vault-backed) --------
+economy:
+  enabled: true              # false disables economy + commands
+  type: "json"               # none | json | mongodb | postgresql
+
+  # Generic rules (JSON uses these; add to other backends if desired)
+  starting-balance: 100.0
+  max-balance: 1000000000
+  min-balance: 0.0
+  allow-negative: false
+
+  # MongoDB (economy.type = mongodb)
+  mongodb:
+    uri: "mongodb://localhost:27017"
+    database: "minecraft_economy"
+    collection: "balances"
+
+  # PostgreSQL (economy.type = postgresql)
+  postgresql:
+    url: "jdbc:postgresql://localhost:5432/minecraft_economy"
+    user: "postgres"
+    password: "postgres211"
+    table: "balances"
+
+# -------- Redis cache (optional; economy backends) --------
+redis:
+  enabled: false
+  host: "localhost"
+  port: 6379
+  password: ""
+  cache-expiry: 300          # (not currently read by RedisManager)
+
+# -------- RabbitMQ (optional cross-server) --------
+rabbitmq:
+  enabled: false
+  uri: "amqps://user:pass@host/vhost"
+  queue: "rabbit-economy"    # optional; sender uses channels dynamically
+
+messages:
+  pay-sent: "You have paid {receiver} {amount} USD!"
+  pay-received: "{sender} has paid you {amount} USD!"
+  money-admin: "You have been given {amount} USD!"
+  money-paid: "{sender} has paid you {amount} USD!"
+  cheque-created: "You have created a cheque for {amount} USD!"
+  cheque-redeemed: "You have redeemed a cheque for {amount} USD!"
+
+logging:
+  debug: false
