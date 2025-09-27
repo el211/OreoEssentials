@@ -69,3 +69,25 @@ messages:
 
 logging:
   debug: false
+
+
+# --- Portals ---
+portals:
+  enabled: true
+  cooldown_ms: 1000
+  sound: "ENTITY_ENDERMAN_TELEPORT"
+  particle: "PORTAL"
+  particle_count: 20
+  allow_keep_yaw_pitch: true
+
+# --- JumpPads ---
+jumpads:
+  enabled: true
+  default_power: 1.2
+  default_upward: 1.0
+  default_useLookDir: true
+  cooldown_ms: 800
+  sound: "ENTITY_FIREWORK_ROCKET_LAUNCH"
+  particle: "CLOUD"
+  particle_count: 12
+

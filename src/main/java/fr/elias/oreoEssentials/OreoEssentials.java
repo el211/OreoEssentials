@@ -12,7 +12,7 @@ import fr.elias.oreoEssentials.commands.core.FeedCommand;
 import fr.elias.oreoEssentials.commands.core.FlyCommand;
 import fr.elias.oreoEssentials.commands.core.HealCommand;
 import fr.elias.oreoEssentials.commands.core.HomeCommand;
-import fr.elias.oreoEssentials.commands.core.HomesCommand;        // NEW
+import fr.elias.oreoEssentials.commands.core.HomesCommand;
 import fr.elias.oreoEssentials.commands.core.MsgCommand;
 import fr.elias.oreoEssentials.commands.core.ReplyCommand;
 import fr.elias.oreoEssentials.commands.core.SetHomeCommand;
@@ -23,11 +23,12 @@ import fr.elias.oreoEssentials.commands.core.TpAcceptCommand;
 import fr.elias.oreoEssentials.commands.core.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.WarpCommand;
-import fr.elias.oreoEssentials.commands.core.DeathBackCommand;    // NEW
+import fr.elias.oreoEssentials.commands.core.DeathBackCommand;
+import fr.elias.oreoEssentials.commands.core.GodCommand;
 
 // Tab completion
-import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter; // NEW
-import fr.elias.oreoEssentials.commands.completion.WarpTabCompleter; // NEW
+import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
+import fr.elias.oreoEssentials.commands.completion.WarpTabCompleter;
 
 // Economy commands
 import fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand;
@@ -50,7 +51,10 @@ import fr.elias.oreoEssentials.economy.EconomyBootstrap;
 import fr.elias.oreoEssentials.listeners.PlayerDataListener;
 import fr.elias.oreoEssentials.listeners.PlayerListener;
 import fr.elias.oreoEssentials.listeners.PlayerTrackingListener;
-import fr.elias.oreoEssentials.listeners.DeathBackListener;       // NEW
+import fr.elias.oreoEssentials.listeners.DeathBackListener;
+import fr.elias.oreoEssentials.listeners.GodListener; // NEW
+
+
 
 // Offline cache
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
@@ -68,7 +72,7 @@ import fr.elias.oreoEssentials.rabbitmq.sender.RabbitMQSender;
 
 // Services
 import fr.elias.oreoEssentials.services.*;
-import fr.elias.oreoEssentials.services.DeathBackService;         // NEW
+
 
 // Vault
 import fr.elias.oreoEssentials.vault.VaultEconomyProvider;
@@ -97,7 +101,8 @@ public final class OreoEssentials extends JavaPlugin {
     private TeleportService teleportService;
     private BackService backService;
     private MessageService messageService;
-    private DeathBackService deathBackService; // NEW
+    private DeathBackService deathBackService;
+    private GodService godService; // NEW
     private CommandManager commands;
 
     // Economy / messaging stack
@@ -162,7 +167,7 @@ public final class OreoEssentials extends JavaPlugin {
                 getLogger().info("Connected to Redis.");
             }
         } else {
-            // Create a dummy instance to avoid null checks, if your RedisManager supports it
+            // Create a dummy instance to avoid null checks
             this.redis = new RedisManager("", 6379, "");
             getLogger().info("Redis disabled.");
         }
@@ -171,7 +176,6 @@ public final class OreoEssentials extends JavaPlugin {
 
         // Economy stack (DB + Vault provider)
         if (economyEnabled) {
-            // Choose DB backend for player balances
             this.database = null;
             switch (economyType) {
                 case "mongodb" -> {
@@ -213,10 +217,9 @@ public final class OreoEssentials extends JavaPlugin {
                     this.database = mgr;
                 }
                 case "none" -> this.database = null;
-                default -> { /* fall through to null */ }
+                default -> { /* leave null */ }
             }
 
-            // If we have a DB, register a Vault provider so other plugins can use your eco
             if (this.database != null) {
                 if (getServer().getPluginManager().getPlugin("Vault") == null) {
                     getLogger().severe("Vault not found but economy.enabled=true. Disabling plugin.");
@@ -224,7 +227,7 @@ public final class OreoEssentials extends JavaPlugin {
                     return;
                 }
 
-                // Register your Vault provider wrapper
+                // Register Vault provider wrapper
                 VaultEconomyProvider vaultProvider = new VaultEconomyProvider(this);
                 getServer().getServicesManager().register(Economy.class, vaultProvider, this, ServicePriority.High);
 
@@ -236,7 +239,7 @@ public final class OreoEssentials extends JavaPlugin {
                     getLogger().info("Vault economy integration enabled.");
                 }
 
-                // Listeners to warm up player cache and handle data
+                // Listeners for economy player data
                 Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
                 Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
 
@@ -255,7 +258,8 @@ public final class OreoEssentials extends JavaPlugin {
                     getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
                 }
 
-                // Register exactly ONE /pay executor — core.PayCommand using ecoBootstrap
+
+                // /pay (core.PayCommand uses ecoBootstrap)
                 if (getCommand("pay") != null) {
                     getCommand("pay").setExecutor((sender, cmd, label, args) ->
                             new fr.elias.oreoEssentials.commands.core.PayCommand(ecoBootstrap)
@@ -300,7 +304,13 @@ public final class OreoEssentials extends JavaPlugin {
         this.backService      = new BackService(storage);
         this.messageService   = new MessageService();
         this.teleportService  = new TeleportService(this, backService, configService);
-        this.deathBackService = new DeathBackService(); // NEW
+        this.deathBackService = new DeathBackService();
+        this.godService       = new GodService(); // NEW
+       // Freeze service
+        fr.elias.oreoEssentials.services.FreezeService freezeService = new fr.elias.oreoEssentials.services.FreezeService();
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.listeners.FreezeListener(freezeService), this);
+        VanishService vanishService = new VanishService();
 
         // Command manager & registrations
         this.commands = new CommandManager(this)
@@ -322,23 +332,55 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new MsgCommand(messageService))
                 .register(new ReplyCommand(messageService))
                 .register(new BroadcastCommand())
-                .register(new HomesCommand(homeService))    // NEW
-                .register(new DeathBackCommand(deathBackService)); // NEW
+                .register(new HomesCommand(homeService))
+                .register(new DeathBackCommand(deathBackService))
+                .register(new GodCommand(godService))// NEW
+                .register(new fr.elias.oreoEssentials.commands.core.TpCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.VanishCommand(vanishService))
+                .register(new fr.elias.oreoEssentials.commands.core.TpCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.VanishCommand(new fr.elias.oreoEssentials.services.VanishService())) // if you already added vanish before, keep your existing line
+                .register(new fr.elias.oreoEssentials.commands.core.BanCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.KickCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.FreezeCommand(freezeService))
+                .register(new fr.elias.oreoEssentials.commands.core.EnchantCommand());
 
-        // Tab completions for /home and /warp (suggest names)
+        // Tab completions for /home and /warp
         if (getCommand("home") != null) {
             getCommand("home").setTabCompleter(new HomeTabCompleter(homeService));
         }
         if (getCommand("warp") != null) {
             getCommand("warp").setTabCompleter(new WarpTabCompleter(warpService));
         }
+        if (getCommand("enchant") != null) {
+            getCommand("enchant").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.EnchantTabCompleter());
+        }
 
         // PlaceholderAPI expansion (optional; reflection-based to avoid hard dep)
         tryRegisterPlaceholderAPI();
 
-        // Listeners (tracking for /back, death location for /deathback)
+        // Listeners (tracking for /back, death location for /deathback, god mode protection)
         getServer().getPluginManager().registerEvents(new PlayerTrackingListener(backService), this);
-        getServer().getPluginManager().registerEvents(new DeathBackListener(deathBackService), this); // NEW
+        getServer().getPluginManager().registerEvents(new DeathBackListener(deathBackService), this);
+        getServer().getPluginManager().registerEvents(new GodListener(godService), this); // NEW
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.listeners.VanishListener(vanishService, this), this
+        );
+
+       // --- Portals ---
+        var portalsManager = new fr.elias.oreoEssentials.portals.PortalsManager(this);
+        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.portals.PortalsListener(portalsManager), this);
+        if (getCommand("portal") != null) {
+            getCommand("portal").setExecutor(new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager));
+            getCommand("portal").setTabCompleter(new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager));
+        }
+
+              // --- JumpPads ---
+        var jumpPadsManager = new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
+        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.jumpads.JumpPadsListener(jumpPadsManager), this);
+        if (getCommand("jumpad") != null) {
+            getCommand("jumpad").setExecutor(new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager));
+            getCommand("jumpad").setTabCompleter(new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager));
+        }
 
         getLogger().info("OreoEssentials enabled.");
     }
@@ -366,7 +408,8 @@ public final class OreoEssentials extends JavaPlugin {
             return;
         }
         try {
-            Class<?> hookCls = Class.forName("fr.elias.oreoEssentials.services.PlaceholderAPIHook");
+            // NOTE: fixed package here:
+            Class<?> hookCls = Class.forName("fr.elias.oreoEssentials.PlaceholderAPIHook");
             Object hook = hookCls.getConstructor(OreoEssentials.class).newInstance(this);
             hookCls.getMethod("register").invoke(hook);
             getLogger().info("PlaceholderAPI placeholders registered.");
@@ -376,6 +419,7 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().warning("Failed to register PlaceholderAPI placeholders: " + t.getMessage());
         }
     }
+
 
     /* ----------------------------- Getters ----------------------------- */
 
@@ -387,7 +431,8 @@ public final class OreoEssentials extends JavaPlugin {
     public TeleportService getTeleportService() { return teleportService; }
     public BackService getBackService() { return backService; }
     public MessageService getMessageService() { return messageService; }
-    public DeathBackService getDeathBackService() { return deathBackService; } // NEW
+    public DeathBackService getDeathBackService() { return deathBackService; }
+    public GodService getGodService() { return godService; } // NEW
     public CommandManager getCommands() { return commands; }
 
     public RedisManager getRedis() { return redis; }

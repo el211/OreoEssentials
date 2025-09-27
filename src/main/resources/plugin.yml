@@ -19,24 +19,36 @@ commands:
   warp:
     description: Teleport to a warp
     permission: oreo.warp
+    usage: /warp <name>
   setwarp:
     description: Create or overwrite a warp
     permission: oreo.setwarp
+    usage: /setwarp <name>
   delwarp:
     description: Delete a warp
     permission: oreo.delwarp
+    usage: /delwarp <name>
   home:
     description: Teleport to a home
     permission: oreo.home
+    usage: /home <name>
   sethome:
     description: Set a home
     permission: oreo.sethome
+    usage: /sethome <name>
   delhome:
     description: Delete a home
     permission: oreo.delhome
+    usage: /delhome <name>
+  homes:
+    description: List your homes or teleport to one
+    aliases: [listhomes]
+    permission: oreo.homes
+    usage: /homes [name]
   tpa:
     description: Request to teleport to a player
     permission: oreo.tpa
+    usage: /tpa <player>
   tpaccept:
     description: Accept a teleport request
     permission: oreo.tpa
@@ -49,12 +61,15 @@ commands:
   heal:
     description: Heal yourself or others
     permission: oreo.heal
+    usage: /heal [player]
   feed:
     description: Feed yourself or others
     permission: oreo.feed
+    usage: /feed [player]
   msg:
     description: Private message a player
     permission: oreo.msg
+    usage: /msg <player> <message>
   reply:
     description: Reply to the last private message
     aliases: [r]
@@ -62,26 +77,74 @@ commands:
   broadcast:
     description: Broadcast a message
     permission: oreo.broadcast
+    usage: /broadcast <message>
 
   # Economy commands
   money:
     description: View/give/take/set player balances
     permission: oreo.money
+    usage: /money [player] | /money <give|take|set> <player> <amount>
   pay:
     description: Pay a player money
     permission: oreo.pay
+    usage: /pay <player> <amount>
   cheque:
     description: Create/redeem money cheques
-    permission: rabbiteconomy.cheque.create   # your code checks this node, keep if intentional
+    permission: rabbiteconomy.cheque.create  # kept for compat with your handlers
+    usage: /cheque <create|redeem> ...
+
+  # Utilities
   deathback:
     description: Teleport to your last death location
     permission: oreo.deathback
     usage: /deathback
-  homes:
-    description: List your homes or teleport to one
-    aliases: [listhomes]
-    permission: oreo.homes
-    usage: /homes [name]
+
+  # God mode
+  god:
+    description: Toggle invulnerability (god mode)
+    permission: oreo.god
+    usage: /god [player]
+
+  # Portals / JumpPads
+  portal:
+    description: Manage cuboid portals
+    permission: oreo.portal
+    usage: /portal <pos1|pos2|create|remove|list|info>
+  jumpad:
+    description: Manage jump pads
+    permission: oreo.jumpad
+    usage: /jumpad <create|remove|list|info>
+  tp:
+    description: Teleport to a player, or teleport a player to another
+    permission: oreo.tp
+    usage: /tp <player> [target]
+
+
+  vanish:
+    description: Toggle vanish (hide from players and mobs)
+    aliases: [ v ]
+    permission: oreo.vanish
+    usage: /vanish [on|off]
+
+  ban:
+    description: Ban a player (optionally temporary)
+    permission: oreo.ban
+    usage: /ban <player> [duration] [reason...]
+
+  kick:
+    description: Kick a player
+    permission: oreo.kick
+    usage: /kick <player> [reason...]
+
+  freeze:
+    description: Freeze/unfreeze a player
+    permission: oreo.freeze
+    usage: /freeze <player> [on|off]
+
+  enchant:
+    description: Enchant the item in your hand
+    permission: oreo.enchant
+    usage: /enchant <enchantment> [level] [unsafe] [ignoreConflicts]
 
 permissions:
   oreo.*:
@@ -97,6 +160,7 @@ permissions:
       oreo.home: true
       oreo.sethome: true
       oreo.delhome: true
+      oreo.homes: true
       oreo.tpa: true
       oreo.fly: true
       oreo.heal: true
@@ -110,8 +174,11 @@ permissions:
       oreo.pay: true
       oreo.cheque.create: true
       oreo.cheque.redeem: true
-      oreo.homes: true         # ✅ booleans only under children
-      oreo.deathback: true     # ✅ booleans only under children
+      oreo.deathback: true
+      oreo.god: true
+      oreo.portal: true
+      oreo.jumpad: true
+      # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
       rabbiteconomy.money.take: true
       rabbiteconomy.money.set: true
@@ -128,13 +195,15 @@ permissions:
   oreo.home: { default: true }
   oreo.sethome: { default: true }
   oreo.delhome: { default: true }
+  oreo.homes: { default: true }
   oreo.tpa: { default: true }
   oreo.fly: { default: op }
   oreo.heal: { default: op }
   oreo.feed: { default: op }
   oreo.msg: { default: true }
   oreo.broadcast: { default: op }
-
+  oreo.tp: { default: op }
+  oreo.vanish: { default: op }
   # Economy base + sub-perms
   oreo.money: { default: op }
   oreo.money.give: { default: op }
@@ -143,8 +212,21 @@ permissions:
   oreo.pay: { default: true }
   oreo.cheque.create: { default: op }
   oreo.cheque.redeem: { default: true }
+  oreo.ban: { default: op }
+  oreo.kick: { default: op }
+  oreo.freeze: { default: op }
+  oreo.enchant: { default: op }
+  oreo.enchant.unsafe: { default: op }
+  oreo.enchant.ignoreconflicts: { default: op }
+  # Utilities
+  oreo.deathback: { default: true }
+  oreo.god: { default: op }
 
-  # Legacy RabbitEconomy nodes (kept for compatibility with your handlers)
+  # Portals / JumpPads
+  oreo.portal: { default: op }
+  oreo.jumpad: { default: op }
+
+  # Legacy RabbitEconomy nodes (compat)
   rabbiteconomy.money.give: { default: op }
   rabbiteconomy.money.take: { default: op }
   rabbiteconomy.money.set: { default: op }
