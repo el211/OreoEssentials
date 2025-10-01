@@ -2,7 +2,10 @@ chat:
   enabled: false
   default: '&7%luckperms_prefix%&7 &e($%vault_eco_balance%) &7- &6&l%player_name% » &f%chat_message% '
   vip: '&7%luckperms_prefix%&7 &e($%vault_eco_balance%) &7- &6&l%player_name% » &f%chat_message% '
-  discord_webhook_url: "https://discord.com/api/webhooks/your-webhook-id/your-webhook-token"
+
+  discord:
+    enabled: false          # ← flip this to true to enable
+    webhook_url: "https://discord.com/api/webhooks/your-webhook-id/your-webhook-token"
 
 MongoDB_rabbitmq:
   enabled: false

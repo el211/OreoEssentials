@@ -91,3 +91,69 @@ jumpads:
   particle: "CLOUD"
   particle_count: 12
 
+# Join messages settings v3.2
+Join_messages:
+  enable: true  # Enable join messages
+  look_like_player: true  # Whether to make the messages look like player chat
+  player_name: "<gradient:#FF1493:#00FF7F>Afelius</gradient>"  # Gradient for the player's name
+  player_prefix: "<gradient:#8A2BE2:#00FFFF>[</gradient>"  # Gradient encapsulating the "[" symbol
+  delimiter: " | "
+  join_message_delay: 0  # Delay in seconds before the join message is shown
+  first_join: "<gradient:#FF1493:#00FF7F>Welcome</gradient> <gradient:#00FF7F:#1E90FF>{name}</gradient> <gradient:#1E90FF:#FF1493>to the server for the first time!</gradient>"  # Neon gradient welcome message
+  rejoin_message: "<gradient:#00FF7F:#1E90FF>{name}</gradient> <gradient:#1E90FF:#FF1493>has joined the game.</gradient>"  # Gradient rejoin message
+
+# Automatic messages settings
+Automatic_message:
+  enable: true  # Enable automatic messages
+  look_like_player: true  # Whether to make the messages look like player chat
+  player_name: "<gradient:#00FF7F:#1E90FF>Afelius</gradient>"  # Gradient for the player's name
+  player_prefix: "<gradient:#8A2BE2:#00FFFF>[</gradient>"  # Gradient prefix: Purple to Cyan
+  delimiter: " | "
+  messages:
+    message1:
+      text: "<gradient:#FF1493:#00FF7F>Don't forget to check our</gradient> <gradient:#00FF7F:#1E90FF>website</gradient> <gradient:#1E90FF:#FF1493>for updates!</gradient>"  # Futuristic gradient message
+      timer_loop: 50  # Repeat every 5 minutes
+    message2:
+      text: "<gradient:#1E90FF:#FFD700> Type /help for a list of</gradient> <gradient:#FFD700:#FF1493>commands!</gradient>"  # Blue to Gold gradient message
+      timer_loop: 60  # Repeat every 10 minutes
+
+# Bot conversation settings
+conversations:
+  afelius:
+    custom_call_name: "afelius"  # The keyword to trigger the bot
+    self_mention_reply: "<gradient:#FF1493:#00FF7F>Hello</gradient>, <gradient:#00FF7F:#1E90FF>{name}</gradient>, <gradient:#1E90FF:#FF1493>how can I assist you today?</gradient>"  # Futuristic gradient reply
+    player_name: "<gradient:#FF1493:#00FF7F>Afelius</gradient>"  # Gradient for the bot's display name
+    player_prefix: "<gradient:#00FF7F:#FF1493>[</gradient>"  # Gradient prefix
+    delimiter: " | "
+    questions:
+      question1:
+        keyword: "help"
+        key_phrase: "i need help"
+        replies:
+          - "<gradient:#FF1493:#00FF7F>Sure</gradient>, <gradient:#00FF7F:#1E90FF>{name}</gradient>, <gradient:#1E90FF:#FF1493>what do you need help with?</gradient>"  # Gradient reply
+          - "<gradient:#00FF7F:#1E90FF>Feel free to</gradient> <gradient:#1E90FF:#FF1493>ask any questions!</gradient>"  # Gradient reply
+      question2:
+        keyword: "commands"
+        key_phrase: "what are the commands"
+        replies:
+          - "<gradient:#FF1493:#00FF7F>You can type /help to see all</gradient> <gradient:#00FF7F:#1E90FF>available</gradient <gradient:#1E90FF:#FF1493>commands.</gradient>"  # Gradient reply
+          - "<gradient:#00FF7F:#1E90FF>Check the</gradient> <gradient:#1E90FF:#FFD700>website for a detailed</gradient> <gradient:#FFD700:#FF1493>command list.</gradient>"  # Gradient reply
+  bot:
+    custom_call_name: "bot"  # The keyword to trigger the bot
+    self_mention_reply: "<gradient:#1E90FF:#FFD700>Hello,</gradient> <gradient:#FFD700:#FF1493>{name},</gradient> <gradient:#FF1493:#1E90FF>how can I assist you today?</gradient>"  # Vibrant gradient reply
+    player_name: "<gradient:#FFD700:#FF1493>BOT</gradient>"  # Bright gold for the bot's display name
+    player_prefix: "<gradient:#1E90FF:#FFD700>[</gradient>"  # Gradient prefix
+    delimiter: " | "
+    questions:
+      question1:
+        keyword: "help"
+        key_phrase: "i need help"
+        replies:
+          - "<gradient:#FFD700:#1E90FF>Sure,</gradient> <gradient:#1E90FF:#FF1493>{name},</gradient> <gradient:#FF1493:#FFD700>what do you need help with?</gradient>"  # Gradient reply
+          - "<gradient:#1E90FF:#FF1493>Feel free to</gradient> <gradient:#FF1493:#FFD700>ask any questions!</gradient>"  # Gradient reply
+      question2:
+        keyword: "commands"
+        key_phrase: "what are the commands"
+        replies:
+          - "<gradient:#FFD700:#1E90FF>You can type /help to see all</gradient> <gradient:#1E90FF:#FF1493>available</gradient> <gradient:#FF1493:#FFD700>commands.</gradient>"  # Gradient reply
+          - "<gradient:#FF1493:#1E90FF>Check the</gradient> <gradient:#1E90FF:#FFD700>website for a detailed</gradient> <gradient:#FFD700:#FF1493>command list.</gradient>"  # Gradient reply

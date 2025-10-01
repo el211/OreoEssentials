@@ -48,11 +48,7 @@ import fr.elias.oreoEssentials.database.RedisManager;
 import fr.elias.oreoEssentials.economy.EconomyBootstrap;
 
 // Listeners
-import fr.elias.oreoEssentials.listeners.PlayerDataListener;
-import fr.elias.oreoEssentials.listeners.PlayerListener;
-import fr.elias.oreoEssentials.listeners.PlayerTrackingListener;
-import fr.elias.oreoEssentials.listeners.DeathBackListener;
-import fr.elias.oreoEssentials.listeners.GodListener;
+import fr.elias.oreoEssentials.listeners.*;
 
 // Offline cache
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
@@ -150,10 +146,12 @@ public final class OreoEssentials extends JavaPlugin {
         saveDefaultConfig();
 
         // --- Chat merge (Afelius) ---
-        this.chatConfig = new CustomConfig(this, "chat-format.yml");
-        this.chatFormatManager = new FormatManager(chatConfig);
+        this.chatConfig = new fr.elias.oreoEssentials.chat.CustomConfig(this, "chat-format.yml");
+        this.chatFormatManager = new fr.elias.oreoEssentials.chat.FormatManager(chatConfig);
+        // Register custom join messages (independent of economy)
+        getServer().getPluginManager().registerEvents(new JoinMessagesListener(this), this);
 
-        // Chat sync (RabbitMQ) optional
+        // Chat sync (RabbitMQ) optional — init FIRST
         boolean chatSyncEnabled = chatConfig.getCustomConfig().getBoolean("MongoDB_rabbitmq.enabled", false);
         String rabbitUri = chatConfig.getCustomConfig().getString("MongoDB_rabbitmq.rabbitmq.uri", "");
         try {
@@ -164,13 +162,34 @@ public final class OreoEssentials extends JavaPlugin {
             this.chatSyncManager = new ChatSyncManager(false, "");
         }
 
-        // Discord webhook URL (from chat-format.yml)
-        String discordWebhookUrl = chatConfig.getCustomConfig().getString("chat.discord_webhook_url", "");
-
-        // Register chat listener (only affects chat if chat.enabled = true)
+        // Discord toggle + URL (single source of truth)
+        var chatRoot = chatConfig.getCustomConfig().getConfigurationSection("chat");
+        boolean discordEnabled = chatRoot != null
+                && chatRoot.getConfigurationSection("discord") != null
+                && chatRoot.getConfigurationSection("discord").getBoolean("enabled", false);
+        String discordWebhookUrl = (chatRoot != null && chatRoot.getConfigurationSection("discord") != null)
+                ? chatRoot.getConfigurationSection("discord").getString("webhook_url", "")
+                : "";
+        // Register chat listener (respects chat.enabled inside the listener)
         getServer().getPluginManager().registerEvents(
-                new AsyncChatListener(chatFormatManager, chatConfig, chatSyncManager, discordWebhookUrl), this
+                new fr.elias.oreoEssentials.chat.AsyncChatListener(
+                        chatFormatManager,
+                        chatConfig,
+                        chatSyncManager,
+                        discordEnabled,
+                        discordWebhookUrl
+                ),
+                this
         );
+
+        // Custom join messages (you already did this elsewhere)
+        getServer().getPluginManager().registerEvents(new JoinMessagesListener(this), this);
+
+        // Conversations (bot replies)
+        getServer().getPluginManager().registerEvents(new ConversationListener(this), this);
+
+        // Automatic messages
+        new fr.elias.oreoEssentials.tasks.AutoMessageScheduler(this).start();
 
         // Config + internal economy bootstrap
         this.configService = new ConfigService(this);
@@ -219,6 +238,7 @@ public final class OreoEssentials extends JavaPlugin {
         }
 
         this.offlinePlayerCache = new OfflinePlayerCache();
+
 
         // Economy stack (DB + Vault provider)
         if (economyEnabled) {
@@ -288,6 +308,7 @@ public final class OreoEssentials extends JavaPlugin {
                 // Listeners for economy player data
                 Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
                 Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
+
 
                 // Preload offline cache & refresh periodically
                 this.database.populateCache(offlinePlayerCache);
