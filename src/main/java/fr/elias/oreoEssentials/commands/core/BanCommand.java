@@ -23,42 +23,62 @@ public class BanCommand implements OreoCommand {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        if (args.length < 1) return false;
+        if (args.length < 1) {
+            sender.sendMessage(ChatColor.YELLOW + "Usage: /" + label + " <player> [duration] [reason]");
+            sender.sendMessage(ChatColor.GRAY + "Duration examples: 10m, 2h, 3d4h, 1w");
+            return true;
+        }
 
         String targetName = args[0];
-        OfflinePlayer target = Bukkit.getOfflinePlayerIfCached(targetName);
-        if (target == null) {
-            // try online exact, else look up (may be null on first join)
-            Player online = Bukkit.getPlayerExact(targetName);
-            if (online != null) target = online;
-            else target = Bukkit.getOfflinePlayer(targetName);
+        OfflinePlayer target = resolvePlayer(targetName);
+        if (target == null || (target.getName() == null && !target.hasPlayedBefore())) {
+            sender.sendMessage(ChatColor.RED + "Player not found: " + targetName);
+            return true;
         }
 
         Date expires = null;
         String reason = "Banned by an operator.";
         if (args.length >= 2) {
-            // If arg[1] looks like a duration (e.g. 10m, 2h, 3d4h)
             Long ms = parseDurationMillis(args[1]);
             if (ms != null) {
                 expires = new Date(System.currentTimeMillis() + ms);
                 if (args.length >= 3) reason = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
             } else {
-                // no duration → treat remainder as reason
                 reason = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
             }
         }
 
         Bukkit.getBanList(BanList.Type.NAME).addBan(target.getName(), reason, expires, sender.getName());
+
         if (target.isOnline() && target.getPlayer() != null) {
-            target.getPlayer().kickPlayer(ChatColor.RED + reason + (expires != null ? ChatColor.GRAY + "\nUntil: " + expires : ""));
+            target.getPlayer().kickPlayer(ChatColor.RED + reason +
+                    (expires != null ? ChatColor.GRAY + "\nUntil: " + expires : ""));
         }
-        sender.sendMessage(ChatColor.GREEN + "Banned " + ChatColor.AQUA + targetName +
+
+        sender.sendMessage(ChatColor.GREEN + "Banned " + ChatColor.AQUA + target.getName() +
                 (expires != null ? ChatColor.GREEN + " until " + ChatColor.YELLOW + expires : "") +
                 ChatColor.GREEN + ". Reason: " + ChatColor.YELLOW + reason);
         return true;
     }
 
+    private OfflinePlayer resolvePlayer(String name) {
+        // 1) Exact online match
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) return online;
+
+        // 2) Search known offline players by case-insensitive name
+        for (OfflinePlayer op : Bukkit.getOfflinePlayers()) {
+            if (op.getName() != null && op.getName().equalsIgnoreCase(name)) {
+                return op;
+            }
+        }
+
+        // 3) Fallback (may create a profile if not cached)
+        return Bukkit.getOfflinePlayer(name);
+    }
+
     private static final Pattern DURATION_TOKEN = Pattern.compile("(\\d+)([smhdw])", Pattern.CASE_INSENSITIVE);
+
     private static Long parseDurationMillis(String s) {
         if (s == null || s.isEmpty()) return null;
         Matcher m = DURATION_TOKEN.matcher(s);

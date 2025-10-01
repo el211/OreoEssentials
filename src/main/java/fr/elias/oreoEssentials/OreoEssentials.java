@@ -52,9 +52,7 @@ import fr.elias.oreoEssentials.listeners.PlayerDataListener;
 import fr.elias.oreoEssentials.listeners.PlayerListener;
 import fr.elias.oreoEssentials.listeners.PlayerTrackingListener;
 import fr.elias.oreoEssentials.listeners.DeathBackListener;
-import fr.elias.oreoEssentials.listeners.GodListener; // NEW
-
-
+import fr.elias.oreoEssentials.listeners.GodListener;
 
 // Offline cache
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
@@ -71,8 +69,28 @@ import fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket;
 import fr.elias.oreoEssentials.rabbitmq.sender.RabbitMQSender;
 
 // Services
-import fr.elias.oreoEssentials.services.*;
+import fr.elias.oreoEssentials.services.BackService;
+import fr.elias.oreoEssentials.services.ConfigService;
+import fr.elias.oreoEssentials.services.DeathBackService;
+import fr.elias.oreoEssentials.services.FreezeService;
+import fr.elias.oreoEssentials.services.GodService;
+import fr.elias.oreoEssentials.services.HomeService;
+import fr.elias.oreoEssentials.services.MessageService;
+import fr.elias.oreoEssentials.services.MuteService;
+import fr.elias.oreoEssentials.services.SpawnService;
+import fr.elias.oreoEssentials.services.StorageApi;
+import fr.elias.oreoEssentials.services.TeleportService;
+import fr.elias.oreoEssentials.services.VanishService;
+import fr.elias.oreoEssentials.services.WarpService;
+import fr.elias.oreoEssentials.services.JsonStorage;
+import fr.elias.oreoEssentials.services.MongoStorage;
+import fr.elias.oreoEssentials.services.YamlStorage;
 
+// Chat (Afelius merge)
+import fr.elias.oreoEssentials.chat.AsyncChatListener;
+import fr.elias.oreoEssentials.chat.CustomConfig;
+import fr.elias.oreoEssentials.chat.FormatManager;
+import fr.elias.oreoEssentials.util.ChatSyncManager;
 
 // Vault
 import fr.elias.oreoEssentials.vault.VaultEconomyProvider;
@@ -102,7 +120,7 @@ public final class OreoEssentials extends JavaPlugin {
     private BackService backService;
     private MessageService messageService;
     private DeathBackService deathBackService;
-    private GodService godService; // NEW
+    private GodService godService;
     private CommandManager commands;
 
     // Economy / messaging stack
@@ -121,10 +139,38 @@ public final class OreoEssentials extends JavaPlugin {
     // RabbitMQ packet manager (optional)
     private PacketManager packetManager;
 
+    // Chat system (Afelius -> merged)
+    private CustomConfig chatConfig;
+    private FormatManager chatFormatManager;
+    private ChatSyncManager chatSyncManager;
+
     @Override
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
+
+        // --- Chat merge (Afelius) ---
+        this.chatConfig = new CustomConfig(this, "chat-format.yml");
+        this.chatFormatManager = new FormatManager(chatConfig);
+
+        // Chat sync (RabbitMQ) optional
+        boolean chatSyncEnabled = chatConfig.getCustomConfig().getBoolean("MongoDB_rabbitmq.enabled", false);
+        String rabbitUri = chatConfig.getCustomConfig().getString("MongoDB_rabbitmq.rabbitmq.uri", "");
+        try {
+            this.chatSyncManager = new ChatSyncManager(chatSyncEnabled, rabbitUri);
+            if (chatSyncEnabled) this.chatSyncManager.subscribeMessages();
+        } catch (Exception e) {
+            getLogger().severe("ChatSync init failed: " + e.getMessage());
+            this.chatSyncManager = new ChatSyncManager(false, "");
+        }
+
+        // Discord webhook URL (from chat-format.yml)
+        String discordWebhookUrl = chatConfig.getCustomConfig().getString("chat.discord_webhook_url", "");
+
+        // Register chat listener (only affects chat if chat.enabled = true)
+        getServer().getPluginManager().registerEvents(
+                new AsyncChatListener(chatFormatManager, chatConfig, chatSyncManager, discordWebhookUrl), this
+        );
 
         // Config + internal economy bootstrap
         this.configService = new ConfigService(this);
@@ -258,7 +304,6 @@ public final class OreoEssentials extends JavaPlugin {
                     getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
                 }
 
-
                 // /pay (core.PayCommand uses ecoBootstrap)
                 if (getCommand("pay") != null) {
                     getCommand("pay").setExecutor((sender, cmd, label, args) ->
@@ -305,15 +350,21 @@ public final class OreoEssentials extends JavaPlugin {
         this.messageService   = new MessageService();
         this.teleportService  = new TeleportService(this, backService, configService);
         this.deathBackService = new DeathBackService();
-        this.godService       = new GodService(); // NEW
-       // Freeze service
-        fr.elias.oreoEssentials.services.FreezeService freezeService = new fr.elias.oreoEssentials.services.FreezeService();
+        this.godService       = new GodService();
+
+        // Moderation/services
+        FreezeService freezeService = new FreezeService();
         getServer().getPluginManager().registerEvents(
                 new fr.elias.oreoEssentials.listeners.FreezeListener(freezeService), this);
         VanishService vanishService = new VanishService();
+        MuteService muteService = new MuteService(this);
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
 
-        // Command manager & registrations
-        this.commands = new CommandManager(this)
+        // --- Command manager & registrations (init FIRST, then register) ---
+        this.commands = new CommandManager(this);
+
+        this.commands
                 .register(new SpawnCommand(spawnService))
                 .register(new SetSpawnCommand(spawnService))
                 .register(new BackCommand(backService))
@@ -334,15 +385,18 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new BroadcastCommand())
                 .register(new HomesCommand(homeService))
                 .register(new DeathBackCommand(deathBackService))
-                .register(new GodCommand(godService))// NEW
+                .register(new GodCommand(godService))
+                // Afelius chat reload command
+                .register(new fr.elias.oreoEssentials.commands.core.AfeliusReloadCommand(this, chatConfig))
+                // Admin / utility
                 .register(new fr.elias.oreoEssentials.commands.core.TpCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.VanishCommand(vanishService))
-                .register(new fr.elias.oreoEssentials.commands.core.TpCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.VanishCommand(new fr.elias.oreoEssentials.services.VanishService())) // if you already added vanish before, keep your existing line
                 .register(new fr.elias.oreoEssentials.commands.core.BanCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.KickCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.FreezeCommand(freezeService))
-                .register(new fr.elias.oreoEssentials.commands.core.EnchantCommand());
+                .register(new fr.elias.oreoEssentials.commands.core.EnchantCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.MuteCommand(muteService))
+                .register(new fr.elias.oreoEssentials.commands.core.UnmuteCommand(muteService));
 
         // Tab completions for /home and /warp
         if (getCommand("home") != null) {
@@ -354,32 +408,50 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("enchant") != null) {
             getCommand("enchant").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.EnchantTabCompleter());
         }
+        if (getCommand("mute") != null) {
+            getCommand("mute").setTabCompleter(
+                    (org.bukkit.command.TabCompleter) new fr.elias.oreoEssentials.commands.core.MuteCommand(muteService)
+            );
+        }
+        if (getCommand("unmute") != null) {
+            getCommand("unmute").setTabCompleter(
+                    (org.bukkit.command.TabCompleter) new fr.elias.oreoEssentials.commands.core.UnmuteCommand(muteService)
+            );
+        }
 
         // PlaceholderAPI expansion (optional; reflection-based to avoid hard dep)
         tryRegisterPlaceholderAPI();
 
-        // Listeners (tracking for /back, death location for /deathback, god mode protection)
+        // Listeners (tracking for /back, death location for /deathback, god mode protection, vanish)
         getServer().getPluginManager().registerEvents(new PlayerTrackingListener(backService), this);
         getServer().getPluginManager().registerEvents(new DeathBackListener(deathBackService), this);
-        getServer().getPluginManager().registerEvents(new GodListener(godService), this); // NEW
+        getServer().getPluginManager().registerEvents(new GodListener(godService), this);
         getServer().getPluginManager().registerEvents(
                 new fr.elias.oreoEssentials.listeners.VanishListener(vanishService, this), this
         );
 
-       // --- Portals ---
-        var portalsManager = new fr.elias.oreoEssentials.portals.PortalsManager(this);
-        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.portals.PortalsListener(portalsManager), this);
+        // --- Portals ---
+        fr.elias.oreoEssentials.portals.PortalsManager portalsManager =
+                new fr.elias.oreoEssentials.portals.PortalsManager(this);
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.portals.PortalsListener(portalsManager), this);
         if (getCommand("portal") != null) {
-            getCommand("portal").setExecutor(new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager));
-            getCommand("portal").setTabCompleter(new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager));
+            fr.elias.oreoEssentials.portals.PortalsCommand portalCmd =
+                    new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager);
+            getCommand("portal").setExecutor(portalCmd);
+            getCommand("portal").setTabCompleter(portalCmd);
         }
 
-              // --- JumpPads ---
-        var jumpPadsManager = new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
-        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.jumpads.JumpPadsListener(jumpPadsManager), this);
+        // --- JumpPads ---
+        fr.elias.oreoEssentials.jumpads.JumpPadsManager jumpPadsManager =
+                new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.jumpads.JumpPadsListener(jumpPadsManager), this);
         if (getCommand("jumpad") != null) {
-            getCommand("jumpad").setExecutor(new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager));
-            getCommand("jumpad").setTabCompleter(new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager));
+            fr.elias.oreoEssentials.jumpads.JumpPadsCommand jumpCmd =
+                    new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager);
+            getCommand("jumpad").setExecutor(jumpCmd);
+            getCommand("jumpad").setTabCompleter(jumpCmd);
         }
 
         getLogger().info("OreoEssentials enabled.");
@@ -396,6 +468,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (database != null) database.close(); } catch (Exception ignored) {}
         try { if (packetManager != null) packetManager.close(); } catch (Exception ignored) {}
         try { if (ecoBootstrap != null) ecoBootstrap.disable(); } catch (Exception ignored) {}
+        try { if (chatSyncManager != null) chatSyncManager.close(); } catch (Exception ignored) {}
+
         getLogger().info("OreoEssentials disabled.");
     }
 
@@ -408,7 +482,7 @@ public final class OreoEssentials extends JavaPlugin {
             return;
         }
         try {
-            // NOTE: fixed package here:
+            // NOTE: Using your provided class location:
             Class<?> hookCls = Class.forName("fr.elias.oreoEssentials.PlaceholderAPIHook");
             Object hook = hookCls.getConstructor(OreoEssentials.class).newInstance(this);
             hookCls.getMethod("register").invoke(hook);
@@ -419,7 +493,6 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().warning("Failed to register PlaceholderAPI placeholders: " + t.getMessage());
         }
     }
-
 
     /* ----------------------------- Getters ----------------------------- */
 
@@ -432,7 +505,7 @@ public final class OreoEssentials extends JavaPlugin {
     public BackService getBackService() { return backService; }
     public MessageService getMessageService() { return messageService; }
     public DeathBackService getDeathBackService() { return deathBackService; }
-    public GodService getGodService() { return godService; } // NEW
+    public GodService getGodService() { return godService; }
     public CommandManager getCommands() { return commands; }
 
     public RedisManager getRedis() { return redis; }

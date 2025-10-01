@@ -146,6 +146,21 @@ commands:
     permission: oreo.enchant
     usage: /enchant <enchantment> [level] [unsafe] [ignoreConflicts]
 
+  afelius:
+    description: Reload Afelius chat configs
+    aliases: [ af ]
+    permission: oreo.afelius.reload
+    usage: /afelius reload <all|config|chat-format>
+
+  mute:
+    description: Mute a player for a duration (e.g., 10m) with optional reason
+    permission: oreo.mute
+    usage: /mute <player> <duration> [reason]
+  unmute:
+    description: Unmute a player
+    permission: oreo.unmute
+    usage: /unmute <player>
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -221,6 +236,9 @@ permissions:
   # Utilities
   oreo.deathback: { default: true }
   oreo.god: { default: op }
+  oreo.afelius.reload: { default: op }
+  oreo.mute:    { default: op }
+  oreo.unmute:  { default: op }
 
   # Portals / JumpPads
   oreo.portal: { default: op }
