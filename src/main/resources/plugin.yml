@@ -1,7 +1,8 @@
 name: OreoEssentials
-version: '1.0-SNAPSHOT'
+version: "1.0-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
-api-version: '1.21'
+api-version: "1.21"
+
 softdepend:
   - Vault
   - PlaceholderAPI
@@ -10,156 +11,183 @@ commands:
   spawn:
     description: Teleport to spawn
     permission: oreo.spawn
+
   setspawn:
     description: Set the server spawn
     permission: oreo.setspawn
+
   back:
     description: Return to your last location
     permission: oreo.back
+
   warp:
     description: Teleport to a warp
     permission: oreo.warp
-    usage: /warp <name>
+    usage: "/warp <name>"
+
   setwarp:
     description: Create or overwrite a warp
     permission: oreo.setwarp
-    usage: /setwarp <name>
+    usage: "/setwarp <name>"
+
   delwarp:
     description: Delete a warp
     permission: oreo.delwarp
-    usage: /delwarp <name>
+    usage: "/delwarp <name>"
+
   home:
     description: Teleport to a home
     permission: oreo.home
-    usage: /home <name>
+    usage: "/home <name>"
+
   sethome:
     description: Set a home
     permission: oreo.sethome
-    usage: /sethome <name>
+    usage: "/sethome <name>"
+
   delhome:
     description: Delete a home
     permission: oreo.delhome
-    usage: /delhome <name>
+    usage: "/delhome <name>"
+
   homes:
     description: List your homes or teleport to one
     aliases: [listhomes]
     permission: oreo.homes
-    usage: /homes [name]
+    usage: "/homes [name]"
+
   tpa:
     description: Request to teleport to a player
     permission: oreo.tpa
-    usage: /tpa <player>
+    usage: "/tpa <player>"
+
   tpaccept:
     description: Accept a teleport request
     permission: oreo.tpa
+
   tpdeny:
     description: Deny a teleport request
     permission: oreo.tpa
+
   fly:
     description: Toggle flight
     permission: oreo.fly
+
   heal:
     description: Heal yourself or others
     permission: oreo.heal
-    usage: /heal [player]
+    usage: "/heal [player]"
+
   feed:
     description: Feed yourself or others
     permission: oreo.feed
-    usage: /feed [player]
+    usage: "/feed [player]"
+
   msg:
     description: Private message a player
     permission: oreo.msg
-    usage: /msg <player> <message>
+    usage: "/msg <player> <message>"
+
   reply:
     description: Reply to the last private message
     aliases: [r]
     permission: oreo.msg
+
   broadcast:
     description: Broadcast a message
     permission: oreo.broadcast
-    usage: /broadcast <message>
+    usage: "/broadcast <message>"
 
   # Economy commands
   money:
     description: View/give/take/set player balances
     permission: oreo.money
-    usage: /money [player] | /money <give|take|set> <player> <amount>
+    usage: "/money [player] | /money <give|take|set> <player> <amount>"
+
   pay:
     description: Pay a player money
     permission: oreo.pay
-    usage: /pay <player> <amount>
+    usage: "/pay <player> <amount>"
+
   cheque:
     description: Create/redeem money cheques
-    permission: rabbiteconomy.cheque.create  # kept for compat with your handlers
-    usage: /cheque <create|redeem> ...
+    permission: rabbiteconomy.cheque.create
+    usage: "/cheque <create|redeem> ..."
 
   # Utilities
   deathback:
     description: Teleport to your last death location
     permission: oreo.deathback
-    usage: /deathback
+    usage: "/deathback"
 
   # God mode
   god:
     description: Toggle invulnerability (god mode)
     permission: oreo.god
-    usage: /god [player]
+    usage: "/god [player]"
 
   # Portals / JumpPads
   portal:
     description: Manage cuboid portals
     permission: oreo.portal
-    usage: /portal <pos1|pos2|create|remove|list|info>
+    usage: "/portal <pos1|pos2|create|remove|list|info>"
+
   jumpad:
     description: Manage jump pads
     permission: oreo.jumpad
-    usage: /jumpad <create|remove|list|info>
+    usage: "/jumpad <create|remove|list|info>"
+
   tp:
     description: Teleport to a player, or teleport a player to another
     permission: oreo.tp
-    usage: /tp <player> [target]
-
+    usage: "/tp <player> [target]"
 
   vanish:
     description: Toggle vanish (hide from players and mobs)
-    aliases: [ v ]
+    aliases: [v]
     permission: oreo.vanish
-    usage: /vanish [on|off]
+    usage: "/vanish [on|off]"
 
   ban:
     description: Ban a player (optionally temporary)
     permission: oreo.ban
-    usage: /ban <player> [duration] [reason...]
+    usage: "/ban <player> [duration] [reason...]"
+
+  unban:
+    description: Unban a player
+    permission: oreo.unban
+    usage: "/unban <player>"
 
   kick:
     description: Kick a player
     permission: oreo.kick
-    usage: /kick <player> [reason...]
+    usage: "/kick <player> [reason...]"
 
   freeze:
     description: Freeze/unfreeze a player
     permission: oreo.freeze
-    usage: /freeze <player> [on|off]
+    usage: "/freeze <player> [on|off]"
 
   enchant:
     description: Enchant the item in your hand
     permission: oreo.enchant
-    usage: /enchant <enchantment> [level] [unsafe] [ignoreConflicts]
+    usage: "/enchant <enchantment> [level] [unsafe] [ignoreConflicts]"
 
   afelius:
     description: Reload Afelius chat configs
-    aliases: [ af ]
+    aliases: [af]
     permission: oreo.afelius.reload
-    usage: /afelius reload <all|config|chat-format>
+    usage: "/afelius reload <all|config|chat-format>"
 
   mute:
     description: Mute a player for a duration (e.g., 10m) with optional reason
     permission: oreo.mute
-    usage: /mute <player> <duration> [reason]
+    usage: "/mute <player> <duration> [reason]"
+
   unmute:
     description: Unmute a player
     permission: oreo.unmute
-    usage: /unmute <player>
+    usage: "/unmute <player>"
 
 permissions:
   oreo.*:
@@ -193,6 +221,18 @@ permissions:
       oreo.god: true
       oreo.portal: true
       oreo.jumpad: true
+      oreo.tp: true
+      oreo.vanish: true
+      oreo.ban: true
+      oreo.unban: true
+      oreo.kick: true
+      oreo.freeze: true
+      oreo.enchant: true
+      oreo.enchant.unsafe: true
+      oreo.enchant.ignoreconflicts: true
+      oreo.afelius.reload: true
+      oreo.mute: true
+      oreo.unmute: true
       # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
       rabbiteconomy.money.take: true
@@ -219,6 +259,7 @@ permissions:
   oreo.broadcast: { default: op }
   oreo.tp: { default: op }
   oreo.vanish: { default: op }
+
   # Economy base + sub-perms
   oreo.money: { default: op }
   oreo.money.give: { default: op }
@@ -227,18 +268,24 @@ permissions:
   oreo.pay: { default: true }
   oreo.cheque.create: { default: op }
   oreo.cheque.redeem: { default: true }
+
+  # Moderation
   oreo.ban: { default: op }
+  oreo.unban: { default: op }
   oreo.kick: { default: op }
   oreo.freeze: { default: op }
+  oreo.mute: { default: op }
+  oreo.unmute: { default: op }
+
+  # Enchant
   oreo.enchant: { default: op }
   oreo.enchant.unsafe: { default: op }
   oreo.enchant.ignoreconflicts: { default: op }
+
   # Utilities
   oreo.deathback: { default: true }
   oreo.god: { default: op }
   oreo.afelius.reload: { default: op }
-  oreo.mute:    { default: op }
-  oreo.unmute:  { default: op }
 
   # Portals / JumpPads
   oreo.portal: { default: op }

@@ -1,87 +1,68 @@
+// File: src/main/java/fr/elias/oreoEssentials/services/VanishService.java
 package fr.elias.oreoEssentials.services;
 
 import org.bukkit.Bukkit;
-import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 public class VanishService {
-    private final Set<UUID> vanished = Collections.synchronizedSet(new HashSet<>());
-    private Plugin plugin;
 
-    public void init(Plugin plugin) { this.plugin = plugin; }
+    private final Plugin plugin;
+    private final Set<UUID> vanished = new HashSet<>();
 
-    public boolean isVanished(UUID id) { return vanished.contains(id); }
+    public VanishService(Plugin plugin) {
+        this.plugin = plugin;
+    }
 
+    public boolean isVanished(Player p) {
+        return vanished.contains(p.getUniqueId());
+    }
+
+    /** Toggle vanish for a player. Returns true if now vanished, false if now visible. */
     public boolean toggle(Player p) {
-        if (isVanished(p.getUniqueId())) {
+        if (isVanished(p)) {
             show(p);
+            vanished.remove(p.getUniqueId());
             return false;
         } else {
             hide(p);
+            vanished.add(p.getUniqueId());
             return true;
         }
     }
 
-    public void hide(Player target) {
-        vanished.add(target.getUniqueId());
-
-        // Hide from all who DON'T have bypass permission
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
-            if (!canSeeVanished(viewer)) {
-                viewer.hidePlayer(plugin, target);
-            } else {
-                viewer.showPlayer(plugin, target);
-            }
-        }
-
-        // Client-side polish (Spigot-safe)
-        target.setInvisible(true);   // client invisibility flag
-        target.setCollidable(false);
-        target.setSilent(true);
-        target.setGlowing(false);
-
-        // If you want to ensure mobs won't target, we handle it in the listener.
-        // Do NOT call Paper-only methods here.
-        // (No setPotionParticles / setAffectsSpawning in Spigot)
-
-        // Optional (commented): don’t force gamemode changes by default
-        // target.setGameMode(GameMode.SPECTATOR);
-    }
-
-    public void show(Player target) {
-        vanished.remove(target.getUniqueId());
-
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
-            viewer.showPlayer(plugin, target);
-        }
-
-        target.setInvisible(false);
-        target.setCollidable(true);
-        target.setSilent(false);
-
-        // If you changed it earlier, revert it:
-        if (target.getGameMode() == GameMode.SPECTATOR) {
-            target.setGameMode(GameMode.SURVIVAL);
+    /** Hide p from everyone else. */
+    public void hide(Player p) {
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other.equals(p)) continue;
+            other.hidePlayer(plugin, p); // <--- plugin REQUIRED
         }
     }
 
-    public void applyVisibilityForJoiner(Player joiner) {
-        for (Player target : Bukkit.getOnlinePlayers()) {
-            if (target.equals(joiner)) continue;
-            if (isVanished(target.getUniqueId())) {
-                if (!canSeeVanished(joiner)) {
-                    joiner.hidePlayer(plugin, target);
-                } else {
-                    joiner.showPlayer(plugin, target);
-                }
+    /** Show p to everyone else. */
+    public void show(Player p) {
+        for (Player other : Bukkit.getOnlinePlayers()) {
+            if (other.equals(p)) continue;
+            other.showPlayer(plugin, p); // <--- plugin REQUIRED
+        }
+    }
+
+    /** Ensure joining player cannot see any already-vanished players. */
+    public void applyToJoiner(Player joiner) {
+        for (UUID id : vanished) {
+            Player vanishedPlayer = Bukkit.getPlayer(id);
+            if (vanishedPlayer != null && vanishedPlayer.isOnline()) {
+                joiner.hidePlayer(plugin, vanishedPlayer);
             }
         }
     }
 
-    public boolean canSeeVanished(Player p) {
-        return p.hasPermission("oreo.vanish.see");
+    /** Make sure a leaving player is removed from the set. */
+    public void handleQuit(Player quitter) {
+        vanished.remove(quitter.getUniqueId());
     }
 }

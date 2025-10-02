@@ -1,0 +1,42 @@
+# File: plugins/OreoEssentials/discord-integration.yml
+enabled: true
+
+# Fallbacks (used if an event doesn't specify them)
+default_webhook: "https://discord.com/api/webhooks/XXX/YYY"
+default_username: "Oreo Moderation"
+
+# If true, messages will be prefixed with **(ServerName)** unless you include {server} in the template
+include_server_name: true
+
+events:
+  kick:
+    enabled: true
+    webhook: ""          # leave empty to use default_webhook
+    username: ""         # leave empty to use default_username
+    message: "**[{action}]** **Player:** {player} (`{uuid}`){by? | **By:** {by}}{reason? | **Reason:** {reason}}"
+
+  ban:
+    enabled: true
+    webhook: ""
+    username: ""
+    # {time_abs} = absolute time  e.g. <t:...:F>, {time_rel} = relative e.g. <t:...:R>; both are "Permanent" if no expiry
+    message: "**[{action}]** **Player:** {player} (`{uuid}`){by? | **By:** {by}}{reason? | **Reason:** {reason}}{time_abs? | **Until:** {time_abs}}"
+
+  unban:
+    enabled: true
+    webhook: ""
+    username: ""
+    message: "**[{action}]** **Player:** {player} (`{uuid}`){by? | **By:** {by}}"
+
+  mute:
+    enabled: true
+    webhook: ""
+    username: ""
+    # You can choose {time_rel} (e.g. "in 10 minutes") or {time_abs} (full date) or write "Permanent" in your own style
+    message: "**[{action}]** **Player:** {player} (`{uuid}`){by? | **By:** {by}}{reason? | **Reason:** {reason}}{time_rel? | **Duration:** {time_rel}}"
+
+  unmute:
+    enabled: true
+    webhook: ""
+    username: ""
+    message: "**[{action}]** **Player:** {player} (`{uuid}`){by? | **By:** {by}}"

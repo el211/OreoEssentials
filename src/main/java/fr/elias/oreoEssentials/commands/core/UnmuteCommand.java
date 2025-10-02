@@ -1,21 +1,28 @@
+// File: src/main/java/fr/elias/oreoEssentials/commands/core/UnmuteCommand.java
 package fr.elias.oreoEssentials.commands.core;
 
+import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.integration.DiscordModerationNotifier;
 import fr.elias.oreoEssentials.services.MuteService;
+import fr.elias.oreoEssentials.util.ChatSyncManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class UnmuteCommand implements OreoCommand, org.bukkit.command.TabCompleter {
 
     private final MuteService mutes;
+    private final ChatSyncManager chatSync; // may be null if sync disabled
 
-    public UnmuteCommand(MuteService mutes) { this.mutes = mutes; }
+    public UnmuteCommand(MuteService mutes, ChatSyncManager chatSync) {
+        this.mutes = mutes;
+        this.chatSync = chatSync;
+    }
 
     @Override public String name() { return "unmute"; }
     @Override public List<String> aliases() { return List.of(); }
@@ -29,25 +36,49 @@ public class UnmuteCommand implements OreoCommand, org.bukkit.command.TabComplet
             sender.sendMessage(ChatColor.YELLOW + "Usage: /" + label + " <player>");
             return true;
         }
+
         OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
-        if (target == null || target.getUniqueId() == null) {
+        if (target == null || (target.getName() == null && !target.hasPlayedBefore())) {
             sender.sendMessage(ChatColor.RED + "Player not found: " + args[0]);
             return true;
         }
-        boolean ok = mutes.unmute(target.getUniqueId());
-        sender.sendMessage(ok
-                ? ChatColor.GREEN + "Unmuted " + ChatColor.AQUA + target.getName()
-                : ChatColor.RED + "That player is not muted.");
-        if (target.getPlayer() != null && target.getPlayer().isOnline() && ok) {
-            target.getPlayer().sendMessage(ChatColor.GREEN + "You have been unmuted.");
+
+        boolean wasMuted = mutes.unmute(target.getUniqueId());
+        if (!wasMuted) {
+            sender.sendMessage(ChatColor.GRAY + target.getName() + " is not muted.");
+            return true;
+        }
+
+        sender.sendMessage(ChatColor.GREEN + "Unmuted " + ChatColor.AQUA + target.getName() + ChatColor.GREEN + ".");
+
+        // Tell other servers
+        try {
+            if (chatSync != null) {
+                chatSync.broadcastUnmute(target.getUniqueId());
+            }
+        } catch (Throwable t) {
+            Bukkit.getLogger().warning("[OreoEssentials] Failed to broadcast UNMUTE: " + t.getMessage());
+        }
+
+        // Discord notification
+        DiscordModerationNotifier mod = OreoEssentials.get().getDiscordMod();
+        if (mod != null && mod.isEnabled()) {
+            mod.notifyUnmute(target.getName(), target.getUniqueId(), sender.getName());
+        }
+
+        // Notify player if online
+        var p = target.getPlayer();
+        if (p != null && p.isOnline()) {
+            p.sendMessage(ChatColor.GREEN + "You have been unmuted.");
         }
         return true;
     }
 
     @Override
-    public java.util.List<String> onTabComplete(org.bukkit.command.CommandSender sender, org.bukkit.command.Command command, String label, String[] args) {
+    public List<String> onTabComplete(CommandSender sender, org.bukkit.command.Command command, String label, String[] args) {
+        if (!sender.hasPermission(permission())) return Collections.emptyList();
         if (args.length == 1) {
-            // suggest currently-muted names
+            // Suggest currently-muted players by name (best-effort)
             return mutes.allMuted().stream()
                     .map(uuid -> {
                         var op = Bukkit.getOfflinePlayer(uuid);
@@ -57,6 +88,6 @@ public class UnmuteCommand implements OreoCommand, org.bukkit.command.TabComplet
                     .sorted(String.CASE_INSENSITIVE_ORDER)
                     .collect(Collectors.toList());
         }
-        return java.util.Collections.emptyList();
+        return Collections.emptyList();
     }
 }

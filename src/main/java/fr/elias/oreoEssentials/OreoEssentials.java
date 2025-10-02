@@ -102,9 +102,13 @@ public final class OreoEssentials extends JavaPlugin {
     // Singleton
     private static OreoEssentials instance;
     public static OreoEssentials get() { return instance; }
-
+    private MuteService muteService;
+    public MuteService getMuteService() { return muteService; }
     // Economy bridge (internal) — distinct from Vault Economy
     private EconomyBootstrap ecoBootstrap;
+    // add near other services
+    private fr.elias.oreoEssentials.integration.DiscordModerationNotifier discordMod;
+    public fr.elias.oreoEssentials.integration.DiscordModerationNotifier getDiscordMod() { return discordMod; }
 
     // Essentials services
     private ConfigService configService;
@@ -140,11 +144,20 @@ public final class OreoEssentials extends JavaPlugin {
     private FormatManager chatFormatManager;
     private ChatSyncManager chatSyncManager;
 
+
+
+
     @Override
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
 
+        // Discord Moderation notifier (separate config: discord-integration.yml)
+        this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
+
+        // --- Moderation/services (create early so chat can use it) ---
+        muteService = new MuteService(this);
+        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
         // --- Chat merge (Afelius) ---
         this.chatConfig = new fr.elias.oreoEssentials.chat.CustomConfig(this, "chat-format.yml");
         this.chatFormatManager = new fr.elias.oreoEssentials.chat.FormatManager(chatConfig);
@@ -152,17 +165,22 @@ public final class OreoEssentials extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new JoinMessagesListener(this), this);
 
         // Chat sync (RabbitMQ) optional — init FIRST
+        // BEFORE you register the chat listener, after you create MuteService muteService = new MuteService(this);
+        // --- Chat sync (RabbitMQ) optional — init FIRST (now with muteService) ---
         boolean chatSyncEnabled = chatConfig.getCustomConfig().getBoolean("MongoDB_rabbitmq.enabled", false);
         String rabbitUri = chatConfig.getCustomConfig().getString("MongoDB_rabbitmq.rabbitmq.uri", "");
         try {
-            this.chatSyncManager = new ChatSyncManager(chatSyncEnabled, rabbitUri);
+            this.chatSyncManager = new ChatSyncManager(chatSyncEnabled, rabbitUri, muteService); // <-- pass muteService
             if (chatSyncEnabled) this.chatSyncManager.subscribeMessages();
         } catch (Exception e) {
             getLogger().severe("ChatSync init failed: " + e.getMessage());
-            this.chatSyncManager = new ChatSyncManager(false, "");
+            this.chatSyncManager = new ChatSyncManager(false, "", muteService); // <-- still pass it
         }
 
+
+
         // Discord toggle + URL (single source of truth)
+        // --- Discord toggle + URL ---
         var chatRoot = chatConfig.getCustomConfig().getConfigurationSection("chat");
         boolean discordEnabled = chatRoot != null
                 && chatRoot.getConfigurationSection("discord") != null
@@ -170,20 +188,21 @@ public final class OreoEssentials extends JavaPlugin {
         String discordWebhookUrl = (chatRoot != null && chatRoot.getConfigurationSection("discord") != null)
                 ? chatRoot.getConfigurationSection("discord").getString("webhook_url", "")
                 : "";
-        // Register chat listener (respects chat.enabled inside the listener)
+
+        // --- Register chat listener (mute-aware) ---
         getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.chat.AsyncChatListener(
+                new AsyncChatListener(
                         chatFormatManager,
                         chatConfig,
                         chatSyncManager,
                         discordEnabled,
-                        discordWebhookUrl
+                        discordWebhookUrl,
+                        muteService // <-- IMPORTANT
                 ),
                 this
         );
 
-        // Custom join messages (you already did this elsewhere)
-        getServer().getPluginManager().registerEvents(new JoinMessagesListener(this), this);
+
 
         // Conversations (bot replies)
         getServer().getPluginManager().registerEvents(new ConversationListener(this), this);
@@ -377,13 +396,11 @@ public final class OreoEssentials extends JavaPlugin {
         FreezeService freezeService = new FreezeService();
         getServer().getPluginManager().registerEvents(
                 new fr.elias.oreoEssentials.listeners.FreezeListener(freezeService), this);
-        VanishService vanishService = new VanishService();
-        MuteService muteService = new MuteService(this);
-        getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
-
+        VanishService vanishService = new VanishService(this);
         // --- Command manager & registrations (init FIRST, then register) ---
         this.commands = new CommandManager(this);
+        var muteCmd   = new fr.elias.oreoEssentials.commands.core.MuteCommand(muteService, chatSyncManager);
+        var unmuteCmd = new fr.elias.oreoEssentials.commands.core.UnmuteCommand(muteService, chatSyncManager);
 
         this.commands
                 .register(new SpawnCommand(spawnService))
@@ -416,8 +433,9 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.core.KickCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.FreezeCommand(freezeService))
                 .register(new fr.elias.oreoEssentials.commands.core.EnchantCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.MuteCommand(muteService))
-                .register(new fr.elias.oreoEssentials.commands.core.UnmuteCommand(muteService));
+                .register(muteCmd)
+                .register(new fr.elias.oreoEssentials.commands.core.UnbanCommand())
+                .register(unmuteCmd);
 
         // Tab completions for /home and /warp
         if (getCommand("home") != null) {
@@ -430,15 +448,17 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("enchant").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.EnchantTabCompleter());
         }
         if (getCommand("mute") != null) {
-            getCommand("mute").setTabCompleter(
-                    (org.bukkit.command.TabCompleter) new fr.elias.oreoEssentials.commands.core.MuteCommand(muteService)
-            );
+            getCommand("mute").setTabCompleter(muteCmd);
         }
+        if (getCommand("unban") != null) {
+            getCommand("unban").setTabCompleter(new fr.elias.oreoEssentials.commands.core.UnbanCommand());
+        }
+
         if (getCommand("unmute") != null) {
-            getCommand("unmute").setTabCompleter(
-                    (org.bukkit.command.TabCompleter) new fr.elias.oreoEssentials.commands.core.UnmuteCommand(muteService)
-            );
+            getCommand("unmute").setTabCompleter(unmuteCmd);
         }
+
+
 
         // PlaceholderAPI expansion (optional; reflection-based to avoid hard dep)
         tryRegisterPlaceholderAPI();
@@ -474,6 +494,7 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("jumpad").setExecutor(jumpCmd);
             getCommand("jumpad").setTabCompleter(jumpCmd);
         }
+
 
         getLogger().info("OreoEssentials enabled.");
     }
@@ -528,6 +549,7 @@ public final class OreoEssentials extends JavaPlugin {
     public DeathBackService getDeathBackService() { return deathBackService; }
     public GodService getGodService() { return godService; }
     public CommandManager getCommands() { return commands; }
+    public ChatSyncManager getChatSyncManager() { return chatSyncManager; }
 
     public RedisManager getRedis() { return redis; }
     public OfflinePlayerCache getOfflinePlayerCache() { return offlinePlayerCache; }

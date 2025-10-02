@@ -57,9 +57,18 @@ public class RabbitMQSender implements PacketSender {
                 this.channel.queueDeclare(id, true, false, false, null);
 
                 this.channel.basicConsume(id, false, (consumerTag, delivery) -> {
-                    byte[] content = delivery.getBody();
-                    handleIncomingPacket(id, content);
+                    try {
+                        byte[] content = delivery.getBody();
+                        handleIncomingPacket(id, content);
+                        // ack only after successful handling
+                        this.channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+                    } catch (Exception ex) {
+                        // optionally: basicNack to requeue or drop
+                        this.channel.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
+                        throw ex;
+                    }
                 }, consumerTag -> {});
+
             }
         } catch (IOException e) {
             System.err.println("[OreoEssentials] ❌ Failed to receive messages!");

@@ -1,6 +1,7 @@
 package fr.elias.oreoEssentials.chat;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.services.MuteService;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
 import fr.elias.oreoEssentials.util.DiscordWebhook;
 import org.bukkit.Bukkit;
@@ -8,6 +9,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
@@ -16,58 +18,73 @@ import org.bukkit.event.player.AsyncPlayerChatEvent;
  * and optionally forwards to Discord via webhook if enabled in config.
  */
 public class AsyncChatListener implements Listener {
+
     private final FormatManager formatManager;
-    private final CustomConfig chatConfig;          // wrapper around chat-format.yml
-    private final ChatSyncManager syncManager;      // may be disabled/NO-OP internally
+    private final CustomConfig chatConfig;
+    private final ChatSyncManager syncManager;
     private final boolean discordEnabled;
     private final String discordWebhookUrl;
+    private final MuteService muteService; // used to prevent publishing when muted
 
     public AsyncChatListener(FormatManager fm,
                              CustomConfig cfg,
                              ChatSyncManager sync,
                              boolean discordEnabled,
-                             String discordWebhookUrl) {
+                             String discordWebhookUrl,
+                             MuteService muteService) {
         this.formatManager = fm;
         this.chatConfig = cfg;
         this.syncManager = sync;
         this.discordEnabled = discordEnabled;
         this.discordWebhookUrl = (discordWebhookUrl == null) ? "" : discordWebhookUrl.trim();
+        this.muteService = muteService;
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
+        // If something else (e.g., MuteListener) cancelled already, we won't run (ignoreCancelled=true)
+
         // Respect chat.enabled in chat-format.yml
-        FileConfiguration conf = chatConfig.getCustomConfig();
+        final FileConfiguration conf = chatConfig.getCustomConfig();
         if (conf == null || !conf.getBoolean("chat.enabled", false)) {
             return; // Let vanilla/bukkit handle chat if plugin chat is disabled
+        }
+
+        final Player player = event.getPlayer();
+
+        // Extra guard: if muted, do not format/relay/broadcast here either
+        if (muteService != null && muteService.isMuted(player.getUniqueId())) {
+            event.setCancelled(true);
+            return;
         }
 
         // We take over the chat pipeline
         event.setCancelled(true);
 
-        Player player = event.getPlayer();
         String message = event.getMessage();
-
-        // Format with your FormatManager (supports default/vip paths etc.)
         String formatted = formatManager.formatMessage(player, message);
 
-        // PlaceholderAPI expansion (safe guard)
+        // PlaceholderAPI expansion (best-effort)
         try {
             if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
                 formatted = me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(player, formatted);
             }
-        } catch (Throwable ignored) {
-            // do not fail chat if PAPI errors
-        }
+        } catch (Throwable ignored) { }
 
         // Translate & broadcast to Minecraft players on main thread
         final String mcOut = ChatColor.translateAlternateColorCodes('&', formatted);
         Bukkit.getScheduler().runTask(OreoEssentials.get(), () -> Bukkit.broadcastMessage(mcOut));
 
-        // Optional cross-server sync (RabbitMQ) — best effort
+        // Optional cross-server sync (RabbitMQ) — include sender UUID
         try {
             if (syncManager != null) {
-                syncManager.publishMessage(Bukkit.getServer().getName(), player.getName(), stripColors(formatted));
+                // Requires ChatSyncManager.publishMessage(UUID playerId, String serverName, String playerName, String message)
+                syncManager.publishMessage(
+                        player.getUniqueId(),
+                        Bukkit.getServer().getName(),
+                        player.getName(),
+                        stripColors(formatted)
+                );
             }
         } catch (Throwable ex) {
             Bukkit.getLogger().severe("[OreoEssentials] ChatSync publish failed: " + ex.getMessage());
@@ -83,7 +100,6 @@ public class AsyncChatListener implements Listener {
         if (discordWebhookUrl.isEmpty()) return;
 
         try {
-            // Use your helper’s (Plugin, String) constructor + sendAsync
             DiscordWebhook webhook = new DiscordWebhook(OreoEssentials.get(), discordWebhookUrl);
             webhook.sendAsync(username, content);
         } catch (Throwable ex) {
@@ -94,7 +110,6 @@ public class AsyncChatListener implements Listener {
     /** Basic color/formatting strip for cleaner external outputs (sync/discord). */
     private String stripColors(String s) {
         if (s == null) return "";
-        // Remove Minecraft Section codes (&a, &l...) and § codes just in case
         String noAmp = s.replaceAll("(?i)&[0-9A-FK-OR]", "");
         return ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', noAmp));
     }

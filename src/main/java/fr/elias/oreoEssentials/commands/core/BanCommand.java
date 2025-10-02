@@ -1,7 +1,9 @@
 // src/main/java/fr/elias/oreoEssentials/commands/core/BanCommand.java
 package fr.elias.oreoEssentials.commands.core;
 
+import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.integration.DiscordModerationNotifier;
 import org.bukkit.BanList;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -15,6 +17,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class BanCommand implements OreoCommand {
+
     @Override public String name() { return "ban"; }
     @Override public List<String> aliases() { return List.of(); }
     @Override public String permission() { return "oreo.ban"; }
@@ -48,18 +51,34 @@ public class BanCommand implements OreoCommand {
             }
         }
 
+        // Add to server ban list
         Bukkit.getBanList(BanList.Type.NAME).addBan(target.getName(), reason, expires, sender.getName());
 
-        if (target.isOnline() && target.getPlayer() != null) {
-            target.getPlayer().kickPlayer(ChatColor.RED + reason +
-                    (expires != null ? ChatColor.GRAY + "\nUntil: " + expires : ""));
+        // If online, kick immediately with reason (and expiry, if any)
+        if (target.isOnline()) {
+            Player p = target.getPlayer();
+            if (p != null) {
+                p.kickPlayer(ChatColor.RED + reason +
+                        (expires != null ? ChatColor.GRAY + "\nUntil: " + expires : ""));
+            }
         }
 
+        // Feedback to staff
         sender.sendMessage(ChatColor.GREEN + "Banned " + ChatColor.AQUA + target.getName() +
                 (expires != null ? ChatColor.GREEN + " until " + ChatColor.YELLOW + expires : "") +
                 ChatColor.GREEN + ". Reason: " + ChatColor.YELLOW + reason);
+
+        // Discord notification
+        DiscordModerationNotifier mod = OreoEssentials.get().getDiscordMod();
+        if (mod != null && mod.isEnabled()) {
+            Long expiresAt = (expires == null) ? null : expires.getTime();
+            mod.notifyBan(target.getName(), target.getUniqueId(), reason, sender.getName(), expiresAt);
+        }
+
         return true;
     }
+
+    /* ----------------------------- Helpers ----------------------------- */
 
     private OfflinePlayer resolvePlayer(String name) {
         // 1) Exact online match

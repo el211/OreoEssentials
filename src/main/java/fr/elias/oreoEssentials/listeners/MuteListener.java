@@ -4,6 +4,7 @@ import fr.elias.oreoEssentials.services.MuteService;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
@@ -14,7 +15,8 @@ public class MuteListener implements Listener {
         this.mutes = mutes;
     }
 
-    @EventHandler(ignoreCancelled = true)
+    // imports: org.bukkit.event.EventPriority
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
         var md = mutes.get(p.getUniqueId());
@@ -27,4 +29,5 @@ public class MuteListener implements Listener {
                 + ChatColor.GRAY + " (" + remainStr + ")"
                 + (md.reason.isEmpty() ? "" : ChatColor.GRAY + " Reason: " + ChatColor.YELLOW + md.reason));
     }
+
 }
