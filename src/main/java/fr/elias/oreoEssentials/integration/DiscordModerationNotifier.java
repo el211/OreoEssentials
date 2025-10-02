@@ -1,191 +1,203 @@
-// File: src/main/java/fr/elias/oreoEssentials/integration/DiscordModerationNotifier.java
 package fr.elias.oreoEssentials.integration;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.chat.CustomConfig;
 import fr.elias.oreoEssentials.util.DiscordWebhook;
 import org.bukkit.Bukkit;
+import org.bukkit.plugin.Plugin;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 public class DiscordModerationNotifier {
 
     public enum EventType { KICK, BAN, UNBAN, MUTE, UNMUTE }
 
-    private final OreoEssentials plugin;
+    private final Plugin plugin;
     private final CustomConfig cfg; // wraps discord-integration.yml
     private boolean enabled;
     private String defaultWebhook;
-    private String defaultUsername;
     private boolean includeServerName;
 
-    public DiscordModerationNotifier(OreoEssentials plugin) {
+    public DiscordModerationNotifier(Plugin plugin) {
+        // NOTE: CustomConfig expects OreoEssentials, but it extends JavaPlugin so this is fine.
+        // We keep the exact constructor signature you used elsewhere.
         this.plugin = plugin;
-        this.cfg = new CustomConfig(plugin, "discord-integration.yml");
+        this.cfg = new CustomConfig(OreoEssentials.get(), "discord-integration.yml");
         reload();
     }
 
     public void reload() {
         var c = cfg.getCustomConfig();
-        this.enabled            = c.getBoolean("enabled", false);
-        this.defaultWebhook     = safe(c.getString("default_webhook", ""));
-        this.defaultUsername    = safe(c.getString("default_username", "Oreo Moderation"));
-        this.includeServerName  = c.getBoolean("include_server_name", true);
+        this.enabled           = c.getBoolean("enabled", false);
+        this.defaultWebhook    = safe(c.getString("default_webhook", ""));
+        this.includeServerName = c.getBoolean("include_server_name", true);
+
+        // Write sensible defaults on first run (no I/O on main thread besides config set)
+        // Only set if absent to avoid overriding user edits.
+        setDefaultIfMissing("events.kick.enabled", true);
+        setDefaultIfMissing("events.kick.username", "Oreo Moderation");
+        setDefaultIfMissing("events.kick.prefix", "**[KICK]**");
+        setDefaultIfMissing("events.kick.message",
+                "{server} **{by}** kicked **{player}** ({uuid}) — Reason: {reason}");
+
+        setDefaultIfMissing("events.ban.enabled", true);
+        setDefaultIfMissing("events.ban.username", "Oreo Moderation");
+        setDefaultIfMissing("events.ban.prefix", "**[BAN]**");
+        setDefaultIfMissing("events.ban.message",
+                "{server} **{by}** banned **{player}** ({uuid}) — Reason: {reason} — {until_desc}");
+
+        setDefaultIfMissing("events.unban.enabled", true);
+        setDefaultIfMissing("events.unban.username", "Oreo Moderation");
+        setDefaultIfMissing("events.unban.prefix", "**[UNBAN]**");
+        setDefaultIfMissing("events.unban.message",
+                "{server} **{by}** unbanned **{player}** ({uuid})");
+
+        setDefaultIfMissing("events.mute.enabled", true);
+        setDefaultIfMissing("events.mute.username", "Oreo Moderation");
+        setDefaultIfMissing("events.mute.prefix", "**[MUTE]**");
+        setDefaultIfMissing("events.mute.message",
+                "{server} **{by}** muted **{player}** ({uuid}) — Reason: {reason} — {until_desc}");
+
+        setDefaultIfMissing("events.unmute.enabled", true);
+        setDefaultIfMissing("events.unmute.username", "Oreo Moderation");
+        setDefaultIfMissing("events.unmute.prefix", "**[UNMUTE]**");
+        setDefaultIfMissing("events.unmute.message",
+                "{server} **{by}** unmuted **{player}** ({uuid})");
+    }
+
+    private void setDefaultIfMissing(String path, Object value) {
+        var c = cfg.getCustomConfig();
+        if (!c.isSet(path)) {
+            c.set(path, value);
+            cfg.saveCustomConfig();
+        }
     }
 
     public boolean isEnabled() {
         return enabled && hasAnyWebhook();
     }
 
-    /* ------------------ Public: call these from commands ------------------ */
+    /* ------------------ Public helpers ------------------ */
 
     public void notifyKick(String targetName, UUID targetId, String reason, String by) {
-        Map<String, String> ctx = baseCtx("KICK", targetName, targetId, by, reason);
-        send(EventType.KICK, ctx);
+        Map<String,String> ph = basePlaceholders(targetName, targetId, reason, by, null);
+        ph.put("until_desc", ""); // not used
+        send(EventType.KICK, ph);
     }
 
     public void notifyBan(String targetName, UUID targetId, String reason, String by, Long untilEpochMillis) {
-        Map<String, String> ctx = baseCtx("BAN", targetName, targetId, by, reason);
-        addTime(ctx, untilEpochMillis);
-        send(EventType.BAN, ctx);
+        Map<String,String> ph = basePlaceholders(targetName, targetId, reason, by, untilEpochMillis);
+        ph.put("until_desc", untilDesc(untilEpochMillis));
+        send(EventType.BAN, ph);
     }
 
     public void notifyUnban(String targetName, UUID targetId, String by) {
-        Map<String, String> ctx = baseCtx("UNBAN", targetName, targetId, by, null);
-        send(EventType.UNBAN, ctx);
+        Map<String,String> ph = basePlaceholders(targetName, targetId, "", by, null);
+        ph.put("until_desc", "");
+        send(EventType.UNBAN, ph);
     }
 
     public void notifyMute(String targetName, UUID targetId, String reason, String by, long untilEpochMillis) {
-        Map<String, String> ctx = baseCtx("MUTE", targetName, targetId, by, reason);
-        addTime(ctx, (untilEpochMillis <= 0) ? null : untilEpochMillis);
-        send(EventType.MUTE, ctx);
+        Map<String,String> ph = basePlaceholders(targetName, targetId, reason, by, untilEpochMillis);
+        ph.put("until_desc", untilDesc(untilEpochMillis));
+        send(EventType.MUTE, ph);
     }
 
     public void notifyUnmute(String targetName, UUID targetId, String by) {
-        Map<String, String> ctx = baseCtx("UNMUTE", targetName, targetId, by, null);
-        send(EventType.UNMUTE, ctx);
+        Map<String,String> ph = basePlaceholders(targetName, targetId, "", by, null);
+        ph.put("until_desc", "");
+        send(EventType.UNMUTE, ph);
     }
 
-    /* ------------------ Core sending ------------------ */
+    /* ------------------ Core sending (ASYNC) ------------------ */
 
-    private void send(EventType type, Map<String, String> ctx) {
+    private void send(EventType type, Map<String,String> placeholders) {
         if (!enabled) return;
 
         var c = cfg.getCustomConfig();
         String node = "events." + type.name().toLowerCase();
-
-        // Event toggle (default true)
-        if (!c.getBoolean(node + ".enabled", true)) return;
+        boolean evEnabled = c.getBoolean(node + ".enabled", true);
+        if (!evEnabled) return;
 
         String webhook  = safe(c.getString(node + ".webhook", defaultWebhook));
-        String username = safe(c.getString(node + ".username", defaultUsername));
-        String template = safe(c.getString(node + ".message",
-                "**[{action}]** **Player:** {player} (`{uuid}`){by? | **By:** {by}}{reason? | **Reason:** {reason}}{time_abs? | **Until:** {time_abs}}"));
+        String username = safe(c.getString(node + ".username", "Oreo Moderation"));
+        String prefix   = safe(c.getString(node + ".prefix", "**[" + type.name() + "]**"));
+        String message  = safe(c.getString(node + ".message",
+                "{server} " + type.name() + " {player} ({uuid})"));
 
         if (webhook.isEmpty()) return;
 
-        // Add derived placeholders
-        ctx.put("server", Bukkit.getServer().getName());
-        ctx.put("action", type.name());
+        // Offload EVERYTHING to async (including template rendering).
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                // Server name placeholder (optional)
+                if (includeServerName) {
+                    placeholders.putIfAbsent("server", "**(" + Bukkit.getServer().getName() + ")**");
+                } else {
+                    placeholders.putIfAbsent("server", "");
+                }
 
-        // Optional server prefix if enabled (you can also add {server} in your own template)
-        String content = renderTemplate(template, ctx, includeServerName);
+                String body = renderTemplate(message, placeholders);
+                String finalContent = prefix.isEmpty() ? body : (prefix + " " + body);
 
-        try {
-            DiscordWebhook wh = new DiscordWebhook(plugin, webhook);
-            wh.sendAsync(username, content);
-        } catch (Throwable t) {
-            plugin.getLogger().warning("[DiscordModerationNotifier] Failed to send " + type + " webhook: " + t.getMessage());
-        }
+                // Use synchronous send inside our async task
+                DiscordWebhook wh = new DiscordWebhook(plugin, webhook);
+                wh.send(username, finalContent);
+            } catch (Throwable t) {
+                plugin.getLogger().warning("[DiscordModerationNotifier] Failed to send " + type + " webhook: " + t.getMessage());
+            }
+        });
     }
 
-    /* ------------------ Helpers ------------------ */
-
-    private Map<String, String> baseCtx(String action,
-                                        String targetName,
-                                        UUID targetId,
-                                        String by,
-                                        String reason) {
-        Map<String, String> m = new HashMap<>();
-        m.put("action",  safe(action));
-        m.put("player",  safe(targetName));
-        m.put("uuid",    targetId == null ? "" : targetId.toString());
-        m.put("by",      safe(by));
-        m.put("reason",  safe(reason));
-        return m;
-    }
-
-    /** Adds time placeholders (absolute/relative) or marks Permanent if null. */
-    private void addTime(Map<String, String> ctx, Long untilEpochMillis) {
-        if (untilEpochMillis == null) {
-            ctx.put("time_abs", "Permanent");
-            ctx.put("time_rel", "Permanent");
-        } else {
-            long seconds = Math.max(0, untilEpochMillis / 1000L);
-            // Discord timestamp formatting
-            ctx.put("time_abs", "<t:" + seconds + ":F>");
-            ctx.put("time_rel", "<t:" + seconds + ":R>");
-        }
-    }
+    /* ------------------ Template rendering (SAFE) ------------------ */
 
     /**
-     * Simple template renderer with:
-     *  - plain placeholders: {player}, {uuid}, {reason}, {by}, {time_abs}, {time_rel}, {server}, {action}
-     *  - conditional fragments: {reason? | some text with {reason}} -> included only if {reason} is non-empty
-     *
-     * If includeServerName=true, we’ll prefix with "**(server)** " unless the template already uses {server}.
+     * Replaces simple tokens like {player}, {uuid}, {reason}, {by}, {until_abs}, {until_rel}, {until_desc}, {server}
+     * with provided values. Single-pass key replacement, no loops -> cannot hang.
      */
-    private String renderTemplate(String template, Map<String, String> ctx, boolean addServerPrefix) {
+    private String renderTemplate(String template, Map<String,String> placeholders) {
+        if (template == null) template = "";
         String out = template;
-
-        // Handle conditionals first: {key? | text}
-        // This is a very small parser: finds occurrences and decides to keep/strip
-        int idx;
-        while ((idx = out.indexOf("{")) != -1) {
-            int end = out.indexOf("}", idx);
-            if (end == -1) break;
-            String token = out.substring(idx + 1, end).trim();
-
-            if (token.contains("?")) {
-                // format: key? | text...
-                String[] parts = token.split("\\?", 2);
-                String key = parts[0].trim();
-                String remainder = parts[1].trim();
-                // remainder should start with | ...
-                String text = remainder.startsWith("|") ? remainder.substring(1).trim() : remainder;
-
-                boolean present = ctx.containsKey(key) && !safe(ctx.get(key)).isEmpty();
-                String replacement = present ? replacePlaceholders(text, ctx) : "";
-                out = out.substring(0, idx) + replacement + out.substring(end + 1);
-            } else {
-                // not a conditional; just skip now, we’ll replace later
-                out = out.substring(0, idx) + "{" + token + "}" + out.substring(end + 1);
-                // move after this } to avoid infinite loop
-                int nextStart = out.indexOf("}", idx);
-                if (nextStart == -1) break;
-            }
-        }
-
-        // Replace plain placeholders
-        out = replacePlaceholders(out, ctx);
-
-        // Optional server prefix if user didn’t include {server} themselves
-        if (addServerPrefix && !template.contains("{server}")) {
-            out = "**(" + ctx.getOrDefault("server", "Server") + ")** " + out;
-        }
-
-        return out;
-    }
-
-    private String replacePlaceholders(String s, Map<String, String> ctx) {
-        String out = s;
-        for (var e : ctx.entrySet()) {
-            out = out.replace("{" + e.getKey() + "}", safe(e.getValue()));
+        for (Map.Entry<String, String> e : placeholders.entrySet()) {
+            String key = "{" + e.getKey() + "}";
+            String val = Objects.toString(e.getValue(), "");
+            out = out.replace(key, val);
         }
         return out;
     }
+
+    private Map<String,String> basePlaceholders(String playerName, UUID playerId, String reason, String by, Long untilMillis) {
+        Map<String,String> ph = new HashMap<>();
+        ph.put("player",  safe(playerName));
+        ph.put("uuid",    playerId == null ? "" : playerId.toString());
+        ph.put("reason",  safe(reason));
+        ph.put("by",      safe(by));
+        if (untilMillis == null || untilMillis <= 0) {
+            ph.put("until_abs", "Permanent");
+            ph.put("until_rel", "Permanent");
+        } else {
+            long secs = untilMillis / 1000L;
+            ph.put("until_abs", "<t:" + secs + ":F>"); // absolute time
+            ph.put("until_rel", "<t:" + secs + ":R>"); // relative time
+        }
+        // until_desc is set by caller (mute/ban vs others)
+        ph.putIfAbsent("until_desc", "");
+        // server is set in send() depending on includeServerName
+        ph.putIfAbsent("server", "");
+        return ph;
+    }
+
+    private String untilDesc(Long untilMillis) {
+        if (untilMillis == null || untilMillis <= 0) return "Permanent";
+        long secs = untilMillis / 1000L;
+        return "Until: <t:" + secs + ":F> ( " + "<t:" + secs + ":R>" + " )";
+        // Example -> "Until: Friday, Jan 1, 2026 5:00 PM (in 2 hours)"
+    }
+
+    /* ------------------ Utils ------------------ */
 
     private boolean hasAnyWebhook() {
         var c = cfg.getCustomConfig();
@@ -197,5 +209,7 @@ public class DiscordModerationNotifier {
         return false;
     }
 
-    private static String safe(String s) { return (s == null) ? "" : s.trim(); }
+    private static String safe(String s) {
+        return (s == null) ? "" : s.trim();
+    }
 }

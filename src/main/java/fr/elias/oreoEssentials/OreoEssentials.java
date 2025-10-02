@@ -345,17 +345,31 @@ public final class OreoEssentials extends JavaPlugin {
                 }
 
                 // /pay (core.PayCommand uses ecoBootstrap)
+// --- Economy commands ---
                 if (getCommand("pay") != null) {
+                    // Use the new Vault-backed PayCommand (no ecoBootstrap arg)
+                    fr.elias.oreoEssentials.commands.ecocommands.PayCommand payCmd =
+                            new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
+
+                    // Hook executor via your OreoCommand adapter
                     getCommand("pay").setExecutor((sender, cmd, label, args) ->
-                            new fr.elias.oreoEssentials.commands.core.PayCommand(ecoBootstrap)
-                                    .execute(sender, label, args));
-                    getCommand("pay").setTabCompleter(new PayTabCompleter(this));
+                            payCmd.execute(sender, label, args));
+
+                    // Use the dedicated completer for cross-server/offline names
+                    getCommand("pay").setTabCompleter(
+                            new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
+                    );
+                } else {
+                    getLogger().warning("Command 'pay' not found in plugin.yml; skipping registration.");
                 }
 
                 if (getCommand("cheque") != null) {
-                    getCommand("cheque").setExecutor(new ChequeCommand(this));
-                    getCommand("cheque").setTabCompleter(new ChequeTabCompleter());
+                    getCommand("cheque").setExecutor(new fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand(this));
+                    getCommand("cheque").setTabCompleter(new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter());
+                } else {
+                    getLogger().warning("Command 'cheque' not found in plugin.yml; skipping registration.");
                 }
+
             } else {
                 getLogger().warning("Economy enabled but no database selected/connected; economy commands will be unavailable.");
             }

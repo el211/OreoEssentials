@@ -1,109 +1,123 @@
 package fr.elias.oreoEssentials.commands.ecocommands;
 
-
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket;
-import fr.elias.oreoEssentials.util.Async;
-import net.milkbowl.vault.economy.Economy;
+import fr.elias.oreoEssentials.commands.OreoCommand;
+import net.milkbowl.vault.economy.EconomyResponse;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
-public class PayCommand implements CommandExecutor {
+public class PayCommand implements OreoCommand {
 
-    private final OreoEssentials plugin;
-    private final Economy economy;
-
-    public PayCommand(OreoEssentials plugin) {
-        this.plugin = plugin;
-        this.economy = plugin.getServer().getServicesManager().getRegistration(Economy.class).getProvider();
-    }
+    @Override public String name() { return "pay"; }
+    @Override public List<String> aliases() { return List.of(); }
+    @Override public String permission() { return "oreo.pay"; }
+    @Override public String usage() { return "<player> <amount>"; }
+    @Override public boolean playerOnly() { return true; }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        // Only players can use this command
-        if (!(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + "Only players can use this command!");
+    public boolean execute(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(ChatColor.RED + "Only players can use /" + label + ".");
             return true;
         }
-
-        Player senderPlayer = (Player) sender;
-
-        // Argument validation
         if (args.length < 2) {
-            senderPlayer.sendMessage(ChatColor.RED + "Usage: /pay <player> <amount>");
+            sender.sendMessage(ChatColor.YELLOW + "Usage: /" + label + " <player> <amount>");
             return true;
         }
 
-        String targetName = args[0];
+        var econ = OreoEssentials.get().getVaultEconomy();
+        if (econ == null) {
+            sender.sendMessage(ChatColor.RED + "Economy is not available.");
+            return true;
+        }
+
+        // Resolve recipient as OfflinePlayer (works cross-server/offline)
+        String targetArg = args[0];
+        OfflinePlayer target = null;
+
+        var cache = OreoEssentials.get().getOfflinePlayerCache();
+        if (cache != null) {
+            UUID id = cache.resolveNameToUuid(targetArg);
+            if (id != null) target = Bukkit.getOfflinePlayer(id);
+        }
+        if (target == null) target = Bukkit.getOfflinePlayer(targetArg);
+
+        if (target == null || (target.getName() == null && !target.hasPlayedBefore())) {
+            sender.sendMessage(ChatColor.RED + "Player not found: " + targetArg);
+            return true;
+        }
+
+        if (player.getUniqueId().equals(target.getUniqueId())) {
+            sender.sendMessage(ChatColor.RED + "You can't pay yourself.");
+            return true;
+        }
+
+        // Parse amount safely
         double amount;
-
         try {
-            amount = Double.parseDouble(args[1]);
-            if (amount <= 0) {
-                senderPlayer.sendMessage(ChatColor.RED + "Amount must be greater than zero.");
-                return true;
-            }
-        } catch (NumberFormatException e) {
-            senderPlayer.sendMessage(ChatColor.RED + "Invalid amount.");
+            String raw = args[1].replace(",", "").toLowerCase(Locale.ROOT);
+            if (raw.startsWith("-") || raw.contains("e")) throw new NumberFormatException();
+            amount = new BigDecimal(raw).setScale(2, RoundingMode.DOWN).doubleValue();
+        } catch (Exception ex) {
+            sender.sendMessage(ChatColor.RED + "Invalid amount. Example: 10 or 10.50");
+            return true;
+        }
+        if (amount <= 0) {
+            sender.sendMessage(ChatColor.RED + "Amount must be greater than zero.");
             return true;
         }
 
-        // Run logic async to avoid blocking main thread
-        Async.run(() -> {
-            try {
-                if (!plugin.getOfflinePlayerCache().contains(targetName)) {
-                    senderPlayer.sendMessage(ChatColor.RED + "Player not found (not cached).");
-                    return;
-                }
+        // Balance check (float epsilon to avoid tiny rounding mismatches)
+        double balance = econ.getBalance(player);
+        if (balance + 1e-9 < amount) {
+            sender.sendMessage(ChatColor.RED + "Insufficient funds.");
+            sender.sendMessage(ChatColor.GRAY + "Your balance: " + ChatColor.GREEN + econ.format(balance));
+            return true;
+        }
 
-                UUID targetId = plugin.getOfflinePlayerCache().getId(targetName);
-                UUID senderId = senderPlayer.getUniqueId();
-
-
-                if (senderId.equals(targetId)) {
-                    senderPlayer.sendMessage(ChatColor.RED + "You cannot pay yourself.");
-                    return;
-                }
-
-                double senderBalance = plugin.getDatabase().getBalance(senderId);
-
-                if (senderBalance < amount) {
-                    senderPlayer.sendMessage(ChatColor.RED + "You do not have enough funds.");
-                    return;
-                }
-
-                // Update balances in database (and Redis)
-                plugin.getDatabase().setBalance(senderId, senderPlayer.getName(), senderBalance - amount);
-                double receiverBalance = plugin.getDatabase().getBalance(targetId);
-                plugin.getDatabase().setBalance(targetId, targetName, receiverBalance + amount);
-
-                // Get actual case-sensitive player name
-                String resolvedName = plugin.getOfflinePlayerCache().getName(targetId);
-
-                // Build and send message to receiver
-                String rawMessage = plugin.getConfig().getString("messages.pay-received",
-                        "{player} has paid you {amount} USD!");
-                String formattedMessage = rawMessage
-                        .replace("{player}", senderPlayer.getName())
-                        .replace("{amount}", String.valueOf(amount));
-
-                plugin.getPacketManager().sendPacket(new SendRemoteMessagePacket(targetId, ChatColor.GREEN + formattedMessage));
-
-                // Send confirmation to sender
-                senderPlayer.sendMessage(ChatColor.GREEN + "You paid " + resolvedName + " $" + amount);
-
-                plugin.getLogger().info(senderPlayer.getName() + " paid " + resolvedName + " $" + amount);
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                senderPlayer.sendMessage(ChatColor.RED + "An error occurred while processing your payment.");
+        // Ensure recipient account exists (some Vault providers require this)
+        try {
+            if (!econ.hasAccount(target)) {
+                econ.createPlayerAccount(target);
             }
-        });
+        } catch (Throwable ignored) {
+            // Some providers don't implement hasAccount; deposit will still create it
+        }
+
+        EconomyResponse withdraw = econ.withdrawPlayer(player, amount);
+        if (withdraw == null || withdraw.type != EconomyResponse.ResponseType.SUCCESS) {
+            sender.sendMessage(ChatColor.RED + "Could not withdraw funds: "
+                    + (withdraw != null ? withdraw.errorMessage : "unknown error"));
+            return true;
+        }
+
+        EconomyResponse deposit = econ.depositPlayer(target, amount);
+        if (deposit == null || deposit.type != EconomyResponse.ResponseType.SUCCESS) {
+            // Refund on failure
+            econ.depositPlayer(player, amount);
+            sender.sendMessage(ChatColor.RED + "Could not deposit funds: "
+                    + (deposit != null ? deposit.errorMessage : "unknown error"));
+            return true;
+        }
+
+        String targetDisplay = (target.getName() != null ? target.getName() : targetArg);
+        sender.sendMessage(ChatColor.GREEN + "Sent " + ChatColor.YELLOW + econ.format(amount)
+                + ChatColor.GREEN + " to " + ChatColor.AQUA + targetDisplay + ChatColor.GREEN + ".");
+
+        if (target.isOnline() && target.getPlayer() != null) {
+            target.getPlayer().sendMessage(ChatColor.GREEN + "You received "
+                    + ChatColor.YELLOW + econ.format(amount)
+                    + ChatColor.GREEN + " from " + ChatColor.AQUA + player.getName());
+        }
 
         return true;
     }
