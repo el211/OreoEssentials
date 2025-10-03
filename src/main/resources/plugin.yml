@@ -217,6 +217,12 @@ commands:
     permission: oreo.head
     usage: "/head <player>"
 
+  # NEW: nick
+  nick:
+    description: Change your displayed name (chat + tab) or reset it
+    permission: oreo.nick
+    usage: "/nick <newName> | /nick unnick"
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -266,6 +272,7 @@ permissions:
       oreo.skin: true
       oreo.clone: true
       oreo.head: true
+      oreo.nick: true
       # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
       rabbiteconomy.money.take: true
@@ -328,6 +335,7 @@ permissions:
   oreo.skin: { default: op }
   oreo.clone: { default: op }
   oreo.head: { default: op }
+  oreo.nick: { default: op }
 
   # Portals / JumpPads
   oreo.portal: { default: op }

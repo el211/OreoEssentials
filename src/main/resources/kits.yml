@@ -1,0 +1,24 @@
+ use-itemadder: true
+  menu:
+  title: "&6Kits"
+  rows: 3
+  fill: true
+  fill-material: GRAY_STAINED_GLASS_PANE
+  kits:
+  starter:
+  display-name: "&aStarter"
+  icon: "STONE_SWORD" # OR "ia:myitems:starter_icon" (ItemsAdder)
+  cooldown-seconds: 86400 # 24h
+  slot: 10 # optional, else auto-flow
+  commands: # optional console/player commands on claim
+    - "console:give %player% bread 16"
+  items:
+    - "type:STONE_SWORD;amount:1;enchants:SHARPNESS:2,UNBREAKING:1"
+    - "type:COOKED_BEEF;amount:16"
+  miner:
+  display-name: "&bMiner"
+  icon: "IRON_PICKAXE"
+  cooldown-seconds: 3600
+  items:
+    - "ia:myitems:starter_pickaxe" # ItemsAdder custom item example
+    - "type:TORCH;amount:32"

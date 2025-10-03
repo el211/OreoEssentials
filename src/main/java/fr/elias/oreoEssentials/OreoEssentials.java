@@ -148,7 +148,9 @@ public final class OreoEssentials extends JavaPlugin {
 
         // Discord Moderation notifier (separate config: discord-integration.yml)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
-
+        this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);
+        new fr.elias.oreoEssentials.kits.KitCommands(this, kitsManager);
+        this.tabListManager = new fr.elias.oreoEssentials.tab.TabListManager(this);
         // --- Moderation/services (create early so chat can use it) ---
         muteService = new MuteService(this);
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
@@ -537,7 +539,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (packetManager != null) packetManager.close(); } catch (Exception ignored) {}
         try { if (ecoBootstrap != null) ecoBootstrap.disable(); } catch (Exception ignored) {}
         try { if (chatSyncManager != null) chatSyncManager.close(); } catch (Exception ignored) {}
-
+        try { if (tabListManager != null) tabListManager.stop(); } catch (Exception ignored) {}
+        try { if (kitsManager != null) kitsManager.saveData(); } catch (Exception ignored) {}
         getLogger().info("OreoEssentials disabled.");
     }
 
