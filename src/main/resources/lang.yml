@@ -1,0 +1,66 @@
+# =========================================================
+# OreoEssentials — Language file
+# Section: Kits
+# Color codes: use '&' (e.g. &6, &a). \n for new line.
+# PAPI is supported wherever your code runs it (we already do for GUI).
+# Placeholders in this file (resolved by the plugin):
+#   %player%            -> executor's name
+#   %kit_id%            -> raw kit id (e.g. "starter")
+#   %kit_name%          -> display name from kits.yml
+#   %cooldown_left%     -> seconds left (humanized below if enabled)
+#   %cooldown_left_raw% -> integer seconds left, raw
+# =========================================================
+
+general:
+  prefix: "&6&lOreo&f&lEssentials &8» &r"
+
+kits:
+  # --- Command responses ---
+  only-players: "%prefix%&cOnly players can use this."
+  no-permission-open: "%prefix%&cYou don't have permission to open kits."
+  no-permission-claim: "%prefix%&cYou don't have permission to claim kits."
+  usage-kit: "%prefix%&eUsage: &f/kit &7<name>"
+  unknown-kit: "%prefix%&cUnknown kit: &e%kit_id%&c."
+  inventory-full: "%prefix%&cYour inventory is full! Make some space first."
+  claimed: "%prefix%&aYou claimed &6%kit_name%&a!"
+  cooldown: "%prefix%&cYou must wait &e%cooldown_left%&c before claiming &6%kit_name%&c."
+  bypass-cooldown: "%prefix%&7Cooldown bypassed for &f%kit_name%&7."
+  commands-ran: "%prefix%&7Applied kit actions for &f%kit_name%&7."
+  itemadder-missing: "%prefix%&cItemsAdder is not installed/enabled, skipping IA items for this kit."
+  reloaded: "%prefix%&aKits configuration reloaded."
+
+  # --- GUI text (SmartInvs) ---
+  # Title is still controlled by kits.yml (menu.title), but we mirror text here for lore/buttons.
+  gui:
+    lore:
+      claimable: |
+        &7Click to claim.
+        &8• &7Cooldown: &aReady
+      on-cooldown: |
+        &7Click to claim.
+        &8• &7Cooldown: &c%cooldown_left%
+    sounds:
+      claim:
+        enabled: true
+        sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
+        volume: 0.8
+        pitch: 1.2
+      denied:
+        enabled: true
+        sound: "BLOCK_NOTE_BLOCK_BASS"
+        volume: 0.7
+        pitch: 0.7
+
+  # --- Time humanization for %cooldown_left% ---
+  # If enabled, %cooldown_left% will render like "1h 5m 30s" instead of raw seconds.
+  time:
+    humanize: true
+    units:
+      day: "d"
+      hour: "h"
+      minute: "m"
+      second: "s"
+    # Smallest unit we show (second|minute)
+    smallest-unit: "second"
+    # Max units to include (e.g., 2 => "1h 5m", 3 => "1h 5m 30s")
+    max-chunks: 3

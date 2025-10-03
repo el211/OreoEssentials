@@ -16,6 +16,7 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpAcceptCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
+import fr.elias.oreoEssentials.util.Lang;
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
@@ -149,6 +150,8 @@ public final class OreoEssentials extends JavaPlugin {
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
+        Lang.init(this);
+
         // Allow sending plugin messages to the proxy for server switching
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");      // works on Bungee + Velocity
         // Optional extra: some setups also listen to the lowercase ID

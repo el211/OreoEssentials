@@ -9,6 +9,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import fr.elias.oreoEssentials.util.Lang;
 
 import java.io.File;
 import java.util.*;
@@ -122,24 +123,38 @@ public class KitsManager {
     /** Tries to give the kit to player. Returns true if handled (success or message), false if kit unknown. */
     public boolean claim(Player p, String kitId) {
         Kit kit = kits.get(kitId.toLowerCase(Locale.ROOT));
-        if (kit == null) return false;
+        if (kit == null) {
+            Lang.send(p, "kits.unknown-kit",
+                    Map.of("kit_id", kitId),
+                    p);
+            return false;
+        }
 
         if (!p.hasPermission("oreo.kit.claim")) {
-            p.sendMessage("§cYou don't have permission to claim kits.");
+            Lang.send(p, "kits.no-permission-claim", Map.of(), p);
             return true;
         }
 
         long left = getSecondsLeft(p, kit);
-        if (left > 0) {
-            p.sendMessage("§cYou must wait §e" + left + "s §cbefore claiming §6" + kit.getDisplayName() + "§c.");
+        if (left > 0 && !p.hasPermission("oreo.kit.bypasscooldown")) {
+            Lang.send(p, "kits.cooldown",
+                    Map.of(
+                            "kit_name", kit.getDisplayName(),
+                            "cooldown_left", Lang.timeHuman(left),
+                            "cooldown_left_raw", String.valueOf(left)
+                    ),
+                    p);
             return true;
+        } else if (left > 0) {
+            Lang.send(p, "kits.bypass-cooldown",
+                    Map.of("kit_name", kit.getDisplayName()),
+                    p);
         }
 
         // Give items
         for (ItemStack it : kit.getItems()) {
             if (it == null) continue;
-            HashMap<Integer, ItemStack> leftover = p.getInventory().addItem(it.clone());
-            // drop leftovers
+            var leftover = p.getInventory().addItem(it.clone());
             leftover.values().forEach(drop -> p.getWorld().dropItemNaturally(p.getLocation(), drop));
         }
 
@@ -148,10 +163,13 @@ public class KitsManager {
             for (String raw : kit.getCommands()) {
                 runKitCommand(p, raw);
             }
+            Lang.send(p, "kits.commands-ran",
+                    Map.of("kit_name", kit.getDisplayName()), p);
         }
 
         markClaim(p, kit);
-        p.sendMessage("§aClaimed kit §6" + kit.getDisplayName() + "§a!");
+        Lang.send(p, "kits.claimed",
+                Map.of("kit_name", kit.getDisplayName()), p);
         return true;
     }
 
