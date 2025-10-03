@@ -1,9 +1,9 @@
+// File: src/main/java/fr/elias/oreoEssentials/kits/Kit.java
 package fr.elias.oreoEssentials.kits;
 
-
 import org.bukkit.inventory.ItemStack;
-import java.util.List;
 
+import java.util.List;
 
 public class Kit {
     private final String id;
@@ -12,17 +12,18 @@ public class Kit {
     private final List<ItemStack> items;
     private final long cooldownSeconds;
     private final Integer slot; // nullable
+    private final List<String> commands; // may be null/empty
 
-
-    public Kit(String id, String displayName, ItemStack icon, List<ItemStack> items, long cooldownSeconds, Integer slot) {
+    public Kit(String id, String displayName, ItemStack icon, List<ItemStack> items,
+               long cooldownSeconds, Integer slot, List<String> commands) {
         this.id = id;
         this.displayName = displayName;
         this.icon = icon;
         this.items = items;
         this.cooldownSeconds = cooldownSeconds;
         this.slot = slot;
+        this.commands = commands;
     }
-
 
     public String getId() { return id; }
     public String getDisplayName() { return displayName; }
@@ -30,4 +31,5 @@ public class Kit {
     public List<ItemStack> getItems() { return items; }
     public long getCooldownSeconds() { return cooldownSeconds; }
     public Integer getSlot() { return slot; }
+    public List<String> getCommands() { return commands; }
 }

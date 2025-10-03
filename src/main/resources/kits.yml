@@ -1,24 +1,163 @@
- use-itemadder: true
-  menu:
+# =========================
+# OreoEssentials — kits.yml
+# =========================
+# Notes:
+# - ItemsAdder support: set `use-itemadder: true` and use "ia:namespace:item" in `icon` or `items`.
+# - SmartInvs: toggle below. Your current code lists kits in chat; if you add a SmartInvs GUI later,
+#   use these same menu settings.
+# - Placeholders: %player% is replaced in commands you run (when you add command-execution in code).
+#
+# Item string formats supported by the simple parser:
+#   - Vanilla: "type:MATERIAL_NAME;amount:1;enchants:SHARPNESS:2,UNBREAKING:1"
+#   - Short vanilla: "DIAMOND_SWORD" (falls back to plain type)
+#   - ItemsAdder: "ia:namespace:item_id"
+#
+# Per-kit fields:
+#   display-name: Colored name in menus/messages
+#   icon:         Menu icon material OR ItemsAdder id (ia:ns:id)
+#   cooldown-seconds: Cooldown per player (0 = none)
+#   slot:         Optional fixed slot in GUI (0..53). If omitted, kits flow left->right, top->bottom.
+#   commands:     Optional list of commands to run on claim:
+#                   - "console:give %player% bread 16"
+#                   - "player:msg %player% Enjoy your kit!"
+#   items:        List of items (see formats above)
+#
+# Permissions:
+#   oreo.kit.claim — must be granted to claim kits
+#   oreo.kit.bypasscooldown — ignores cooldowns
+#
+use-itemadder: true
+
+# Optional GUI provider hint for future menus. Current text menu ignores this.
+gui:
+  provider: "smartinvs"   # "smartinvs" or "text"
+
+menu:
   title: "&6Kits"
   rows: 3
   fill: true
   fill-material: GRAY_STAINED_GLASS_PANE
-  kits:
+
+kits:
+
   starter:
-  display-name: "&aStarter"
-  icon: "STONE_SWORD" # OR "ia:myitems:starter_icon" (ItemsAdder)
-  cooldown-seconds: 86400 # 24h
-  slot: 10 # optional, else auto-flow
-  commands: # optional console/player commands on claim
-    - "console:give %player% bread 16"
-  items:
-    - "type:STONE_SWORD;amount:1;enchants:SHARPNESS:2,UNBREAKING:1"
-    - "type:COOKED_BEEF;amount:16"
+    display-name: "&aStarter"
+    # You can swap to an ItemsAdder icon: "ia:myitems:starter_icon"
+    icon: "STONE_SWORD"
+    cooldown-seconds: 86400    # 24h
+    slot: 10
+    commands:
+      - "console:give %player% bread 16"
+      - "player:msg %player% &aYou claimed the &2Starter &akit!"
+    items:
+      - "type:STONE_SWORD;amount:1;enchants:SHARPNESS:2,UNBREAKING:1"
+      - "type:COOKED_BEEF;amount:16"
+      - "type:LEATHER_HELMET;amount:1"
+      - "type:LEATHER_CHESTPLATE;amount:1"
+      - "type:LEATHER_LEGGINGS;amount:1"
+      - "type:LEATHER_BOOTS;amount:1"
+
   miner:
-  display-name: "&bMiner"
-  icon: "IRON_PICKAXE"
-  cooldown-seconds: 3600
-  items:
-    - "ia:myitems:starter_pickaxe" # ItemsAdder custom item example
-    - "type:TORCH;amount:32"
+    display-name: "&bMiner"
+    icon: "IRON_PICKAXE"
+    cooldown-seconds: 3600     # 1h
+    slot: 11
+    items:
+      - "ia:myitems:starter_pickaxe"     # ItemsAdder custom pickaxe example
+      - "type:TORCH;amount:32"
+      - "type:BREAD;amount:8"
+
+  warrior:
+    display-name: "&cWarrior"
+    icon: "IRON_SWORD"
+    cooldown-seconds: 7200     # 2h
+    slot: 12
+    items:
+      - "type:IRON_SWORD;amount:1;enchants:SHARPNESS:2,UNBREAKING:2"
+      - "type:SHIELD;amount:1"
+      - "type:IRON_HELMET;amount:1"
+      - "type:IRON_CHESTPLATE;amount:1"
+      - "type:IRON_LEGGINGS;amount:1"
+      - "type:IRON_BOOTS;amount:1"
+
+  archer:
+    display-name: "&eArcher"
+    icon: "BOW"
+    cooldown-seconds: 5400
+    slot: 13
+    items:
+      - "type:BOW;amount:1;enchants:POWER:2,UNBREAKING:2"
+      - "type:ARROW;amount:64"
+      - "type:LEATHER_CHESTPLATE;amount:1"
+
+  builder:
+    display-name: "&dBuilder"
+    icon: "OAK_PLANKS"
+    cooldown-seconds: 1800
+    slot: 14
+    items:
+      - "type:OAK_PLANKS;amount:64"
+      - "type:OAK_PLANKS;amount:64"
+      - "type:OAK_LOG;amount:32"
+      - "type:STONE;amount:64"
+      - "type:GLASS;amount:32"
+
+  potions:
+    display-name: "&5Potions"
+    icon: "BREWING_STAND"
+    cooldown-seconds: 7200
+    slot: 15
+    items:
+      - "type:POTION;amount:2"
+      - "type:SPLASH_POTION;amount:2"
+      - "type:GOLDEN_APPLE;amount:2"
+
+  daily:
+    display-name: "&aDaily"
+    icon: "CHEST"
+    cooldown-seconds: 86400
+    slot: 16
+    commands:
+      - "player:msg %player% &aCome back tomorrow for another daily reward!"
+    items:
+      - "type:COOKED_BEEF;amount:16"
+      - "type:IRON_INGOT;amount:8"
+      - "type:COAL;amount:16"
+
+  weekly:
+    display-name: "&9Weekly"
+    # Example ItemsAdder icon (uncomment if present):
+    # icon: "ia:rewards:weekly_crate"
+    icon: "ENDER_CHEST"
+    cooldown-seconds: 604800   # 7 days
+    slot: 19
+    commands:
+      - "console:give %player% diamond 3"
+      - "player:msg %player% &bWeekly kit delivered!"
+    items:
+      - "type:DIAMOND_PICKAXE;amount:1;enchants:EFFICIENCY:3,UNBREAKING:3"
+      - "type:DIAMOND;amount:3"
+      - "type:EXP_BOTTLE;amount:16"
+
+  farmer:
+    display-name: "&2Farmer"
+    icon: "IRON_HOE"
+    cooldown-seconds: 1800
+    slot: 20
+    items:
+      - "type:IRON_HOE;amount:1"
+      - "type:WHEAT_SEEDS;amount:32"
+      - "type:CARROT;amount:16"
+      - "type:POTATO;amount:16"
+      - "type:WATER_BUCKET;amount:1"
+
+  explorer:
+    display-name: "&6Explorer"
+    icon: "COMPASS"
+    cooldown-seconds: 3600
+    slot: 21
+    items:
+      - "type:COMPASS;amount:1"
+      - "type:BOAT;amount:1"
+      - "type:COOKED_SALMON;amount:12"
+      - "type:MAP;amount:1"

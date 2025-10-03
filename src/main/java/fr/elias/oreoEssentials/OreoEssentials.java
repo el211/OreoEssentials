@@ -69,6 +69,7 @@ import fr.elias.oreoEssentials.services.WarpService;
 import fr.elias.oreoEssentials.services.JsonStorage;
 import fr.elias.oreoEssentials.services.MongoStorage;
 import fr.elias.oreoEssentials.services.YamlStorage;
+import fr.minuskube.inv.InventoryManager;
 
 // Chat (Afelius merge)
 import fr.elias.oreoEssentials.chat.AsyncChatListener;
@@ -103,6 +104,8 @@ public final class OreoEssentials extends JavaPlugin {
     private ConfigService configService;
     private StorageApi storage;
     private SpawnService spawnService;
+    private InventoryManager invManager;
+    public InventoryManager getInvManager() { return invManager; }
     private WarpService warpService;
     private HomeService homeService;
     private TeleportService teleportService;
@@ -111,6 +114,12 @@ public final class OreoEssentials extends JavaPlugin {
     private DeathBackService deathBackService;
     private GodService godService;
     private CommandManager commands;
+    // Kits + Tab
+    private fr.elias.oreoEssentials.kits.KitsManager kitsManager;
+    private fr.elias.oreoEssentials.tab.TabListManager tabListManager;
+
+    public fr.elias.oreoEssentials.kits.KitsManager getKitsManager() { return kitsManager; }
+    public fr.elias.oreoEssentials.tab.TabListManager getTabListManager() { return tabListManager; }
 
     // Economy / messaging stack
     private PlayerEconomyDatabase database;
@@ -145,7 +154,8 @@ public final class OreoEssentials extends JavaPlugin {
         // Optional extra: some setups also listen to the lowercase ID
         getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
         ProxyMessenger proxyMessenger = new ProxyMessenger(this);
-
+        this.invManager = new InventoryManager(this);
+        this.invManager.init();
         // Discord Moderation notifier (separate config: discord-integration.yml)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
         this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);
@@ -533,6 +543,7 @@ public final class OreoEssentials extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // SmartInvs: no stop() in your version
         try { if (teleportService != null) teleportService.shutdown(); } catch (Exception ignored) {}
         try { if (storage != null) { storage.flush(); storage.close(); } } catch (Exception ignored) {}
         try { if (database != null) database.close(); } catch (Exception ignored) {}
@@ -543,6 +554,7 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (kitsManager != null) kitsManager.saveData(); } catch (Exception ignored) {}
         getLogger().info("OreoEssentials disabled.");
     }
+
 
     /* ----------------------------- Helpers ----------------------------- */
 

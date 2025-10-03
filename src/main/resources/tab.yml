@@ -1,0 +1,63 @@
+tab:
+  enabled: true
+  use-placeholderapi: true
+  interval-ticks: 100
+
+  header: |-
+    &8&m------------------------------\n
+    &6&lOREO&f&lESSENTIALS &7| &f%server_online%&7/&f%server_max_players%\n
+    &7TPS: &a%server_tps_1%  &7Ping: &a%player_ping%
+  footer: |-
+    &8&m------------------------------\n
+    &7Welcome, &f%player_displayname%&7!  &8|  &7Balance: &a$%vault_eco_balance_formatted%\n
+    &7Discord: &fdiscord.gg/oreo  &8•  &7Store: &fstore.oreo.net
+
+  title:
+    enabled: true
+    show-on-join: true
+    text: "&6&lWelcome, &e%player_displayname%&6!"
+    subtitle: "&7Enjoy your stay on &f%server_name%"
+    fade-in: 10
+    stay: 60
+    fade-out: 10
+
+  name-format:
+    enabled: true
+
+    # If rank formats are enabled, we’ll pick a pattern from rank-formats
+    # based on the resolved "rank-key". If no match, "default" is used.
+    use-rank-formats: true
+
+    # This is a PAPI placeholder that resolves to your rank key.
+    # LuckPerms examples:
+    #   %luckperms_primary_group%        -> owner/admin/mod/default
+    #   %luckperms_highest_group_by_weight%
+    # You can use any placeholder; we lowercase it to find a key below.
+    rank-key: "%luckperms_primary_group%"
+
+    # Fallback pattern if not using rank-formats, or if not matched (and "default" is missing).
+    pattern: "&7[%luckperms_prefix%&7]&r %nick_or_name%"
+
+    # Map of rank -> pattern. Keys are compared in lowercase.
+    rank-formats:
+      default: "&7[%luckperms_prefix%&7]&r %nick_or_name%"
+      owner: "&4&lOWNER &r%nick_or_name%"
+      admin: "&c&lADMIN &r%nick_or_name%"
+      mod: "&2&lMOD &r%nick_or_name%"
+      vip: "&6⭐ &r%nick_or_name%"
+
+    # Keep tab-list names inside vanilla limit
+    enforce-max-length: true
+    max-length: 16
+    overflow: "TRIM"   # TRIM or ELLIPSIS
+
+  per-world:
+  # world_nether:
+  #   header: "&c&lNETHER\n&7%player_name%"
+  #   footer: "&7Beware of lava!"
+  #   name-format:
+  #     enabled: true
+  #     use-rank-formats: true
+  #     rank-key: "%luckperms_primary_group%"
+  #     rank-formats:
+  #       default: "&c[NETHER]&r %nick_or_name%"
