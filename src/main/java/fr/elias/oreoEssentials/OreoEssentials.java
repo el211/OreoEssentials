@@ -4,38 +4,26 @@ package fr.elias.oreoEssentials;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
 // Core commands (essentials-like)
-import fr.elias.oreoEssentials.commands.core.BackCommand;
-import fr.elias.oreoEssentials.commands.core.BroadcastCommand;
-import fr.elias.oreoEssentials.commands.core.DelHomeCommand;
-import fr.elias.oreoEssentials.commands.core.DelWarpCommand;
-import fr.elias.oreoEssentials.commands.core.FeedCommand;
-import fr.elias.oreoEssentials.commands.core.FlyCommand;
-import fr.elias.oreoEssentials.commands.core.HealCommand;
-import fr.elias.oreoEssentials.commands.core.HomeCommand;
-import fr.elias.oreoEssentials.commands.core.HomesCommand;
-import fr.elias.oreoEssentials.commands.core.MsgCommand;
-import fr.elias.oreoEssentials.commands.core.ReplyCommand;
-import fr.elias.oreoEssentials.commands.core.SetHomeCommand;
-import fr.elias.oreoEssentials.commands.core.SetSpawnCommand;
-import fr.elias.oreoEssentials.commands.core.SetWarpCommand;
-import fr.elias.oreoEssentials.commands.core.SpawnCommand;
-import fr.elias.oreoEssentials.commands.core.TpAcceptCommand;
-import fr.elias.oreoEssentials.commands.core.TpDenyCommand;
-import fr.elias.oreoEssentials.commands.core.TpaCommand;
-import fr.elias.oreoEssentials.commands.core.WarpCommand;
-import fr.elias.oreoEssentials.commands.core.DeathBackCommand;
-import fr.elias.oreoEssentials.commands.core.GodCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.*;
+import fr.elias.oreoEssentials.commands.core.admins.*;
+import fr.elias.oreoEssentials.commands.core.moderation.*;
+import fr.elias.oreoEssentials.commands.core.admins.FlyCommand;
+import fr.elias.oreoEssentials.commands.core.moderation.HealCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.ReplyCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.SetHomeCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.SpawnCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.TpAcceptCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
+import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
 import fr.elias.oreoEssentials.commands.completion.WarpTabCompleter;
 
 // Economy commands
-import fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand;
 import fr.elias.oreoEssentials.commands.ecocommands.MoneyCommand;
-import fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter;
 import fr.elias.oreoEssentials.commands.ecocommands.completion.MoneyTabCompleter;
-import fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter;
 
 // Databases / Cache
 import fr.elias.oreoEssentials.database.JsonEconomyDatabase;
@@ -89,6 +77,7 @@ import fr.elias.oreoEssentials.chat.FormatManager;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
 
 // Vault
+import fr.elias.oreoEssentials.util.ProxyMessenger;
 import fr.elias.oreoEssentials.vault.VaultEconomyProvider;
 import net.milkbowl.vault.economy.Economy;
 
@@ -151,6 +140,11 @@ public final class OreoEssentials extends JavaPlugin {
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
+        // Allow sending plugin messages to the proxy for server switching
+        getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");      // works on Bungee + Velocity
+        // Optional extra: some setups also listen to the lowercase ID
+        getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
+        ProxyMessenger proxyMessenger = new ProxyMessenger(this);
 
         // Discord Moderation notifier (separate config: discord-integration.yml)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
@@ -413,8 +407,10 @@ public final class OreoEssentials extends JavaPlugin {
         VanishService vanishService = new VanishService(this);
         // --- Command manager & registrations (init FIRST, then register) ---
         this.commands = new CommandManager(this);
-        var muteCmd   = new fr.elias.oreoEssentials.commands.core.MuteCommand(muteService, chatSyncManager);
-        var unmuteCmd = new fr.elias.oreoEssentials.commands.core.UnmuteCommand(muteService, chatSyncManager);
+        var muteCmd   = new MuteCommand(muteService, chatSyncManager);
+        var unmuteCmd = new UnmuteCommand(muteService, chatSyncManager);
+        var nickCmd = new fr.elias.oreoEssentials.commands.core.playercommands.NickCommand();
+        this.commands.register(nickCmd);
 
         this.commands
                 .register(new SpawnCommand(spawnService))
@@ -439,17 +435,31 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new DeathBackCommand(deathBackService))
                 .register(new GodCommand(godService))
                 // Afelius chat reload command
-                .register(new fr.elias.oreoEssentials.commands.core.AfeliusReloadCommand(this, chatConfig))
+                .register(new AfeliusReloadCommand(this, chatConfig))
                 // Admin / utility
-                .register(new fr.elias.oreoEssentials.commands.core.TpCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.VanishCommand(vanishService))
-                .register(new fr.elias.oreoEssentials.commands.core.BanCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.KickCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.FreezeCommand(freezeService))
-                .register(new fr.elias.oreoEssentials.commands.core.EnchantCommand())
+                .register(new TpCommand())
+                .register(new VanishCommand(vanishService))
+                .register(new BanCommand())
+                .register(new KickCommand())
+                .register(new FreezeCommand(freezeService))
+                .register(new EnchantCommand())
                 .register(muteCmd)
-                .register(new fr.elias.oreoEssentials.commands.core.UnbanCommand())
-                .register(unmuteCmd);
+                .register(new UnbanCommand())
+                .register(unmuteCmd)
+                .register(new OeCommand())
+                .register(new ServerProxyCommand(proxyMessenger))
+                .register(new SkinCommand())
+                .register(new CloneCommand())
+                .register(new HeadCommand());
+        if (getCommand("oeserver") != null) {
+            getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
+        }
+        if (getCommand("skin") != null)
+            getCommand("skin").setTabCompleter(new SkinCommand());
+        if (getCommand("clone") != null)
+            getCommand("clone").setTabCompleter(new CloneCommand());
+        if (getCommand("head") != null)
+            getCommand("head").setTabCompleter(new HeadCommand());
 
         // Tab completions for /home and /warp
         if (getCommand("home") != null) {
@@ -465,9 +475,11 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("mute").setTabCompleter(muteCmd);
         }
         if (getCommand("unban") != null) {
-            getCommand("unban").setTabCompleter(new fr.elias.oreoEssentials.commands.core.UnbanCommand());
+            getCommand("unban").setTabCompleter(new UnbanCommand());
         }
-
+        if (getCommand("nick") != null) {
+            getCommand("nick").setTabCompleter(nickCmd);
+        }
         if (getCommand("unmute") != null) {
             getCommand("unmute").setTabCompleter(unmuteCmd);
         }

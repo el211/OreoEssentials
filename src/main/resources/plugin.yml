@@ -189,6 +189,34 @@ commands:
     permission: oreo.unmute
     usage: "/unmute <player>"
 
+  # Proxy commands
+  oe:
+    description: OreoEssentials utility root command
+    permission: oreo.oe
+    usage: "/oe server <servername>"
+
+  oeserver:
+    description: Switch to another server on the proxy
+    aliases: [server]
+    permission: oreo.server
+    usage: "/oeserver <server>"
+
+  # NEW: skin/clone/head
+  skin:
+    description: Apply another player's skin to yourself (supports offline names)
+    permission: oreo.skin
+    usage: "/skin <player>"
+
+  clone:
+    description: Clone another player's identity (skin + display name if supported)
+    permission: oreo.clone
+    usage: "/clone <player>"
+
+  head:
+    description: Give yourself a player head of the specified player
+    permission: oreo.head
+    usage: "/head <player>"
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -233,6 +261,11 @@ permissions:
       oreo.afelius.reload: true
       oreo.mute: true
       oreo.unmute: true
+      oreo.oe: true
+      oreo.server: true
+      oreo.skin: true
+      oreo.clone: true
+      oreo.head: true
       # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
       rabbiteconomy.money.take: true
@@ -277,6 +310,10 @@ permissions:
   oreo.mute: { default: op }
   oreo.unmute: { default: op }
 
+  # Proxy/root
+  oreo.oe: { default: true }
+  oreo.server: { default: true }
+
   # Enchant
   oreo.enchant: { default: op }
   oreo.enchant.unsafe: { default: op }
@@ -286,6 +323,11 @@ permissions:
   oreo.deathback: { default: true }
   oreo.god: { default: op }
   oreo.afelius.reload: { default: op }
+
+  # New cosmetic commands
+  oreo.skin: { default: op }
+  oreo.clone: { default: op }
+  oreo.head: { default: op }
 
   # Portals / JumpPads
   oreo.portal: { default: op }

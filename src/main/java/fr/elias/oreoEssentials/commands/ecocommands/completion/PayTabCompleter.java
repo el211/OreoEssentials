@@ -1,18 +1,16 @@
 package fr.elias.oreoEssentials.commands.ecocommands.completion;
 
-
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
-import org.bukkit.entity.Player;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class PayTabCompleter implements TabCompleter {
-
     private final OreoEssentials plugin;
 
     public PayTabCompleter(OreoEssentials plugin) {
@@ -21,36 +19,35 @@ public class PayTabCompleter implements TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        List<String> suggestions = new ArrayList<>();
-
-        if (!(sender instanceof Player)) {
-            return suggestions;
-        }
-
-        Player player = (Player) sender;
-
         if (args.length == 1) {
-            String input = args[0].toLowerCase();
+            String prefix = args[0].toLowerCase(Locale.ROOT);
 
-            // ✅ Combine online and cached offline names
-            Set<String> allNames = new HashSet<>(plugin.getOfflinePlayerCache().getNames());
-            for (Player online : Bukkit.getOnlinePlayers()) {
-                allNames.add(online.getName());
+            // Online players on this server
+            List<String> suggestions = Bukkit.getOnlinePlayers().stream()
+                    .map(p -> p.getName())
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            // Plus cached offline/cross-server names
+            OfflinePlayerCache cache = plugin.getOfflinePlayerCache();
+            if (cache != null) {
+                for (String n : cache.getNames()) {
+                    if (n != null && !suggestions.contains(n)) suggestions.add(n);
+                }
             }
 
-            // ✅ Filter suggestions
-            return allNames.stream()
-                    .filter(name -> !name.equalsIgnoreCase(player.getName()))
-                    .filter(name -> name.toLowerCase().startsWith(input))
-                    .sorted()
+            return suggestions.stream()
+                    .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(prefix))
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
                     .collect(Collectors.toList());
         }
 
         if (args.length == 2) {
-            return Arrays.asList("10", "50", "100", "500", "1000");
+            return List.of("10", "50", "100", "250", "1000").stream()
+                    .filter(s -> s.startsWith(args[1]))
+                    .collect(Collectors.toList());
         }
 
-        return suggestions;
+        return Collections.emptyList();
     }
 }
-
