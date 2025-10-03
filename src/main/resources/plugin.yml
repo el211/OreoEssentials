@@ -6,6 +6,7 @@ api-version: "1.21"
 softdepend:
   - Vault
   - PlaceholderAPI
+  - ItemsAdder
 
 commands:
   spawn:
@@ -223,6 +224,16 @@ commands:
     permission: oreo.nick
     usage: "/nick <newName> | /nick unnick"
 
+  # NEW: kits
+  kits:
+    description: Open the kits GUI
+    permission: oreo.kits.open
+    usage: "/kits"
+  kit:
+    description: Claim a specific kit by name
+    permission: oreo.kit.claim
+    usage: "/kit <name>"
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -273,6 +284,9 @@ permissions:
       oreo.clone: true
       oreo.head: true
       oreo.nick: true
+      oreo.kits.open: true
+      oreo.kit.claim: true
+      oreo.kit.bypasscooldown: true
       # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
       rabbiteconomy.money.take: true
@@ -336,6 +350,11 @@ permissions:
   oreo.clone: { default: op }
   oreo.head: { default: op }
   oreo.nick: { default: op }
+
+  # Kits
+  oreo.kits.open: { default: true }
+  oreo.kit.claim: { default: true }
+  oreo.kit.bypasscooldown: { default: op }
 
   # Portals / JumpPads
   oreo.portal: { default: op }
