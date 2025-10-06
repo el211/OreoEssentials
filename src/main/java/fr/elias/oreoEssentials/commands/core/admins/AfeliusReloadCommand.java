@@ -3,11 +3,11 @@ package fr.elias.oreoEssentials.commands.core.admins;
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.chat.CustomConfig;
 import fr.elias.oreoEssentials.commands.OreoCommand;
-import org.bukkit.ChatColor;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.command.CommandSender;
 
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class AfeliusReloadCommand implements OreoCommand {
     private final OreoEssentials plugin;
@@ -27,25 +27,28 @@ public class AfeliusReloadCommand implements OreoCommand {
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
         if (args.length < 1 || !args[0].equalsIgnoreCase("reload")) {
-            sender.sendMessage(ChatColor.RED + "Usage: /" + label + " reload <all|config|chat-format>");
+            Lang.send(sender, "admin.afelius.usage",
+                    Map.of("label", label), null);
             return true;
         }
+
         String target = (args.length >= 2) ? args[1].toLowerCase() : "all";
         switch (target) {
             case "all" -> {
                 plugin.reloadConfig();
                 chatCfg.reloadCustomConfig();
-                sender.sendMessage("§aAll configurations reloaded.");
+                Lang.send(sender, "admin.afelius.reloaded-all", null, null);
             }
             case "config" -> {
                 plugin.reloadConfig();
-                sender.sendMessage("§aMain config reloaded.");
+                Lang.send(sender, "admin.afelius.reloaded-config", null, null);
             }
             case "chat-format" -> {
                 chatCfg.reloadCustomConfig();
-                sender.sendMessage("§achat-format.yml reloaded.");
+                Lang.send(sender, "admin.afelius.reloaded-chat", null, null);
             }
-            default -> sender.sendMessage("§cUnknown section. Use: " + String.join(", ", Arrays.asList("all","config","chat-format")));
+            default -> Lang.send(sender, "admin.afelius.unknown-section",
+                    Map.of("sections", "all, config, chat-format"), null);
         }
         return true;
     }

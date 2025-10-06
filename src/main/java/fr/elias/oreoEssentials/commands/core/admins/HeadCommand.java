@@ -1,9 +1,9 @@
 package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.util.Lang;
 import fr.elias.oreoEssentials.util.MojangSkinFetcher;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -14,6 +14,7 @@ import org.bukkit.profile.PlayerProfile;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,21 +30,21 @@ public class HeadCommand implements OreoCommand, org.bukkit.command.TabCompleter
         Player self = (Player) sender;
 
         if (args.length < 1) {
-            self.sendMessage(ChatColor.YELLOW + "Usage: /" + label + " <player>");
+            Lang.send(self, "admin.head.usage", Map.of("label", label), self);
             return true;
         }
 
         String target = args[0];
         PlayerProfile prof = null;
 
-        var online = Bukkit.getPlayerExact(target);
+        Player online = Bukkit.getPlayerExact(target);
         if (online != null) prof = online.getPlayerProfile();
         if (prof == null) {
             UUID u = MojangSkinFetcher.fetchUuid(target);
             if (u != null) prof = MojangSkinFetcher.fetchProfileWithTextures(u, target);
         }
         if (prof == null) {
-            self.sendMessage(ChatColor.RED + "Could not resolve " + target + "'s head.");
+            Lang.send(self, "admin.head.cannot-resolve", Map.of("target", target), self);
             return true;
         }
 
@@ -51,16 +52,17 @@ public class HeadCommand implements OreoCommand, org.bukkit.command.TabCompleter
         SkullMeta meta = (SkullMeta) skull.getItemMeta();
         if (meta != null) {
             meta.setOwnerProfile(prof);
-            meta.setDisplayName(ChatColor.AQUA + (prof.getName() != null ? prof.getName() : target) + ChatColor.GRAY + "'s Head");
+            String shown = prof.getName() != null ? prof.getName() : target;
+            meta.setDisplayName(Lang.color("§b" + shown + "§7's Head"));
             skull.setItemMeta(meta);
         }
 
         HashMap<Integer, ItemStack> leftover = self.getInventory().addItem(skull);
         if (!leftover.isEmpty()) {
             self.getWorld().dropItemNaturally(self.getLocation(), skull);
-            self.sendMessage(ChatColor.YELLOW + "Inventory full—dropped the head at your feet.");
+            Lang.send(self, "admin.head.dropped", null, self);
         } else {
-            self.sendMessage(ChatColor.GREEN + "Gave you " + ChatColor.AQUA + target + ChatColor.GREEN + "'s head.");
+            Lang.send(self, "admin.head.given", Map.of("target", target), self);
         }
         return true;
     }

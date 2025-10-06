@@ -1,14 +1,14 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/TpCommand.java
 package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
+import java.util.Map;
 
 public class TpCommand implements OreoCommand {
 
@@ -20,33 +20,43 @@ public class TpCommand implements OreoCommand {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        if (args.length == 0 || args.length > 2) return false;
+        if (args.length == 0 || args.length > 2) {
+            Lang.send(sender, "admin.tp.usage", Map.of("label", label), null);
+            return true;
+        }
 
         if (args.length == 1) {
-            // /tp <player>  (sender -> player) [player-only]
             if (!(sender instanceof Player p)) {
-                sender.sendMessage(ChatColor.RED + "Console: /tp <player> <target>");
+                Lang.send(sender, "admin.tp.console-usage", Map.of("label", label), null);
                 return true;
             }
             Player to = Bukkit.getPlayerExact(args[0]);
-            if (to == null) { p.sendMessage(ChatColor.RED + "Player not found."); return true; }
+            if (to == null) {
+                Lang.send(p, "admin.tp.not-found", Map.of("target", args[0]), p);
+                return true;
+            }
             p.teleport(to.getLocation());
-            p.sendMessage(ChatColor.GREEN + "Teleported to " + ChatColor.AQUA + to.getName());
+            Lang.send(p, "admin.tp.self", Map.of("target", to.getName()), p);
             return true;
         }
 
-        // /tp <player> <target>  (admin: teleport player -> target)
         Player from = Bukkit.getPlayerExact(args[0]);
         Player to   = Bukkit.getPlayerExact(args[1]);
         if (from == null || to == null) {
-            sender.sendMessage(ChatColor.RED + "Player not found.");
+            Lang.send(sender, "admin.tp.not-found-either",
+                    Map.of("from", args[0], "to", args[1]), null);
             return true;
         }
-        Location dest = to.getLocation(); // force Location to avoid any ambiguity
+        Location dest = to.getLocation();
         from.teleport(dest);
-        sender.sendMessage(ChatColor.GREEN + "Teleported " + ChatColor.AQUA + from.getName()
-                + ChatColor.GREEN + " to " + ChatColor.AQUA + to.getName());
-        if (!from.equals(sender)) from.sendMessage(ChatColor.YELLOW + "You were teleported to " + to.getName());
+
+        Lang.send(sender, "admin.tp.other",
+                Map.of("from", from.getName(), "to", to.getName()), null);
+
+        if (!from.equals(sender)) {
+            Lang.send(from, "admin.tp.notice",
+                    Map.of("to", to.getName()), from);
+        }
         return true;
     }
 }

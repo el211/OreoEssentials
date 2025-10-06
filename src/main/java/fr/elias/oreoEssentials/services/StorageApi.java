@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public interface StorageApi {
+
     // spawn
     void setSpawn(Location loc);
     Location getSpawn();

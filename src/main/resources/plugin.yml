@@ -2,11 +2,15 @@ name: OreoEssentials
 version: "1.0-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
 api-version: "1.21"
+description: "All-in-one essentials plugin with kits, economy, chat, and QoL."
+authors: [ "elias" ]
 
 softdepend:
   - Vault
   - PlaceholderAPI
   - ItemsAdder
+  - SmartInvs
+  - PacketEvents
 
 commands:
   spawn:
@@ -53,7 +57,7 @@ commands:
 
   homes:
     description: List your homes or teleport to one
-    aliases: [listhomes]
+    aliases: [ listhomes ]
     permission: oreo.homes
     usage: "/homes [name]"
 
@@ -91,7 +95,7 @@ commands:
 
   reply:
     description: Reply to the last private message
-    aliases: [r]
+    aliases: [ r ]
     permission: oreo.msg
 
   broadcast:
@@ -145,7 +149,7 @@ commands:
 
   vanish:
     description: Toggle vanish (hide from players and mobs)
-    aliases: [v]
+    aliases: [ v ]
     permission: oreo.vanish
     usage: "/vanish [on|off]"
 
@@ -176,7 +180,7 @@ commands:
 
   afelius:
     description: Reload Afelius chat configs
-    aliases: [af]
+    aliases: [ af ]
     permission: oreo.afelius.reload
     usage: "/afelius reload <all|config|chat-format>"
 
@@ -198,41 +202,37 @@ commands:
 
   oeserver:
     description: Switch to another server on the proxy
-    aliases: [server]
+    aliases: [ server ]
     permission: oreo.server
     usage: "/oeserver <server>"
 
-  # NEW: skin/clone/head
-  skin:
-    description: Apply another player's skin to yourself (supports offline names)
-    permission: oreo.skin
-    usage: "/skin <player>"
-
-  clone:
-    description: Clone another player's identity (skin + display name if supported)
-    permission: oreo.clone
-    usage: "/clone <player>"
 
   head:
     description: Give yourself a player head of the specified player
     permission: oreo.head
     usage: "/head <player>"
 
-  # NEW: nick
+  # Nicknames
   nick:
     description: Change your displayed name (chat + tab) or reset it
     permission: oreo.nick
     usage: "/nick <newName> | /nick unnick"
 
-  # NEW: kits
+  # Kits
   kits:
     description: Open the kits GUI
     permission: oreo.kits.open
     usage: "/kits"
+
   kit:
     description: Claim a specific kit by name
     permission: oreo.kit.claim
     usage: "/kit <name>"
+
+  tphere:
+    description: Teleport a player to your location
+    permission: oreo.tphere
+    usage: "/tphere <player>"
 
 permissions:
   oreo.*:
@@ -287,6 +287,8 @@ permissions:
       oreo.kits.open: true
       oreo.kit.claim: true
       oreo.kit.bypasscooldown: true
+      oreo.tphere: { default: op }
+
       # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
       rabbiteconomy.money.take: true
@@ -345,9 +347,8 @@ permissions:
   oreo.god: { default: op }
   oreo.afelius.reload: { default: op }
 
-  # New cosmetic commands
-  oreo.skin: { default: op }
-  oreo.clone: { default: op }
+  # Cosmetic / identities
+
   oreo.head: { default: op }
   oreo.nick: { default: op }
 

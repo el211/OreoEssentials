@@ -3,19 +3,19 @@ package fr.elias.oreoEssentials.commands.ecocommands;
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
+import fr.elias.oreoEssentials.util.Lang;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.List;
-import java.util.Locale;
-import java.util.UUID;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.util.*;
 
 public class PayCommand implements OreoCommand {
 
@@ -28,86 +28,76 @@ public class PayCommand implements OreoCommand {
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player from)) {
-            sender.sendMessage(ChatColor.RED + "Only players can use /" + label + ".");
+            sender.sendMessage(Lang.msg("economy.pay.usage", null, null));
             return true;
         }
         if (args.length < 2) {
-            sender.sendMessage(ChatColor.YELLOW + "Usage: /" + label + " <player> <amount>");
+            from.sendMessage(Lang.msg("economy.pay.usage", null, from));
             return true;
         }
 
         Economy econ = OreoEssentials.get().getVaultEconomy();
         if (econ == null) {
-            sender.sendMessage(ChatColor.RED + "Economy is not available.");
+            from.sendMessage(Lang.msg("economy.errors.no-economy", null, from));
             return true;
         }
 
-        // Resolve target as OfflinePlayer (works cross-server)
         OfflinePlayer target = resolveOffline(args[0]);
         if (target == null || (target.getName() == null && !target.hasPlayedBefore())) {
-            sender.sendMessage(ChatColor.RED + "Player not found: " + args[0]);
+            from.sendMessage(Lang.msg("economy.errors.player-not-found", Map.of("target", args[0]), from));
             return true;
         }
         if (from.getUniqueId().equals(target.getUniqueId())) {
-            sender.sendMessage(ChatColor.RED + "You can't pay yourself.");
+            from.sendMessage(Lang.msg("economy.pay.self", null, from));
             return true;
         }
 
-        // Parse amount safely (no scientific / negatives)
-        double amount;
-        try {
-            String raw = args[1].replace(",", "").toLowerCase(Locale.ROOT);
-            if (raw.startsWith("-") || raw.contains("e")) throw new NumberFormatException();
-            amount = new BigDecimal(raw).setScale(2, RoundingMode.DOWN).doubleValue();
-        } catch (Exception ex) {
-            sender.sendMessage(ChatColor.RED + "Invalid amount. Example: 10 or 10.50");
-            return true;
-        }
-        if (amount <= 0) {
-            sender.sendMessage(ChatColor.RED + "Amount must be greater than zero.");
+        Double amount = parseAmount(args[1]);
+        if (amount == null || amount <= 0) {
+            from.sendMessage(Lang.msg("economy.errors.not-a-number", null, from));
             return true;
         }
 
         double balance = econ.getBalance(from);
         if (balance + 1e-9 < amount) {
-            sender.sendMessage(ChatColor.RED + "Insufficient funds.");
-            sender.sendMessage(ChatColor.GRAY + "Your balance: " + ChatColor.GREEN + econ.format(balance));
+            from.sendMessage(Lang.msg("economy.pay.fail-insufficient",
+                    Map.of("amount_formatted", fmt(amount), "currency_symbol", currencySymbol()), from));
             return true;
         }
 
-        // Ensure target account exists for providers that need it
         try { if (!econ.hasAccount(target)) econ.createPlayerAccount(target); } catch (Throwable ignored) {}
 
         EconomyResponse w = econ.withdrawPlayer(from, amount);
         if (w == null || w.type != EconomyResponse.ResponseType.SUCCESS) {
-            sender.sendMessage(ChatColor.RED + "Could not withdraw funds: " + (w != null ? w.errorMessage : "unknown error"));
+            from.sendMessage(Lang.msg("economy.errors.no-economy", null, from));
             return true;
         }
-
         EconomyResponse d = econ.depositPlayer(target, amount);
         if (d == null || d.type != EconomyResponse.ResponseType.SUCCESS) {
-            econ.depositPlayer(from, amount); // refund on failure
-            sender.sendMessage(ChatColor.RED + "Could not deposit funds: " + (d != null ? d.errorMessage : "unknown error"));
+            econ.depositPlayer(from, amount); // refund
+            from.sendMessage(Lang.msg("economy.errors.no-economy", null, from));
             return true;
         }
 
         String targetName = target.getName() != null ? target.getName() : args[0];
-        sender.sendMessage(ChatColor.GREEN + "Sent " + ChatColor.YELLOW + econ.format(amount)
-                + ChatColor.GREEN + " to " + ChatColor.AQUA + targetName + ChatColor.GREEN + ".");
+
+        from.sendMessage(Lang.msg("economy.pay.success-sender",
+                Map.of("target", targetName, "amount_formatted", fmt(amount), "currency_symbol", currencySymbol()),
+                from));
 
         if (target.isOnline() && target.getPlayer() != null) {
-            target.getPlayer().sendMessage(ChatColor.GREEN + "You received "
-                    + ChatColor.YELLOW + econ.format(amount)
-                    + ChatColor.GREEN + " from " + ChatColor.AQUA + from.getName());
+            target.getPlayer().sendMessage(Lang.msg("economy.pay.success-receiver",
+                    Map.of("player", from.getName(), "amount_formatted", fmt(amount), "currency_symbol", currencySymbol()),
+                    target.getPlayer()));
         }
 
-        // Learn mapping in cache for future /pay tab-complete
+        // cache
         OfflinePlayerCache cache = OreoEssentials.get().getOfflinePlayerCache();
-        if (cache != null && target.getUniqueId() != null && targetName != null) {
-            cache.add(targetName, target.getUniqueId());
-        }
+        if (cache != null && target.getUniqueId() != null && targetName != null) cache.add(targetName, target.getUniqueId());
         return true;
     }
+
+    /* ---------- helpers ---------- */
 
     private OfflinePlayer resolveOffline(String nameOrUuid) {
         Player p = Bukkit.getPlayerExact(nameOrUuid);
@@ -123,5 +113,33 @@ public class PayCommand implements OreoCommand {
         catch (IllegalArgumentException ignored) {}
 
         return Bukkit.getOfflinePlayer(nameOrUuid);
+    }
+
+    private Double parseAmount(String rawIn) {
+        try {
+            String raw = rawIn.replace(",", "").trim();
+            if (raw.startsWith("-") || raw.toLowerCase(Locale.ROOT).contains("e")) return null;
+            int decimals = (int) Math.round(Lang.getDouble("economy.format.decimals", 2.0));
+            return new BigDecimal(raw).setScale(decimals, RoundingMode.DOWN).doubleValue();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String fmt(double v) {
+        int decimals = (int) Math.round(Lang.getDouble("economy.format.decimals", 2.0));
+        String th = Lang.get("economy.format.thousands-separator", ",");
+        String dec = Lang.get("economy.format.decimal-separator", ".");
+        String pattern = "#,##0" + (decimals > 0 ? "." + "0".repeat(decimals) : "");
+        DecimalFormatSymbols sym = new DecimalFormatSymbols(Locale.US);
+        if (!th.isEmpty()) sym.setGroupingSeparator(th.charAt(0));
+        if (!dec.isEmpty()) sym.setDecimalSeparator(dec.charAt(0));
+        DecimalFormat df = new DecimalFormat(pattern, sym);
+        df.setGroupingUsed(!th.isEmpty());
+        return df.format(v);
+    }
+
+    private String currencySymbol() {
+        return Lang.get("economy.currency.symbol", "$");
     }
 }

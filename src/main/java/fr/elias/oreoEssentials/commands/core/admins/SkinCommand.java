@@ -1,7 +1,10 @@
+// src/main/java/fr/elias/oreoEssentials/commands/core/admins/SkinCommand.java
 package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.util.MojangSkinFetcher;
+import fr.elias.oreoEssentials.util.SkinDebug;
+import fr.elias.oreoEssentials.util.SkinRefresh;
 import fr.elias.oreoEssentials.util.SkinUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -30,28 +33,35 @@ public class SkinCommand implements OreoCommand, org.bukkit.command.TabCompleter
             return true;
         }
         String target = args[0];
+        SkinDebug.p(self, "Resolving skin for '" + target + "'…");
 
-        // 1) Online profile first
         PlayerProfile src = SkinUtil.onlineProfileOf(target);
-
-        // 2) If not online, fetch from Mojang
         if (src == null) {
+            SkinDebug.p(self, "Target not online. Fetching UUID from Mojang…");
             UUID u = MojangSkinFetcher.fetchUuid(target);
-            if (u != null) src = MojangSkinFetcher.fetchProfileWithTextures(u, target);
+            SkinDebug.p(self, "fetchUuid returned: " + u);
+            if (u != null) {
+                src = MojangSkinFetcher.fetchProfileWithTextures(u, target);
+                SkinDebug.p(self, "fetchProfileWithTextures returned: " + (src != null));
+            }
         }
 
         if (src == null) {
             self.sendMessage(ChatColor.RED + "Could not resolve " + target + "'s skin.");
+            SkinDebug.p(self, "Resolution failed—aborting.");
             return true;
         }
 
         PlayerProfile mine = self.getPlayerProfile();
         SkinUtil.copyTextures(src, mine);
-        boolean ok = SkinUtil.applyProfile(self, mine);
+        boolean applied = SkinUtil.applyProfile(self, mine);
 
-        if (!ok) {
+        SkinDebug.p(self, "applyProfile=" + applied + " ; triggering SkinRefresh…");
+        SkinRefresh.refresh(self);
+
+        if (!applied) {
             self.sendMessage(ChatColor.GREEN + "Applied skin data internally, but your server build doesn't support live skin change without extra libs.");
-            self.sendMessage(ChatColor.GRAY + "Tip: Use Paper/Purpur or LibsDisguises for full live updates.");
+            self.sendMessage(ChatColor.GRAY + "Tip: Use PacketEvents or LibsDisguises for full live updates.");
         } else {
             self.sendMessage(ChatColor.GREEN + "Your skin is now " + ChatColor.AQUA + target + ChatColor.GREEN + ".");
         }

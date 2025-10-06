@@ -1,6 +1,7 @@
 // File: src/main/java/fr/elias/oreoEssentials/OreoEssentials.java
 package fr.elias.oreoEssentials;
 
+import com.mongodb.client.MongoClients;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
 // Core commands (essentials-like)
@@ -16,7 +17,11 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpAcceptCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
+import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
+import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.util.Lang;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClient;
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
@@ -54,22 +59,6 @@ import fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket;
 import fr.elias.oreoEssentials.rabbitmq.sender.RabbitMQSender;
 
 // Services
-import fr.elias.oreoEssentials.services.BackService;
-import fr.elias.oreoEssentials.services.ConfigService;
-import fr.elias.oreoEssentials.services.DeathBackService;
-import fr.elias.oreoEssentials.services.FreezeService;
-import fr.elias.oreoEssentials.services.GodService;
-import fr.elias.oreoEssentials.services.HomeService;
-import fr.elias.oreoEssentials.services.MessageService;
-import fr.elias.oreoEssentials.services.MuteService;
-import fr.elias.oreoEssentials.services.SpawnService;
-import fr.elias.oreoEssentials.services.StorageApi;
-import fr.elias.oreoEssentials.services.TeleportService;
-import fr.elias.oreoEssentials.services.VanishService;
-import fr.elias.oreoEssentials.services.WarpService;
-import fr.elias.oreoEssentials.services.JsonStorage;
-import fr.elias.oreoEssentials.services.MongoStorage;
-import fr.elias.oreoEssentials.services.YamlStorage;
 import fr.minuskube.inv.InventoryManager;
 
 // Chat (Afelius merge)
@@ -96,11 +85,13 @@ public final class OreoEssentials extends JavaPlugin {
     private MuteService muteService;
     public MuteService getMuteService() { return muteService; }
     // Economy bridge (internal) — distinct from Vault Economy
+    private MongoClient homesMongoClient; // <— add this
+
     private EconomyBootstrap ecoBootstrap;
     // add near other services
     private fr.elias.oreoEssentials.integration.DiscordModerationNotifier discordMod;
     public fr.elias.oreoEssentials.integration.DiscordModerationNotifier getDiscordMod() { return discordMod; }
-
+    private fr.elias.oreoEssentials.services.HomeDirectory homeDirectory; // cross-server directory
     // Essentials services
     private ConfigService configService;
     private StorageApi storage;
@@ -143,53 +134,65 @@ public final class OreoEssentials extends JavaPlugin {
     private FormatManager chatFormatManager;
     private ChatSyncManager chatSyncManager;
 
+    private fr.elias.oreoEssentials.homes.HomeTeleportBroker homeTpBroker;
+
 
 
 
     @Override
     public void onEnable() {
+        // -------- Boot & base singletons --------
         instance = this;
         saveDefaultConfig();
+
+        // Skins init (your utilities)
+        fr.elias.oreoEssentials.util.SkinRefresherBootstrap.init(this);
+        fr.elias.oreoEssentials.util.SkinDebug.init(this);
+
+        // Locales
         Lang.init(this);
 
-        // Allow sending plugin messages to the proxy for server switching
-        getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");      // works on Bungee + Velocity
-        // Optional extra: some setups also listen to the lowercase ID
+        // -------- Proxy plugin messaging (server switching) --------
+        // Works with BungeeCord & Velocity; do not remove.
+        getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
         getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
         ProxyMessenger proxyMessenger = new ProxyMessenger(this);
+
+        // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
         this.invManager.init();
-        // Discord Moderation notifier (separate config: discord-integration.yml)
+
+        // Discord moderation notifier (separate config)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
+
+        // Kits & Tab
         this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);
         new fr.elias.oreoEssentials.kits.KitCommands(this, kitsManager);
         this.tabListManager = new fr.elias.oreoEssentials.tab.TabListManager(this);
-        // --- Moderation/services (create early so chat can use it) ---
+
+        // -------- Moderation core needed by chat --------
         muteService = new MuteService(this);
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
-        // --- Chat merge (Afelius) ---
+
+        // -------- Chat system (Afelius merge) --------
         this.chatConfig = new fr.elias.oreoEssentials.chat.CustomConfig(this, "chat-format.yml");
         this.chatFormatManager = new fr.elias.oreoEssentials.chat.FormatManager(chatConfig);
-        // Register custom join messages (independent of economy)
+
+        // Custom join messages
         getServer().getPluginManager().registerEvents(new JoinMessagesListener(this), this);
 
-        // Chat sync (RabbitMQ) optional — init FIRST
-        // BEFORE you register the chat listener, after you create MuteService muteService = new MuteService(this);
-        // --- Chat sync (RabbitMQ) optional — init FIRST (now with muteService) ---
+        // Chat sync via RabbitMQ (optional) — init before listener, pass mute service
         boolean chatSyncEnabled = chatConfig.getCustomConfig().getBoolean("MongoDB_rabbitmq.enabled", false);
-        String rabbitUri = chatConfig.getCustomConfig().getString("MongoDB_rabbitmq.rabbitmq.uri", "");
+        String chatRabbitUri    = chatConfig.getCustomConfig().getString("MongoDB_rabbitmq.rabbitmq.uri", "");
         try {
-            this.chatSyncManager = new ChatSyncManager(chatSyncEnabled, rabbitUri, muteService); // <-- pass muteService
+            this.chatSyncManager = new ChatSyncManager(chatSyncEnabled, chatRabbitUri, muteService);
             if (chatSyncEnabled) this.chatSyncManager.subscribeMessages();
         } catch (Exception e) {
             getLogger().severe("ChatSync init failed: " + e.getMessage());
-            this.chatSyncManager = new ChatSyncManager(false, "", muteService); // <-- still pass it
+            this.chatSyncManager = new ChatSyncManager(false, "", muteService);
         }
 
-
-
-        // Discord toggle + URL (single source of truth)
-        // --- Discord toggle + URL ---
+        // Discord relay (read from chat-format.yml)
         var chatRoot = chatConfig.getCustomConfig().getConfigurationSection("chat");
         boolean discordEnabled = chatRoot != null
                 && chatRoot.getConfigurationSection("discord") != null
@@ -198,7 +201,7 @@ public final class OreoEssentials extends JavaPlugin {
                 ? chatRoot.getConfigurationSection("discord").getString("webhook_url", "")
                 : "";
 
-        // --- Register chat listener (mute-aware) ---
+        // Register async chat listener (mute-aware)
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(
                         chatFormatManager,
@@ -206,48 +209,64 @@ public final class OreoEssentials extends JavaPlugin {
                         chatSyncManager,
                         discordEnabled,
                         discordWebhookUrl,
-                        muteService // <-- IMPORTANT
+                        muteService
                 ),
                 this
         );
 
-
-
-        // Conversations (bot replies)
+        // Conversations / auto messages
         getServer().getPluginManager().registerEvents(new ConversationListener(this), this);
-
-        // Automatic messages
         new fr.elias.oreoEssentials.tasks.AutoMessageScheduler(this).start();
 
-        // Config + internal economy bootstrap
+        // -------- Core config service & internal economy bootstrap --------
         this.configService = new ConfigService(this);
-        this.ecoBootstrap = new EconomyBootstrap(this);
+        this.ecoBootstrap  = new EconomyBootstrap(this);
         this.ecoBootstrap.enable();
 
-        // Toggles
+        // -------- Feature toggles --------
         final String essentialsStorage = getConfig().getString("essentials.storage", "yaml").toLowerCase();
         final String economyType       = getConfig().getString("economy.type", "none").toLowerCase();
         this.economyEnabled = getConfig().getBoolean("economy.enabled", !economyType.equals("none"));
-        this.redisEnabled    = getConfig().getBoolean("redis.enabled", false);
-        this.rabbitEnabled   = getConfig().getBoolean("rabbitmq.enabled", false);
+        this.redisEnabled   = getConfig().getBoolean("redis.enabled", false);
+        this.rabbitEnabled  = getConfig().getBoolean("rabbitmq.enabled", false);
 
-        // Essentials storage selection
+        // -------- Essentials storage selection (Homes/Warps/Spawn/Back) --------
+        // Also sets up cross-server HomeDirectory when using MongoDB
         switch (essentialsStorage) {
             case "mongodb" -> {
-                this.storage = new MongoStorage(this, configService);
-                getLogger().info("Using MongoDB storage for essentials.");
+                String uri    = getConfig().getString("storage.mongo.uri", "mongodb://localhost:27017");
+                String dbName = getConfig().getString("storage.mongo.database", "oreo");
+                String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
+                String localServerName = getConfig().getString("server.name", getServer().getName());
+
+                // Keep a client reference to close on disable
+                this.homesMongoClient = com.mongodb.client.MongoClients.create(uri);
+
+                // Mongo-backed StorageApi (handles spawn/warps/homes/back)
+                this.storage = new fr.elias.oreoEssentials.services.MongoHomesStorage(
+                        this.homesMongoClient, dbName, prefix, localServerName
+                );
+
+                // Cross-server home owner map
+                this.homeDirectory = new fr.elias.oreoEssentials.services.MongoHomeDirectory(
+                        this.homesMongoClient, dbName, prefix + "home_directory"
+                );
+
+                getLogger().info("Using MongoDB (MongoHomesStorage + MongoHomeDirectory) for essentials data.");
             }
             case "json" -> {
-                this.storage = new JsonStorage(this);
+                this.storage       = new fr.elias.oreoEssentials.services.JsonStorage(this);
+                this.homeDirectory = null; // not supported on JSON
                 getLogger().info("Using JSON storage for essentials.");
             }
             default -> {
-                this.storage = new YamlStorage(this);
+                this.storage       = new fr.elias.oreoEssentials.services.YamlStorage(this);
+                this.homeDirectory = null; // not supported on YAML
                 getLogger().info("Using YAML storage for essentials.");
             }
         }
 
-        // Redis (optional)
+        // -------- Redis cache (optional; for economy caches, etc.) --------
         if (redisEnabled) {
             this.redis = new RedisManager(
                     getConfig().getString("redis.host", "localhost"),
@@ -260,15 +279,15 @@ public final class OreoEssentials extends JavaPlugin {
                 getLogger().info("Connected to Redis.");
             }
         } else {
-            // Create a dummy instance to avoid null checks
+            // Dummy instance prevents null checks in your economy classes
             this.redis = new RedisManager("", 6379, "");
             getLogger().info("Redis disabled.");
         }
 
+        // Offline player cache
         this.offlinePlayerCache = new OfflinePlayerCache();
 
-
-        // Economy stack (DB + Vault provider)
+        // -------- Economy (DB backends) & Vault registration --------
         if (economyEnabled) {
             this.database = null;
             switch (economyType) {
@@ -302,7 +321,7 @@ public final class OreoEssentials extends JavaPlugin {
                 }
                 case "json" -> {
                     JsonEconomyDatabase mgr = new JsonEconomyDatabase(this, redis);
-                    boolean ok = mgr.connect("", "", ""); // JSON impl ignores args
+                    boolean ok = mgr.connect("", "", ""); // JSON ignores args
                     if (!ok) {
                         getLogger().severe("JSON economy init failed. Disabling plugin.");
                         getServer().getPluginManager().disablePlugin(this);
@@ -333,18 +352,17 @@ public final class OreoEssentials extends JavaPlugin {
                     getLogger().info("Vault economy integration enabled.");
                 }
 
-                // Listeners for economy player data
+                // Listeners for economy player data + join/quit packets
                 Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
                 Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
-
 
                 // Preload offline cache & refresh periodically
                 this.database.populateCache(offlinePlayerCache);
                 Bukkit.getScheduler().runTaskTimerAsynchronously(
                         this,
                         () -> this.database.populateCache(offlinePlayerCache),
-                        20L * 60,      // 1 minute after start
-                        20L * 300      // every 5 minutes
+                        20L * 60,    // 1 minute after start
+                        20L * 300    // every 5 minutes
                 );
 
                 // Economy commands
@@ -353,18 +371,9 @@ public final class OreoEssentials extends JavaPlugin {
                     getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
                 }
 
-                // /pay (core.PayCommand uses ecoBootstrap)
-// --- Economy commands ---
                 if (getCommand("pay") != null) {
-                    // Use the new Vault-backed PayCommand (no ecoBootstrap arg)
-                    fr.elias.oreoEssentials.commands.ecocommands.PayCommand payCmd =
-                            new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
-
-                    // Hook executor via your OreoCommand adapter
-                    getCommand("pay").setExecutor((sender, cmd, label, args) ->
-                            payCmd.execute(sender, label, args));
-
-                    // Use the dedicated completer for cross-server/offline names
+                    var payCmd = new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
+                    getCommand("pay").setExecutor((sender, cmd, label, args) -> payCmd.execute(sender, label, args));
                     getCommand("pay").setTabCompleter(
                             new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
                     );
@@ -374,11 +383,12 @@ public final class OreoEssentials extends JavaPlugin {
 
                 if (getCommand("cheque") != null) {
                     getCommand("cheque").setExecutor(new fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand(this));
-                    getCommand("cheque").setTabCompleter(new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter());
+                    getCommand("cheque").setTabCompleter(
+                            new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter()
+                    );
                 } else {
                     getLogger().warning("Command 'cheque' not found in plugin.yml; skipping registration.");
                 }
-
             } else {
                 getLogger().warning("Economy enabled but no database selected/connected; economy commands will be unavailable.");
             }
@@ -386,16 +396,48 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("Economy disabled. Skipping Vault, DB, and economy commands.");
         }
 
-        // RabbitMQ (optional)
+        // -------- RabbitMQ (optional cross-server signaling) --------
         if (rabbitEnabled) {
             RabbitMQSender rabbit = new RabbitMQSender(getConfig().getString("rabbitmq.uri"));
             this.packetManager = new PacketManager(this, rabbit);
             if (rabbit.connect()) {
                 packetManager.init();
                 packetManager.subscribeChannel(PacketChannels.GLOBAL);
-                packetManager.subscribe(SendRemoteMessagePacket.class, new RemoteMessagePacketHandler());
-                packetManager.subscribe(PlayerJoinPacket.class, new PlayerJoinPacketHandler(this));
-                packetManager.subscribe(PlayerQuitPacket.class, new PlayerQuitPacketHandler(this));
+
+                // Cross-server home teleport request (coordinate with proxy switch)
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket.class,
+                        (channel, pkt) -> {
+                            String thisServer = getConfig().getString("server.name", getServer().getName());
+                            if (!thisServer.equalsIgnoreCase(pkt.getTargetServer())) return;
+
+                            var player = getServer().getPlayer(pkt.getPlayerId());
+                            if (player != null && player.isOnline()) {
+                                var loc = getHomeService().getHome(pkt.getPlayerId(), pkt.getHomeName());
+                                if (loc != null) player.teleport(loc);
+                            } else {
+                                // Optionally store a pending teleport to complete on PlayerJoin
+                            }
+                        }
+                );
+
+
+
+
+                // Generic packets you already use
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
+                        new RemoteMessagePacketHandler()
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerJoinPacket.class,
+                        new PlayerJoinPacketHandler(this)
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerQuitPacket.class,
+                        new PlayerQuitPacketHandler(this)
+                );
+
                 getLogger().info("RabbitMQ connected and subscriptions active.");
             } else {
                 getLogger().severe("RabbitMQ connect failed; continuing without messaging.");
@@ -405,28 +447,86 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("RabbitMQ disabled.");
         }
 
-        // Essentials services
-        this.spawnService     = new SpawnService(storage);
-        this.warpService      = new WarpService(storage);
-        this.homeService      = new HomeService(storage, configService);
+        // -------- Essentials Services --------
+        this.spawnService = new SpawnService(storage);
+        this.warpService  = new WarpService(storage);
+        this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
+        // Create the cross-server home broker AFTER homeService is ready and ONLY if RabbitMQ is up
+        if (packetManager != null) {
+            this.homeTpBroker = new fr.elias.oreoEssentials.homes.HomeTeleportBroker(this, homeService, packetManager);
+
+            // (Optional but recommended) run pending teleports when player joins this server
+// after creating homeTpBroker
+            org.bukkit.Bukkit.getPluginManager().registerEvents(new org.bukkit.event.Listener() {
+                @org.bukkit.event.EventHandler
+                public void onJoin(org.bukkit.event.player.PlayerJoinEvent e) {
+                    homeTpBroker.onJoin(e); // <-- pass the event, not the UUID
+                }
+            }, this);
+
+        }
+
         this.backService      = new BackService(storage);
         this.messageService   = new MessageService();
         this.teleportService  = new TeleportService(this, backService, configService);
         this.deathBackService = new DeathBackService();
         this.godService       = new GodService();
 
-        // Moderation/services
+
+        // -------- Moderation listeners --------
         FreezeService freezeService = new FreezeService();
-        getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.listeners.FreezeListener(freezeService), this);
+        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.FreezeListener(freezeService), this);
         VanishService vanishService = new VanishService(this);
-        // --- Command manager & registrations (init FIRST, then register) ---
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.listeners.VanishListener(vanishService, this), this
+        );
+
+        // Track locations for /back + /deathback + god protection
+        getServer().getPluginManager().registerEvents(new PlayerTrackingListener(backService), this);
+        getServer().getPluginManager().registerEvents(new DeathBackListener(deathBackService), this);
+        getServer().getPluginManager().registerEvents(new GodListener(godService), this);
+
+        // -------- Portals --------
+        var portalsManager = new fr.elias.oreoEssentials.portals.PortalsManager(this);
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.portals.PortalsListener(portalsManager), this
+        );
+        if (getCommand("portal") != null) {
+            var portalCmd = new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager);
+            getCommand("portal").setExecutor(portalCmd);
+            getCommand("portal").setTabCompleter(portalCmd);
+        }
+
+        // -------- JumpPads --------
+        var jumpPadsManager = new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.jumpads.JumpPadsListener(jumpPadsManager), this
+        );
+        if (getCommand("jumpad") != null) {
+            var jumpCmd = new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager);
+            getCommand("jumpad").setExecutor(jumpCmd);
+            getCommand("jumpad").setTabCompleter(jumpCmd);
+        }
+
+        // -------- Commands (manager then registrations) --------
         this.commands = new CommandManager(this);
+
+        // Admin tphere (with tab)
+        var tphere = new fr.elias.oreoEssentials.commands.core.admins.TphereCommand();
+        this.commands.register(tphere);
+        if (getCommand("tphere") != null) {
+            getCommand("tphere").setTabCompleter(tphere);
+        }
+
+        // Mute/Unmute (need chatSyncManager)
         var muteCmd   = new MuteCommand(muteService, chatSyncManager);
         var unmuteCmd = new UnmuteCommand(muteService, chatSyncManager);
+
+        // Nick (has completer)
         var nickCmd = new fr.elias.oreoEssentials.commands.core.playercommands.NickCommand();
         this.commands.register(nickCmd);
 
+        // Register all remaining commands
         this.commands
                 .register(new SpawnCommand(spawnService))
                 .register(new SetSpawnCommand(spawnService))
@@ -449,9 +549,7 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new HomesCommand(homeService))
                 .register(new DeathBackCommand(deathBackService))
                 .register(new GodCommand(godService))
-                // Afelius chat reload command
                 .register(new AfeliusReloadCommand(this, chatConfig))
-                // Admin / utility
                 .register(new TpCommand())
                 .register(new VanishCommand(vanishService))
                 .register(new BanCommand())
@@ -466,79 +564,29 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new SkinCommand())
                 .register(new CloneCommand())
                 .register(new HeadCommand());
+
+        // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
         }
-        if (getCommand("skin") != null)
-            getCommand("skin").setTabCompleter(new SkinCommand());
-        if (getCommand("clone") != null)
-            getCommand("clone").setTabCompleter(new CloneCommand());
-        if (getCommand("head") != null)
-            getCommand("head").setTabCompleter(new HeadCommand());
-
-        // Tab completions for /home and /warp
-        if (getCommand("home") != null) {
-            getCommand("home").setTabCompleter(new HomeTabCompleter(homeService));
-        }
-        if (getCommand("warp") != null) {
-            getCommand("warp").setTabCompleter(new WarpTabCompleter(warpService));
-        }
-        if (getCommand("enchant") != null) {
+        if (getCommand("skin") != null)   getCommand("skin").setTabCompleter(new SkinCommand());
+        if (getCommand("clone") != null)  getCommand("clone").setTabCompleter(new CloneCommand());
+        if (getCommand("head") != null)   getCommand("head").setTabCompleter(new HeadCommand());
+        if (getCommand("home") != null)   getCommand("home").setTabCompleter(new HomeTabCompleter(homeService));
+        if (getCommand("warp") != null)   getCommand("warp").setTabCompleter(new WarpTabCompleter(warpService));
+        if (getCommand("enchant") != null)
             getCommand("enchant").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.EnchantTabCompleter());
-        }
-        if (getCommand("mute") != null) {
-            getCommand("mute").setTabCompleter(muteCmd);
-        }
-        if (getCommand("unban") != null) {
-            getCommand("unban").setTabCompleter(new UnbanCommand());
-        }
-        if (getCommand("nick") != null) {
-            getCommand("nick").setTabCompleter(nickCmd);
-        }
-        if (getCommand("unmute") != null) {
-            getCommand("unmute").setTabCompleter(unmuteCmd);
-        }
+        if (getCommand("mute") != null)   getCommand("mute").setTabCompleter(muteCmd);
+        if (getCommand("unban") != null)  getCommand("unban").setTabCompleter(new UnbanCommand());
+        if (getCommand("nick") != null)   getCommand("nick").setTabCompleter(nickCmd);
+        if (getCommand("unmute") != null) getCommand("unmute").setTabCompleter(unmuteCmd);
 
-
-
-        // PlaceholderAPI expansion (optional; reflection-based to avoid hard dep)
+        // -------- PlaceholderAPI hook (optional; reflection) --------
         tryRegisterPlaceholderAPI();
-
-        // Listeners (tracking for /back, death location for /deathback, god mode protection, vanish)
-        getServer().getPluginManager().registerEvents(new PlayerTrackingListener(backService), this);
-        getServer().getPluginManager().registerEvents(new DeathBackListener(deathBackService), this);
-        getServer().getPluginManager().registerEvents(new GodListener(godService), this);
-        getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.listeners.VanishListener(vanishService, this), this
-        );
-
-        // --- Portals ---
-        fr.elias.oreoEssentials.portals.PortalsManager portalsManager =
-                new fr.elias.oreoEssentials.portals.PortalsManager(this);
-        getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.portals.PortalsListener(portalsManager), this);
-        if (getCommand("portal") != null) {
-            fr.elias.oreoEssentials.portals.PortalsCommand portalCmd =
-                    new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager);
-            getCommand("portal").setExecutor(portalCmd);
-            getCommand("portal").setTabCompleter(portalCmd);
-        }
-
-        // --- JumpPads ---
-        fr.elias.oreoEssentials.jumpads.JumpPadsManager jumpPadsManager =
-                new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
-        getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.jumpads.JumpPadsListener(jumpPadsManager), this);
-        if (getCommand("jumpad") != null) {
-            fr.elias.oreoEssentials.jumpads.JumpPadsCommand jumpCmd =
-                    new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager);
-            getCommand("jumpad").setExecutor(jumpCmd);
-            getCommand("jumpad").setTabCompleter(jumpCmd);
-        }
-
 
         getLogger().info("OreoEssentials enabled.");
     }
+
 
     public boolean isMessagingAvailable() {
         return packetManager != null && packetManager.isInitialized();
@@ -555,6 +603,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (chatSyncManager != null) chatSyncManager.close(); } catch (Exception ignored) {}
         try { if (tabListManager != null) tabListManager.stop(); } catch (Exception ignored) {}
         try { if (kitsManager != null) kitsManager.saveData(); } catch (Exception ignored) {}
+        try { if (this.homesMongoClient != null) this.homesMongoClient.close(); } catch (Exception ignored) {}
+
         getLogger().info("OreoEssentials disabled.");
     }
 

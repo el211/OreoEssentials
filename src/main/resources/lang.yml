@@ -1,21 +1,28 @@
 # =========================================================
 # OreoEssentials — Language file
-# Section: Kits
-# Color codes: use '&' (e.g. &6, &a). \n for new line.
-# PAPI is supported wherever your code runs it (we already do for GUI).
-# Placeholders in this file (resolved by the plugin):
-#   %player%            -> executor's name
-#   %kit_id%            -> raw kit id (e.g. "starter")
-#   %kit_name%          -> display name from kits.yml
-#   %cooldown_left%     -> seconds left (humanized below if enabled)
-#   %cooldown_left_raw% -> integer seconds left, raw
+# Color codes: use '&' (e.g. &6, &a). Use \n for new lines.
+# Placeholders supported in most messages here:
+#   %prefix%                -> from general.prefix
+#   %label%                 -> the command label used (e.g. afelius)
+#   %player%                -> executor's name
+#   %target%                -> target player's name
+#   %amount%                -> raw amount string
+#   %amount_formatted%      -> formatted number (e.g. 1,234.56)
+#   %balance%               -> raw balance number
+#   %balance_formatted%     -> formatted balance number
+#   %currency_symbol%       -> from economy.currency.symbol
+#   %currency_name%         -> from economy.currency.name
+#   %currency_name_plural%  -> from economy.currency.name_plural
+#   %server_name%           -> Bukkit server name (if used by your code)
 # =========================================================
 
 general:
   prefix: "&6&lOreo&f&lEssentials &8» &r"
 
+# =========================================================
+# Kits
+# =========================================================
 kits:
-  # --- Command responses ---
   only-players: "%prefix%&cOnly players can use this."
   no-permission-open: "%prefix%&cYou don't have permission to open kits."
   no-permission-claim: "%prefix%&cYou don't have permission to claim kits."
@@ -29,8 +36,6 @@ kits:
   itemadder-missing: "%prefix%&cItemsAdder is not installed/enabled, skipping IA items for this kit."
   reloaded: "%prefix%&aKits configuration reloaded."
 
-  # --- GUI text (SmartInvs) ---
-  # Title is still controlled by kits.yml (menu.title), but we mirror text here for lore/buttons.
   gui:
     lore:
       claimable: |
@@ -51,8 +56,7 @@ kits:
         volume: 0.7
         pitch: 0.7
 
-  # --- Time humanization for %cooldown_left% ---
-  # If enabled, %cooldown_left% will render like "1h 5m 30s" instead of raw seconds.
+  # Time humanization for %cooldown_left%
   time:
     humanize: true
     units:
@@ -60,7 +64,136 @@ kits:
       hour: "h"
       minute: "m"
       second: "s"
-    # Smallest unit we show (second|minute)
     smallest-unit: "second"
-    # Max units to include (e.g., 2 => "1h 5m", 3 => "1h 5m 30s")
     max-chunks: 3
+
+# =========================================================
+# Economy
+# =========================================================
+economy:
+  currency:
+    symbol: "$"
+    name: "dollar"
+    name_plural: "dollars"
+
+  errors:
+    not-a-number: "%prefix%&cInvalid amount."
+    amount-not-positive: "%prefix%&cAmount must be positive."
+    player-not-found: "%prefix%&cPlayer not found: &e%target%&c."
+    self-target-disallowed: "%prefix%&cYou cannot do that to yourself."
+    no-economy: "%prefix%&cEconomy is not available."
+    insufficient-funds: "%prefix%&cInsufficient funds."
+    no-permission: "%prefix%&cYou don't have permission."
+
+  money:
+    usage:
+      view: "%prefix%&eUsage: &f/money &7[player]"
+      admin: "%prefix%&eUsage: &f/money &7<give|take|set> <player> <amount>"
+    view-self: "%prefix%&7Your balance: &a%currency_symbol%%balance_formatted%"
+    view-other: "%prefix%&7%target%'s balance: &a%currency_symbol%%balance_formatted%"
+    give:
+      sender: "%prefix%&aGave &f%currency_symbol%%amount_formatted% &ato &e%target%&a."
+      receiver: "%prefix%&aYou received &f%currency_symbol%%amount_formatted%&a. New balance: &a%currency_symbol%%balance_formatted%."
+    take:
+      sender: "%prefix%&aTook &f%currency_symbol%%amount_formatted% &afrom &e%target%&a."
+      receiver: "%prefix%&c&l%currency_symbol%%amount_formatted% &7was removed from your balance. New balance: &a%currency_symbol%%balance_formatted%."
+    set:
+      sender: "%prefix%&aSet &e%target%&a's balance to &f%currency_symbol%%amount_formatted%&a."
+      receiver: "%prefix%&7Your balance was set to &a%currency_symbol%%amount_formatted%."
+
+  pay:
+    usage: "%prefix%&eUsage: &f/pay &7<player> <amount>"
+    self: "%prefix%&cYou cannot pay yourself."
+    success-sender: "%prefix%&aPaid &b%target% &7%currency_symbol%%amount_formatted%&a."
+    success-receiver: "%prefix%&aYou received &7%currency_symbol%%amount_formatted% &afrom &b%player%&a."
+    fail-insufficient: "%prefix%&cYou don't have &f%currency_symbol%%amount_formatted%&c."
+
+  cheque:
+    usage:
+      root: "%prefix%&eUsage: &f/cheque &7<create|redeem> ..."
+      create: "%prefix%&eUsage: &f/cheque create &7<amount> [note]"
+      redeem: "%prefix%&eUsage: &f/cheque redeem"
+    create:
+      success: "%prefix%&aCreated a cheque for &f%currency_symbol%%amount_formatted%&a."
+      fail-amount: "%prefix%&cInvalid cheque amount."
+      fail-insufficient: "%prefix%&cYou need &f%currency_symbol%%amount_formatted%&c to create that cheque."
+    redeem:
+      success: "%prefix%&aRedeemed a cheque for &f%currency_symbol%%amount_formatted%&a. New balance: &a%currency_symbol%%balance_formatted%."
+      fail-none: "%prefix%&cYou are not holding a valid cheque."
+      fail-invalid: "%prefix%&cThis cheque is invalid or corrupted."
+
+  format:
+    thousands-separator: ","
+    decimal-separator: "."
+    decimals: 2
+
+# =========================================================
+# Admin / Utility command messages
+# =========================================================
+admin:
+  afelius:
+    usage: "%prefix%&eUsage: &f/%label% &7reload &8<&fall|config|chat-format&8>"
+    reloaded-all: "%prefix%&aAll configurations reloaded."
+    reloaded-config: "%prefix%&aMain config reloaded."
+    reloaded-chat: "%prefix%&achat-format.yml reloaded."
+    unknown-section: "%prefix%&cUnknown section. Use: &7%sections%"
+
+  enchant:
+    usage: "%prefix%&eUsage: &f/%label% &7<enchantment> [level] [unsafe] [ignoreConflicts]"
+    hold-item: "%prefix%&cHold the item you want to enchant."
+    unknown: "%prefix%&cUnknown enchantment: &e%input%&c."
+    too-high: "%prefix%&cMax level for &e%ench% &cis &e%max%&c. Use 'unsafe' or permission &eoreo.enchant.unsafe&c."
+    conflict: "%prefix%&cConflicts with &e%with%&c. Add 'ignoreConflicts' or get permission &eoreo.enchant.ignoreconflicts&c."
+    applied: "%prefix%&aApplied &b%ench% &7%level%&a."
+    failed: "%prefix%&cCould not apply enchantment: &7%reason%"
+
+  fly:
+    console-usage: "%prefix%&eUsage (console): &f/%label% &7<player>"
+    not-found: "%prefix%&cPlayer not found: &e%target%&c."
+    enabled: "%prefix%&aFlight enabled."
+    disabled: "%prefix%&cFlight disabled."
+    toggled-other: "%prefix%&eToggled flight for &b%target% &7(%state%)."
+
+  head:
+    usage: "%prefix%&eUsage: &f/%label% &7<player>"
+    cannot-resolve: "%prefix%&cCould not resolve &e%target%&c's head."
+    dropped: "%prefix%&eInventory full—dropped the head at your feet."
+    given: "%prefix%&aGave you &b%target%&a's head."
+
+  tp:
+    usage: "%prefix%&eUsage: &f/%label% &7<player> [target]"
+    console-usage: "%prefix%&eConsole usage: &f/%label% &7<player> <target>"
+    not-found: "%prefix%&cPlayer not found: &e%target%&c."
+    not-found-either: "%prefix%&cPlayer not found (&e%from%&c or &e%to%&c)."
+    self: "%prefix%&aTeleported to &b%target%&a."
+    other: "%prefix%&aTeleported &b%from% &ato &b%to%&a."
+    notice: "%prefix%&eYou were teleported to &b%to%&e."
+
+  # New: live skin/name utilities (PacketEvents-aware refresher)
+  skin:
+    usage: "%prefix%&eUsage: &f/%label% &7<player>"
+    cannot-resolve: "%prefix%&cCould not resolve &e%target%&c's skin."
+    applied: "%prefix%&aYour skin is now &b%target%&a."
+    applied-no-live: "%prefix%&aApplied skin data internally, but your server build doesn't support live skin change without extra libs.&7 (Tip: PacketEvents or LibsDisguises)"
+
+  clone:
+    usage: "%prefix%&eUsage: &f/%label% &7<player>"
+    cannot-resolve: "%prefix%&cCould not resolve &e%target% &cto clone."
+    applied: "%prefix%&aCloned &b%target%&a (skin%with_name%)."
+    applied-no-live: "%prefix%&aSkin copied.&7 (Live name/skin change may require PacketEvents/LibsDisguises.)"
+
+  tphere:
+    usage: "%prefix%&eUsage: &f/%label% &7<player>"
+    not-found: "%prefix%&cPlayer not found: &e%target%&c."
+    brought: "%prefix%&aBrought &b%target% &ato you."
+    notice: "%prefix%&eYou were teleported to &b%player%&e."
+# =========================================================
+# Warps
+# =========================================================
+warps:
+  usage:
+    setwarp: "%prefix%&eUsage: &f/%label% &7<name>"
+    delwarp: "%prefix%&eUsage: &f/%label% &7<name>"
+  set: "%prefix%&aWarp &b%warp% &aset."
+  deleted: "%prefix%&aWarp &b%warp% &aremoved."
+  not-found: "%prefix%&cWarp not found: &e%warp%&c."

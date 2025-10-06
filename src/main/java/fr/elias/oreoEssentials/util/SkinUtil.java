@@ -1,58 +1,88 @@
+// src/main/java/fr/elias/oreoEssentials/util/SkinUtil.java
 package fr.elias.oreoEssentials.util;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.profile.PlayerProfile;
 import org.bukkit.profile.PlayerTextures;
-import java.lang.reflect.Method;
+
+import java.net.URL;
 
 public final class SkinUtil {
     private SkinUtil() {}
 
-    /** Returns target's live profile (online only) or null if not online. */
+    /** Prefer a live online profile; returns null if not found. */
     public static PlayerProfile onlineProfileOf(String name) {
-        Player p = Bukkit.getPlayerExact(name);
-        return p != null ? p.getPlayerProfile() : null;
-    }
-
-    /** Try to copy only the skin/cape from source -> dest using PlayerTextures. */
-    public static void copyTextures(PlayerProfile source, PlayerProfile dest) {
-        if (source == null || dest == null) return;
         try {
-            PlayerTextures st = source.getTextures();
-            PlayerTextures dt = dest.getTextures();
-            if (st == null || dt == null) return;
-            // Elytra methods are not in all APIs; copy only skin + cape
-            if (st.getSkin() != null) dt.setSkin(st.getSkin());
-            if (st.getCape() != null) dt.setCape(st.getCape());
-            dest.setTextures(dt);
-        } catch (Throwable ignored) {}
-    }
-
-    /**
-     * Apply a profile to a player.
-     * On Paper/Purpur: Player#setPlayerProfile(PlayerProfile) exists.
-     * On Spigot: it doesn't – this call will no-op and should be replaced by a disguises/NMS approach.
-     */
-    public static boolean applyProfile(Player player, PlayerProfile profile) {
-        if (player == null || profile == null) return false;
-        try {
-            Method m = player.getClass().getMethod("setPlayerProfile", PlayerProfile.class);
-            m.invoke(player, profile);
-            return true;
-        } catch (Throwable ignored) {
-            return false; // not supported on this platform
+            var p = Bukkit.getPlayerExact(name);
+            if (p != null) {
+                SkinDebug.log("onlineProfileOf: found online player " + name);
+                return p.getPlayerProfile();
+            }
+            SkinDebug.log("onlineProfileOf: " + name + " not online");
+            return null;
+        } catch (Throwable t) {
+            SkinDebug.log("onlineProfileOf threw: " + t.getMessage());
+            return null;
         }
     }
 
-    /** Try to set profile name via reflection (Paper has setName). Returns true if applied. */
-    public static boolean setProfileName(PlayerProfile profile, String newName) {
-        if (profile == null || newName == null) return false;
+    /** Copy only textures from src -> dst. */
+    public static void copyTextures(PlayerProfile src, PlayerProfile dst) {
+        if (src == null || dst == null) {
+            SkinDebug.log("copyTextures: src/dst null");
+            return;
+        }
         try {
-            Method m = profile.getClass().getMethod("setName", String.class);
-            m.invoke(profile, newName);
+            PlayerTextures s = src.getTextures();
+            PlayerTextures d = dst.getTextures();
+            URL skin = s.getSkin();
+            URL cape = s.getCape();
+
+            if (skin != null) {
+                d.setSkin(skin, s.getSkinModel()); // NOTE: use getSkinModel/setSkin(url, model)
+                SkinDebug.log("copyTextures: applied skin url=" + skin);
+            } else {
+                SkinDebug.log("copyTextures: src skin is null");
+            }
+
+            if (cape != null) {
+                d.setCape(cape);
+                SkinDebug.log("copyTextures: applied cape url=" + cape);
+            }
+
+            dst.setTextures(d);
+        } catch (Throwable t) {
+            SkinDebug.log("copyTextures threw: " + t.getMessage());
+        }
+    }
+
+    /** Try set a display name on the profile (not chat/tab). */
+    public static boolean setProfileName(PlayerProfile profile, String name) {
+        try {
+            if (profile == null || name == null) return false;
+            var m = profile.getClass().getMethod("setName", String.class);
+            m.invoke(profile, name);
+            SkinDebug.log("setProfileName: set to " + name);
             return true;
         } catch (Throwable ignored) {
+            SkinDebug.log("setProfileName: method not present on this server build");
+            return false;
+        }
+    }
+
+    /** Apply the profile to the player. */
+    public static boolean applyProfile(Player player, PlayerProfile newProfile) {
+        try {
+            var m = player.getClass().getMethod("setPlayerProfile", PlayerProfile.class);
+            m.invoke(player, newProfile);
+            SkinDebug.log("applyProfile: Player#setPlayerProfile succeeded");
+            return true;
+        } catch (NoSuchMethodException nsme) {
+            SkinDebug.log("applyProfile: setPlayerProfile not present on this server");
+            return false;
+        } catch (Throwable t) {
+            SkinDebug.log("applyProfile threw: " + t.getMessage());
             return false;
         }
     }

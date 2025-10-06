@@ -1,7 +1,10 @@
+// src/main/java/fr/elias/oreoEssentials/commands/core/admins/CloneCommand.java
 package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.util.MojangSkinFetcher;
+import fr.elias.oreoEssentials.util.SkinDebug;
+import fr.elias.oreoEssentials.util.SkinRefresh;
 import fr.elias.oreoEssentials.util.SkinUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -11,6 +14,7 @@ import org.bukkit.profile.PlayerProfile;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -30,11 +34,17 @@ public class CloneCommand implements OreoCommand, org.bukkit.command.TabComplete
             return true;
         }
         String target = args[0];
+        SkinDebug.p(self, "Cloning identity of '" + target + "'…");
 
         PlayerProfile src = SkinUtil.onlineProfileOf(target);
         if (src == null) {
+            SkinDebug.p(self, "Target not online. Fetching UUID from Mojang…");
             UUID u = MojangSkinFetcher.fetchUuid(target);
-            if (u != null) src = MojangSkinFetcher.fetchProfileWithTextures(u, target);
+            SkinDebug.p(self, "fetchUuid returned: " + u);
+            if (u != null) {
+                src = MojangSkinFetcher.fetchProfileWithTextures(u, target);
+                SkinDebug.p(self, "fetchProfileWithTextures returned: " + (src != null));
+            }
         }
         if (src == null) {
             self.sendMessage(ChatColor.RED + "Could not resolve " + target + " to clone.");
@@ -43,16 +53,18 @@ public class CloneCommand implements OreoCommand, org.bukkit.command.TabComplete
 
         PlayerProfile mine = self.getPlayerProfile();
         SkinUtil.copyTextures(src, mine);
-
         boolean nameSet = SkinUtil.setProfileName(mine, src.getName());
         boolean applied = SkinUtil.applyProfile(self, mine);
 
+        SkinDebug.p(self, "applyProfile=" + applied + ", nameSet=" + nameSet + " ; refreshing…");
+        SkinRefresh.refresh(self);
+
         if (!applied) {
             self.sendMessage(ChatColor.GREEN + "Skin copied. " +
-                    ChatColor.GRAY + "(Live name/skin change requires Paper/Purpur or a disguises plugin.)");
+                    ChatColor.GRAY + "(Live name/skin change may require PacketEvents or LibsDisguises.)");
         } else {
-            self.sendMessage(ChatColor.GREEN + "Cloned " + ChatColor.AQUA + src.getName() + ChatColor.GREEN +
-                    " (skin" + (nameSet ? " + name" : "") + ").");
+            self.sendMessage(ChatColor.GREEN + "Cloned " + ChatColor.AQUA + (src.getName() != null ? src.getName() : target)
+                    + ChatColor.GREEN + " (skin" + (nameSet ? " + name" : "") + ").");
         }
         return true;
     }

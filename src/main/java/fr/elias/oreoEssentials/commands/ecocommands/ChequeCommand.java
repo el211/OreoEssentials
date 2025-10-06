@@ -1,15 +1,13 @@
 package fr.elias.oreoEssentials.commands.ecocommands;
 
-
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.util.Async;
-import java.util.Arrays;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import fr.elias.oreoEssentials.util.Lang;
 import net.milkbowl.vault.economy.Economy;
-import org.bukkit.ChatColor;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -21,145 +19,223 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.util.*;
+
 public class ChequeCommand implements CommandExecutor, Listener {
 
     private final OreoEssentials plugin;
-    private final Economy economy;
+    private final Economy vault; // may be null
     private final NamespacedKey chequeKey;
 
     public ChequeCommand(OreoEssentials plugin) {
         this.plugin = plugin;
-        this.economy = plugin.getServer().getServicesManager().getRegistration(Economy.class).getProvider();
+        var rsp = plugin.getServer().getServicesManager().getRegistration(Economy.class);
+        this.vault = (rsp != null ? rsp.getProvider() : null);
         this.chequeKey = new NamespacedKey(plugin, "cheque_amount");
-        plugin.getServer().getPluginManager().registerEvents(this, plugin); // Register event listener
+        plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + "Only players can use this command.");
+
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(Lang.msg("economy.cheque.usage.root", null, null));
             return true;
         }
 
-        Player player = (Player) sender;
+        // accept both new and legacy perms
+        boolean canCreate = player.hasPermission("oreo.cheque.create") || player.hasPermission("rabbiteconomy.cheque.create");
+        boolean canRedeem = player.hasPermission("oreo.cheque.redeem") || player.hasPermission("rabbiteconomy.cheque.redeem");
 
-        // ✅ Check if player has permission to create cheques
-        if (!player.hasPermission("OreoEssentials.cheque.create")) {
-            player.sendMessage(ChatColor.RED + "You do not have permission to create cheques.");
+        if (args.length == 0) {
+            player.sendMessage(Lang.msg("economy.cheque.usage.root", null, player));
             return true;
         }
 
-        if (args.length != 1) {
-            player.sendMessage(ChatColor.RED + "Usage: /cheque <amount>");
-            return true;
-        }
+        String sub = args[0].toLowerCase(Locale.ROOT);
 
-        double amount;
-        try {
-            amount = Double.parseDouble(args[0]);
-            if (amount <= 0) {
-                player.sendMessage(ChatColor.RED + "Amount must be greater than zero.");
+        if (sub.equals("create")) {
+            if (!canCreate) {
+                player.sendMessage(Lang.msg("economy.errors.no-permission", null, player));
                 return true;
             }
-        } catch (NumberFormatException e) {
-            player.sendMessage(ChatColor.RED + "Invalid amount.");
+            if (args.length < 2) {
+                player.sendMessage(Lang.msg("economy.cheque.usage.create", null, player));
+                return true;
+            }
+
+            Double amount = parseAmount(args[1]);
+            if (amount == null || amount <= 0) {
+                player.sendMessage(Lang.msg("economy.cheque.create.fail-amount", null, player));
+                return true;
+            }
+
+            // DB preferred
+            if (plugin.getDatabase() != null) {
+                UUID id = player.getUniqueId();
+                Async.run(() -> {
+                    double bal = plugin.getDatabase().getBalance(id);
+                    if (bal + 1e-9 < amount) {
+                        runSync(() -> player.sendMessage(Lang.msg("economy.cheque.create.fail-insufficient",
+                                Map.of("amount_formatted", fmt(amount), "currency_symbol", currencySymbol()), player)));
+                        return;
+                    }
+                    plugin.getDatabase().setBalance(id, player.getName(), bal - amount);
+                    runSync(() -> {
+                        giveChequeItem(player, amount);
+                        player.sendMessage(Lang.msg("economy.cheque.create.success",
+                                Map.of("amount_formatted", fmt(amount), "currency_symbol", currencySymbol()), player));
+                    });
+                });
+                return true;
+            }
+
+            // Vault fallback
+            if (vault != null) {
+                double bal = vault.getBalance(player);
+                if (bal + 1e-9 < amount) {
+                    player.sendMessage(Lang.msg("economy.cheque.create.fail-insufficient",
+                            Map.of("amount_formatted", fmt(amount), "currency_symbol", currencySymbol()), player));
+                    return true;
+                }
+                vault.withdrawPlayer(player, amount);
+                giveChequeItem(player, amount);
+                player.sendMessage(Lang.msg("economy.cheque.create.success",
+                        Map.of("amount_formatted", fmt(amount), "currency_symbol", currencySymbol()), player));
+                return true;
+            }
+
+            player.sendMessage(Lang.msg("economy.errors.no-economy", null, player));
             return true;
         }
 
-        UUID playerUUID = player.getUniqueId();
-        double balance = plugin.getDatabase().getBalance(playerUUID);
-
-        if (balance < amount) {
-            player.sendMessage(ChatColor.RED + "Insufficient funds.");
+        if (sub.equals("redeem")) {
+            if (!canRedeem) {
+                player.sendMessage(Lang.msg("economy.errors.no-permission", null, player));
+                return true;
+            }
+            ItemStack inHand = player.getInventory().getItemInMainHand();
+            double amt = readChequeAmount(inHand);
+            if (amt <= 0) {
+                player.sendMessage(Lang.msg("economy.cheque.redeem.fail-none", null, player));
+                return true;
+            }
+            redeemCheque(player, inHand, amt);
             return true;
         }
 
-        CompletableFuture.runAsync(() -> {
-            // ✅ Deduct money from balance and sync with Vault
-            plugin.getDatabase().setBalance(playerUUID, player.getName(), balance - amount);
-
-            // ✅ Create cheque item
-            ItemStack cheque = createCheque(amount);
-            player.getInventory().addItem(cheque);
-
-            // ✅ Custom message from `config.yml`
-            String chequeCreatedMessage = plugin.getConfig().getString("messages.cheque-created",
-                    "You have created a cheque for {amount} USD!");
-            chequeCreatedMessage = chequeCreatedMessage.replace("{amount}", String.valueOf(amount));
-
-            player.sendMessage(ChatColor.GREEN + chequeCreatedMessage);
-            plugin.getLogger().info(player.getName() + " created a cheque for $" + amount);
-        });
-
+        player.sendMessage(Lang.msg("economy.cheque.usage.root", null, player));
         return true;
     }
 
-    // ✅ Creates a cheque (paper item) with stored amount
-    private ItemStack createCheque(double amount) {
+    /* ---------- Right-click redeem ---------- */
+
+    @EventHandler
+    public void onUseCheque(PlayerInteractEvent e) {
+        if (!e.getAction().name().contains("RIGHT_CLICK")) return;
+        Player p = e.getPlayer();
+
+        boolean canRedeem = p.hasPermission("oreo.cheque.redeem") || p.hasPermission("rabbiteconomy.cheque.redeem");
+        if (!canRedeem) return;
+
+        ItemStack item = p.getInventory().getItemInMainHand();
+        double amt = readChequeAmount(item);
+        if (amt <= 0) return;
+
+        e.setCancelled(true);
+        redeemCheque(p, item, amt);
+    }
+
+    /* ---------- core ---------- */
+
+    private void redeemCheque(Player player, ItemStack item, double amount) {
+        if (plugin.getDatabase() != null) {
+            Async.run(() -> {
+                UUID id = player.getUniqueId();
+                double bal = plugin.getDatabase().getBalance(id);
+                plugin.getDatabase().setBalance(id, player.getName(), bal + amount);
+                runSync(() -> {
+                    removeOne(item);
+                    player.sendMessage(Lang.msg("economy.cheque.redeem.success",
+                            Map.of("amount_formatted", fmt(amount),
+                                    "balance_formatted", fmt(bal + amount),
+                                    "currency_symbol", currencySymbol()), player));
+                });
+            });
+            return;
+        }
+        if (vault != null) {
+            vault.depositPlayer(player, amount);
+            removeOne(item);
+            player.sendMessage(Lang.msg("economy.cheque.redeem.success",
+                    Map.of("amount_formatted", fmt(amount),
+                            "balance_formatted", fmt(vault.getBalance(player)),
+                            "currency_symbol", currencySymbol()), player));
+            return;
+        }
+        player.sendMessage(Lang.msg("economy.errors.no-economy", null, player));
+    }
+
+    private void giveChequeItem(Player player, double amount) {
         ItemStack cheque = new ItemStack(Material.PAPER, 1);
         ItemMeta meta = cheque.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "Cheque: $" + amount);
-            meta.setLore(Arrays.asList(ChatColor.YELLOW + "Right-click to redeem this cheque."));
+            meta.setDisplayName("§6Cheque: §e" + currencySymbol() + fmt(amount));
+            meta.setLore(List.of("§7Right-click to redeem this cheque."));
             meta.getPersistentDataContainer().set(chequeKey, PersistentDataType.DOUBLE, amount);
             cheque.setItemMeta(meta);
         }
-        return cheque;
+        player.getInventory().addItem(cheque);
     }
 
-    // ✅ Handles right-click to redeem cheque
-    @EventHandler
-    public void onPlayerUseCheque(PlayerInteractEvent event) {
-        if (!event.getAction().name().contains("RIGHT_CLICK")) {
-            return;
-        }
-
-        Player player = event.getPlayer();
-        ItemStack item = player.getInventory().getItemInMainHand();
-        if (item.getType() != Material.PAPER || !item.hasItemMeta()) {
-            return;
-        }
-
+    private double readChequeAmount(ItemStack item) {
+        if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) return 0;
         ItemMeta meta = item.getItemMeta();
-        if (meta == null) {
-            return;
-        }
+        if (meta == null) return 0;
+        var pdc = meta.getPersistentDataContainer();
+        if (!pdc.has(chequeKey, PersistentDataType.DOUBLE)) return 0;
+        Double v = pdc.get(chequeKey, PersistentDataType.DOUBLE);
+        return v == null ? 0 : v;
+    }
 
-        // ✅ Check if item is a cheque
-        if (!meta.getPersistentDataContainer().has(chequeKey, PersistentDataType.DOUBLE)) {
-            return;
-        }
+    private void removeOne(ItemStack stack) {
+        if (stack == null) return;
+        int amt = stack.getAmount();
+        if (amt <= 1) stack.setAmount(0);
+        else stack.setAmount(amt - 1);
+    }
 
-        // ✅ Check if player has permission to redeem cheques
-        if (!player.hasPermission("OreoEssentials.cheque.redeem")) {
-            player.sendMessage(ChatColor.RED + "You do not have permission to redeem cheques.");
-            return;
-        }
+    /* ---------- util ---------- */
 
-        double amount = meta.getPersistentDataContainer().get(chequeKey, PersistentDataType.DOUBLE);
-        if (amount <= 0) {
-            player.sendMessage(ChatColor.RED + "This cheque has an invalid amount.");
-            return;
-        }
+    private void runSync(Runnable r) {
+        if (Bukkit.isPrimaryThread()) r.run();
+        else Bukkit.getScheduler().runTask(plugin, r);
+    }
 
-        Async.run(() -> {
-            UUID playerUUID = player.getUniqueId();
-            double balance = plugin.getDatabase().getBalance(playerUUID);
+    private Double parseAmount(String s) {
+        try {
+            String raw = s.replace(",", "").trim();
+            if (raw.startsWith("-") || raw.toLowerCase(Locale.ROOT).contains("e")) return null;
+            return Double.parseDouble(raw);
+        } catch (Exception e) { return null; }
+    }
 
-            // ✅ Add money to player's balance and sync with Vault
-            plugin.getDatabase().setBalance(playerUUID, player.getName(), balance + amount);
+    private String fmt(double v) {
+        int decimals = (int) Math.round(Lang.getDouble("economy.format.decimals", 2.0));
+        String th = Lang.get("economy.format.thousands-separator", ",");
+        String dec = Lang.get("economy.format.decimal-separator", ".");
+        String pattern = "#,##0" + (decimals > 0 ? "." + "0".repeat(decimals) : "");
+        DecimalFormatSymbols sym = new DecimalFormatSymbols(Locale.US);
+        if (!th.isEmpty()) sym.setGroupingSeparator(th.charAt(0));
+        if (!dec.isEmpty()) sym.setDecimalSeparator(dec.charAt(0));
+        DecimalFormat df = new DecimalFormat(pattern, sym);
+        df.setGroupingUsed(!th.isEmpty());
+        return df.format(v);
+    }
 
-            // ✅ Custom message from `config.yml`
-            String chequeRedeemedMessage = plugin.getConfig().getString("messages.cheque-redeemed",
-                    "You have redeemed a cheque for {amount} USD!");
-            chequeRedeemedMessage = chequeRedeemedMessage.replace("{amount}", String.valueOf(amount));
-
-            player.sendMessage(ChatColor.GREEN + chequeRedeemedMessage);
-            plugin.getLogger().info(player.getName() + " redeemed a cheque for $" + amount);
-
-            // ✅ Prevent duplication exploits
-            event.setCancelled(true);
-            item.setAmount(item.getAmount() - 1);
-        });
+    private String currencySymbol() {
+        return Lang.get("economy.currency.symbol", "$");
     }
 }
