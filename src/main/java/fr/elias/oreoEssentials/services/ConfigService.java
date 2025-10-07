@@ -1,7 +1,8 @@
-// File: src/main/java/fr/elias/oreoEssentials/services/ConfigService.java
+// src/main/java/fr/elias/oreoEssentials/services/ConfigService.java
 package fr.elias.oreoEssentials.services;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import org.bukkit.Bukkit; // <-- add this
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
@@ -15,12 +16,23 @@ public class ConfigService {
         c.addDefault("homes.maxPerPlayer", 5);
         c.addDefault("homes.permissionBased", true);
         c.addDefault("tpa.timeoutSeconds", 60);
+
+        // storage defaults
         c.addDefault("storage.useMongo", false);
         c.addDefault("storage.mongo.uri", "mongodb://localhost:27017");
         c.addDefault("storage.mongo.database", "oreo");
         c.addDefault("storage.mongo.collectionPrefix", "oreo_");
+
+        // server identity default (fallback to Bukkit name if not set)
+        c.addDefault("server.name", Bukkit.getServer().getName());
+
         c.options().copyDefaults(true);
         plugin.saveConfig();
+    }
+
+    // ---- NEW: single source of truth for server id ----
+    public String serverName() {
+        return plugin.getConfig().getString("server.name", Bukkit.getServer().getName());
     }
 
     public int tpaTimeoutSeconds() { return plugin.getConfig().getInt("tpa.timeoutSeconds", 60); }
@@ -38,7 +50,6 @@ public class ConfigService {
         int max = defaultMaxHomes();
         if (!permissionBased()) return max;
 
-        // Highest oreo.homes.<N> granted wins
         for (var ep : p.getEffectivePermissions()) {
             if (!ep.getValue()) continue;
             String perm = ep.getPermission().toLowerCase();
@@ -51,4 +62,6 @@ public class ConfigService {
         }
         return max;
     }
+
+
 }

@@ -1,4 +1,3 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/HomeCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
@@ -56,6 +55,10 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         // Determine where the home lives
         String targetServer = homes.homeServer(p.getUniqueId(), key);
         String localServer  = homes.localServer();
+
+        // ---- DEBUG LINES (temporary; remove after confirming) ----
+        p.sendMessage(ChatColor.GRAY + "[debug] target=" + targetServer + " local=" + localServer);
+        // ----------------------------------------------------------
 
         if (targetServer == null) targetServer = localServer; // defensive
 

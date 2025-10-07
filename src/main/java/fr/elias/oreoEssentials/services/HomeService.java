@@ -1,7 +1,6 @@
 // src/main/java/fr/elias/oreoEssentials/services/HomeService.java
 package fr.elias.oreoEssentials.services;
 
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
@@ -11,14 +10,14 @@ import java.util.UUID;
 public class HomeService {
     private final StorageApi storage;
     private final ConfigService config;
-    private final HomeDirectory directory;       // <—
-    private final String localServer;            // <—
+    private final HomeDirectory directory;
+    private final String localServer; // <- single source
 
     public HomeService(StorageApi storage, ConfigService config, HomeDirectory directory) {
         this.storage = storage;
         this.config = config;
         this.directory = directory;
-        this.localServer = Bukkit.getServer().getName(); // or from your config
+        this.localServer = config.serverName(); // <-- IMPORTANT change
     }
 
     public boolean setHome(Player player, String name, Location loc) {
@@ -28,7 +27,10 @@ public class HomeService {
         if (!existing.contains(n) && existing.size() >= max) return false;
 
         boolean ok = storage.setHome(player.getUniqueId(), n, loc);
-        if (ok && directory != null) directory.setHomeServer(player.getUniqueId(), n, localServer);
+        if (ok && directory != null) {
+            // record ownership with the *same* server name source
+            directory.setHomeServer(player.getUniqueId(), n, localServer);
+        }
         return ok;
     }
 

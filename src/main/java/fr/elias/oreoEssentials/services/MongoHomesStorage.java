@@ -1,4 +1,3 @@
-// File: src/main/java/fr/elias/oreoEssentials/services/MongoHomesStorage.java
 package fr.elias.oreoEssentials.services;
 
 import com.mongodb.client.*;
@@ -35,7 +34,7 @@ public class MongoHomesStorage implements StorageApi {
         this.homesCol = db.getCollection(prefix + "homes");
         this.warpsCol = db.getCollection(prefix + "warps");
         this.metaCol  = db.getCollection(prefix + "meta");
-        this.localServer = localServer;
+        this.localServer = localServer; // <-- must be configService.serverName()
 
         // indexes
         homesCol.createIndex(Indexes.ascending("uuid", "name"), new IndexOptions().unique(true));
@@ -88,7 +87,8 @@ public class MongoHomesStorage implements StorageApi {
                 if (n != null) out.add(n);
             }
         }
-        return out.stream().sorted(String.CASE_INSENSITIVE_ORDER)
+        return out.stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -145,7 +145,8 @@ public class MongoHomesStorage implements StorageApi {
                 if (n != null) out.add(n);
             }
         }
-        return out.stream().sorted(String.CASE_INSENSITIVE_ORDER)
+        return out.stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 

@@ -237,11 +237,19 @@ public final class OreoEssentials extends JavaPlugin {
                 String uri    = getConfig().getString("storage.mongo.uri", "mongodb://localhost:27017");
                 String dbName = getConfig().getString("storage.mongo.database", "oreo");
                 String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
-                String localServerName = getConfig().getString("server.name", getServer().getName());
+                String localServerName = configService.serverName(); // <-- unified server id
 
                 // Keep a client reference to close on disable
                 this.homesMongoClient = com.mongodb.client.MongoClients.create(uri);
-
+                // >>> ADD THIS LINE: auto-fix legacy/missing server fields to your config server.name
+                fr.elias.oreoEssentials.services.MongoHomesMigrator.run(
+                        this.homesMongoClient,
+                        dbName,
+                        prefix,
+                        org.bukkit.Bukkit.getServer().getName(), // legacy value often saved earlier (e.g., "Purpur")
+                        localServerName,
+                        getLogger()
+                );
                 // Mongo-backed StorageApi (handles spawn/warps/homes/back)
                 this.storage = new fr.elias.oreoEssentials.services.MongoHomesStorage(
                         this.homesMongoClient, dbName, prefix, localServerName
@@ -408,7 +416,7 @@ public final class OreoEssentials extends JavaPlugin {
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket.class,
                         (channel, pkt) -> {
-                            String thisServer = getConfig().getString("server.name", getServer().getName());
+                            String thisServer = configService.serverName(); // <-- use unified server id
                             if (!thisServer.equalsIgnoreCase(pkt.getTargetServer())) return;
 
                             var player = getServer().getPlayer(pkt.getPlayerId());
@@ -420,9 +428,6 @@ public final class OreoEssentials extends JavaPlugin {
                             }
                         }
                 );
-
-
-
 
                 // Generic packets you already use
                 packetManager.subscribe(
@@ -451,19 +456,18 @@ public final class OreoEssentials extends JavaPlugin {
         this.spawnService = new SpawnService(storage);
         this.warpService  = new WarpService(storage);
         this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
+
         // Create the cross-server home broker AFTER homeService is ready and ONLY if RabbitMQ is up
         if (packetManager != null) {
             this.homeTpBroker = new fr.elias.oreoEssentials.homes.HomeTeleportBroker(this, homeService, packetManager);
 
             // (Optional but recommended) run pending teleports when player joins this server
-// after creating homeTpBroker
             org.bukkit.Bukkit.getPluginManager().registerEvents(new org.bukkit.event.Listener() {
                 @org.bukkit.event.EventHandler
                 public void onJoin(org.bukkit.event.player.PlayerJoinEvent e) {
                     homeTpBroker.onJoin(e); // <-- pass the event, not the UUID
                 }
             }, this);
-
         }
 
         this.backService      = new BackService(storage);
@@ -471,7 +475,6 @@ public final class OreoEssentials extends JavaPlugin {
         this.teleportService  = new TeleportService(this, backService, configService);
         this.deathBackService = new DeathBackService();
         this.godService       = new GodService();
-
 
         // -------- Moderation listeners --------
         FreezeService freezeService = new FreezeService();
@@ -586,6 +589,7 @@ public final class OreoEssentials extends JavaPlugin {
 
         getLogger().info("OreoEssentials enabled.");
     }
+
 
 
     public boolean isMessagingAvailable() {
