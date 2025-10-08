@@ -139,6 +139,10 @@ public final class OreoEssentials extends JavaPlugin {
     private ChatSyncManager chatSyncManager;
 
     private fr.elias.oreoEssentials.homes.HomeTeleportBroker homeTpBroker;
+    // in OreoEssentials.java fields
+    private fr.elias.oreoEssentials.config.CrossServerSettings crossServerSettings;
+    public fr.elias.oreoEssentials.config.CrossServerSettings getCrossServerSettings() { return crossServerSettings; }
+
 
 
 
@@ -148,6 +152,7 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- Boot & base singletons --------
         instance = this;
         saveDefaultConfig();
+        this.crossServerSettings = fr.elias.oreoEssentials.config.CrossServerSettings.load(this);
 
         getLogger().info("[BOOT] OreoEssentials starting up…");
 
@@ -477,23 +482,54 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[RABBIT] Disabled.");
         }
 
-        // -------- Cross-server teleport brokers --------
-        // Must be after services are created AND after packetManager is initialized.
+// -------- Cross-server teleport brokers --------
+// Must be after services are created AND after packetManager is initialized.
         if (packetManager != null && packetManager.isInitialized()) {
-            new fr.elias.oreoEssentials.teleport.CrossServerTeleportBroker(
-                    this,
-                    spawnService,
-                    warpService,
-                    packetManager,
-                    configService.serverName()
-            );
-            getLogger().info("[BROKER] CrossServerTeleportBroker ready (spawn/warp).");
 
-            this.homeTpBroker = new fr.elias.oreoEssentials.homes.HomeTeleportBroker(this, homeService, packetManager);
-            getLogger().info("[BROKER] HomeTeleportBroker ready (server=" + configService.serverName() + ").");
+            // Read toggles once
+            final var cs = this.getCrossServerSettings();
+            final boolean anyCross =
+                    cs.homes() || cs.warps() || cs.spawn() || cs.economy();
+
+            // Only bind RabbitMQ channels if at least one cross-server feature is enabled
+            if (anyCross) {
+                // Global (if you still broadcast some packets there)
+                packetManager.subscribeChannel(fr.elias.oreoEssentials.rabbitmq.PacketChannels.GLOBAL);
+                // This server’s individual queue (targeted messages)
+                packetManager.subscribeChannel(
+                        fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel.individual(configService.serverName())
+                );
+                getLogger().info("[RABBIT] Subscribed channels for cross-server features. server=" + configService.serverName());
+            } else {
+                getLogger().info("[RABBIT] All cross-server features disabled by config; skipping channel subscriptions.");
+            }
+
+            // Spawn/Warp broker (only if either is enabled)
+            if (cs.spawn() || cs.warps()) {
+                new fr.elias.oreoEssentials.teleport.CrossServerTeleportBroker(
+                        this,
+                        spawnService,
+                        warpService,
+                        packetManager,
+                        configService.serverName()
+                );
+                getLogger().info("[BROKER] CrossServerTeleportBroker ready (spawn=" + cs.spawn() + ", warps=" + cs.warps() + ").");
+            } else {
+                getLogger().info("[BROKER] CrossServerTeleportBroker disabled by config (spawn & warps off).");
+            }
+
+            // Home broker (only if enabled)
+            if (cs.homes()) {
+                this.homeTpBroker = new fr.elias.oreoEssentials.homes.HomeTeleportBroker(this, homeService, packetManager);
+                getLogger().info("[BROKER] HomeTeleportBroker ready (server=" + configService.serverName() + ").");
+            } else {
+                getLogger().info("[BROKER] HomeTeleportBroker disabled by config (homes off).");
+            }
+
         } else {
             getLogger().warning("[BROKER] Brokers not started: PacketManager unavailable.");
         }
+
 
         this.backService      = new BackService(storage);
         this.messageService   = new MessageService();

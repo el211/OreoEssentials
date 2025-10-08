@@ -72,6 +72,15 @@ public class HomeCommand implements OreoCommand, TabCompleter {
             return true;
         }
 
+        // Respect cross-server toggle for homes
+        var cs = OreoEssentials.get().getCrossServerSettings();
+        if (!cs.homes()) {
+            // Cross-server homes is OFF: do not publish or server-switch
+            p.sendMessage(ChatColor.RED + "Cross-server homes are disabled by server config.");
+            p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/home " + key);
+            return true;
+        }
+
         // Cross-server: publish to the TARGET SERVER'S QUEUE (not global), then proxy switch
         final OreoEssentials plugin = OreoEssentials.get();
         final PacketManager pm = plugin.getPacketManager();
@@ -86,7 +95,7 @@ public class HomeCommand implements OreoCommand, TabCompleter {
             // Build the packet
             HomeTeleportRequestPacket pkt = new HomeTeleportRequestPacket(p.getUniqueId(), key, targetServer, requestId);
 
-            // *** KEY CHANGE: publish to the target server’s individual channel ***
+            // publish to the target server’s individual channel
             PacketChannel targetChannel = PacketChannel.individual(targetServer);
             pm.sendPacket(targetChannel, pkt);
         } else {

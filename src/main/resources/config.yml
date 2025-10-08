@@ -37,6 +37,13 @@ network:
   cross-server: true
   transport: "plugin_message"   # Server switching uses proxy plugin messaging
 
+
+# --- Cross-server feature toggles ---
+crossserverhomes: true
+crossserverwarps: true
+crossserverspawn: true
+crossservereconomy: true
+
 # -------- Homes limits --------
 homes:
   # If permissionBased = true, the highest "oreo.homes.<N>" permission wins

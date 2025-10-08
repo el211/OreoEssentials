@@ -1,4 +1,3 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/WarpCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
@@ -79,6 +78,17 @@ public class WarpCommand implements OreoCommand {
                 p.sendMessage(ChatColor.RED + "Teleport failed: " + ex.getMessage());
             }
             return true;
+        }
+
+        // Respect cross-server toggle for warps
+        var cs = plugin.getCrossServerSettings();
+        if (!cs.warps()) {
+            if (!targetServer.equalsIgnoreCase(localServer)) {
+                p.sendMessage(ChatColor.RED + "Cross-server warps are disabled by server config.");
+                p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY +
+                        " then run " + ChatColor.AQUA + "/warp " + warpName);
+                return true;
+            }
         }
 
         // Remote warp: publish to the target server’s queue, then proxy-switch

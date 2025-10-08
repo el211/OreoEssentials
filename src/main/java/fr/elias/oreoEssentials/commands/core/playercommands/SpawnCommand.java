@@ -1,4 +1,3 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/SpawnCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
@@ -62,6 +61,14 @@ public class SpawnCommand implements OreoCommand {
                 log.warning("[SpawnCmd] Local teleport exception: " + ex.getMessage());
                 p.sendMessage(ChatColor.RED + "Teleport failed: " + ex.getMessage());
             }
+            return true;
+        }
+
+        // Respect cross-server toggle for spawn
+        var cs = plugin.getCrossServerSettings();
+        if (!cs.spawn()) {
+            p.sendMessage(ChatColor.RED + "Cross-server spawn is disabled by server config.");
+            p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/spawn");
             return true;
         }
 
