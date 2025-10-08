@@ -163,7 +163,6 @@ public final class OreoEssentials extends JavaPlugin {
 
         getLogger().info("[BOOT] OreoEssentials starting up…");
 
-        // Skins init (your utilities)
         fr.elias.oreoEssentials.util.SkinRefresherBootstrap.init(this);
         fr.elias.oreoEssentials.util.SkinDebug.init(this);
 
@@ -171,7 +170,6 @@ public final class OreoEssentials extends JavaPlugin {
         Lang.init(this);
 
         // -------- Proxy plugin messaging (server switching) --------
-        // Works with BungeeCord & Velocity; do not remove.
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
         getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
         ProxyMessenger proxyMessenger = new ProxyMessenger(this);
@@ -472,10 +470,32 @@ public final class OreoEssentials extends JavaPlugin {
         this.ecService = new fr.elias.oreoEssentials.enderchest.EnderChestService(
                 this,
                 ecConfig,
-                ecStorage                                       // <-- remove crossServerEc
+                ecStorage
+        );
+    // --- Player Sync bootstrap ---
+        final boolean invSyncEnabled = getConfig().getBoolean("crossserverinv", false);
+
+        fr.elias.oreoEssentials.playersync.PlayerSyncStorage invStorage;
+        if (invSyncEnabled
+                && "mongodb".equalsIgnoreCase(getConfig().getString("essentials.storage", "yaml"))
+                && this.homesMongoClient != null) {
+            String dbName = getConfig().getString("storage.mongo.database", "oreo");
+            String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
+            invStorage = new fr.elias.oreoEssentials.playersync.MongoPlayerSyncStorage(this.homesMongoClient, dbName, prefix);
+            getLogger().info("[SYNC] Using MongoDB storage.");
+        } else {
+            invStorage = new fr.elias.oreoEssentials.playersync.YamlPlayerSyncStorage(this);
+            getLogger().info("[SYNC] Using local YAML storage.");
+        }
+
+        final var syncPrefsStore    = new fr.elias.oreoEssentials.playersync.PlayerSyncPrefsStore(this);
+        final var playerSyncService = new fr.elias.oreoEssentials.playersync.PlayerSyncService(this, invStorage, syncPrefsStore);
+
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.playersync.PlayerSyncListener(playerSyncService, invSyncEnabled),
+                this
         );
 
-// Register EC listener (saves on close / intercepts physical EC if cross-server)
         getServer().getPluginManager().registerEvents(
                 new fr.elias.oreoEssentials.enderchest.EnderChestListener(this, ecService, crossServerEc),
                 this
@@ -493,10 +513,8 @@ public final class OreoEssentials extends JavaPlugin {
             if (rabbit.connect()) {
                 packetManager.init();
 
-                // after packetManager.init();
-                packetManager.subscribeChannel(PacketChannels.GLOBAL); // if you still use global for broadcasts
+                packetManager.subscribeChannel(PacketChannels.GLOBAL);
 
-                // *** IMPORTANT: subscribe to this server’s dedicated queue ***
                 packetManager.subscribeChannel(fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel.individual(localServerName));
                 getLogger().info("[RABBIT] Subscribed to individual channel for this server: " + localServerName);
 
@@ -524,10 +542,8 @@ public final class OreoEssentials extends JavaPlugin {
         }
 
         // -------- Cross-server teleport brokers --------
-        // Must be after services are created AND after packetManager is initialized.
         if (packetManager != null && packetManager.isInitialized()) {
 
-            // Read toggles once
             final var cs = this.getCrossServerSettings();
             final boolean anyCross =
                     cs.homes() || cs.warps() || cs.spawn() || cs.economy();
@@ -615,14 +631,12 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- Commands (manager then registrations) --------
         this.commands = new CommandManager(this);
 
-        // Admin tphere (with tab)
         var tphere = new fr.elias.oreoEssentials.commands.core.admins.TphereCommand();
         this.commands.register(tphere);
         if (getCommand("tphere") != null) {
             getCommand("tphere").setTabCompleter(tphere);
         }
 
-        // Mute/Unmute (need chatSyncManager)
         var muteCmd   = new MuteCommand(muteService, chatSyncManager);
         var unmuteCmd = new UnmuteCommand(muteService, chatSyncManager);
 
@@ -668,7 +682,7 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new SkinCommand())
                 .register(new CloneCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand())
-                // IMPORTANT: use EcCommand (and remove EnderChestCommand class)
+                .register(new fr.elias.oreoEssentials.playersync.PlayerSyncCommand(this, playerSyncService, invSyncEnabled))
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcCommand(this.ecService, crossServerEc))
                 .register(new HeadCommand());
 
