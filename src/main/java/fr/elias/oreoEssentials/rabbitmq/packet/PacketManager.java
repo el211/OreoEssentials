@@ -1,17 +1,18 @@
 package fr.elias.oreoEssentials.rabbitmq.packet;
 
-
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.PacketChannels;
+import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.namespace.PacketDefinition;
 import fr.elias.oreoEssentials.rabbitmq.namespace.PacketRegistry;
 import fr.elias.oreoEssentials.rabbitmq.packet.event.IncomingPacketListener;
 import fr.elias.oreoEssentials.rabbitmq.packet.event.PacketSender;
 import fr.elias.oreoEssentials.rabbitmq.packet.event.PacketSubscriber;
 import fr.elias.oreoEssentials.rabbitmq.packet.event.PacketSubscriptionQueue;
+import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.rabbitmq.stream.FriendlyByteInputStream;
 import fr.elias.oreoEssentials.rabbitmq.stream.FriendlyByteOutputStream;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -23,7 +24,7 @@ public class PacketManager implements IncomingPacketListener {
     private final Map<Class<? extends Packet>, PacketSubscriptionQueue<? extends Packet>> subscriptions;
     private final PacketRegistry packetRegistry;
 
-    private boolean initialized;
+    private volatile boolean initialized;
 
     public PacketManager(OreoEssentials plugin, PacketSender sender) {
         this.plugin = plugin;
@@ -41,13 +42,35 @@ public class PacketManager implements IncomingPacketListener {
         this.sender.registerChannel(channel);
     }
 
+    /* ====================== SEND ====================== */
+
     public void sendPacket(PacketChannel target, Packet packet) {
         PacketDefinition<?> definition = this.packetRegistry.getDefinition(packet.getClass());
+        if (definition == null) {
+            warn("[PM/PUBLISH@" + serverName() + "] NO DEFINITION for type=" + packet.getClass().getName()
+                    + " channel=" + renderChannel(target));
+            return;
+        }
 
-        FriendlyByteOutputStream outputStream = new FriendlyByteOutputStream();
-        outputStream.writeLong(definition.getRegistryId());
-        packet.writeData(outputStream);
-        this.sender.sendPacket(target, outputStream.toByteArray());
+        FriendlyByteOutputStream out = new FriendlyByteOutputStream();
+        out.writeLong(definition.getRegistryId());
+        packet.writeData(out);
+
+        // Generic hard-proof log (always)
+        info("[PM/PUBLISH@" + serverName() + "] id=" + definition.getRegistryId()
+                + " type=" + packet.getClass().getSimpleName()
+                + " channel=" + renderChannel(target));
+
+        // Extra detail for homes
+        if (packet instanceof HomeTeleportRequestPacket h) {
+            info("[PM/PUBLISH@" + serverName() + "/HOME] requestId=" + h.getRequestId()
+                    + " player=" + h.getPlayerId()
+                    + " home=" + h.getHomeName()
+                    + " target=" + h.getTargetServer()
+                    + " channel=" + renderChannel(target));
+        }
+
+        this.sender.sendPacket(target, out.toByteArray());
     }
 
     public void sendPacket(Packet packet) {
@@ -55,50 +78,95 @@ public class PacketManager implements IncomingPacketListener {
     }
 
     public <T extends Packet> void subscribe(Class<T> packetClass, PacketSubscriber<T> subscriber) {
-        PacketSubscriptionQueue<T> queue = (PacketSubscriptionQueue<T>) this.subscriptions.computeIfAbsent(packetClass, key -> new PacketSubscriptionQueue<>(packetClass));
+        @SuppressWarnings("unchecked")
+        PacketSubscriptionQueue<T> queue =
+                (PacketSubscriptionQueue<T>) this.subscriptions.computeIfAbsent(
+                        packetClass, key -> new PacketSubscriptionQueue<>(packetClass));
         queue.subscribe(subscriber);
     }
 
+    /* ====================== RECEIVE ====================== */
+
     @Override
     public void onReceive(PacketChannel channel, byte[] content) {
-        FriendlyByteInputStream outputStream = new FriendlyByteInputStream(content);
-        long registryId = outputStream.readLong();
+        FriendlyByteInputStream in = new FriendlyByteInputStream(content);
+        long registryId = in.readLong();
 
         PacketDefinition<?> definition = this.packetRegistry.getDefinition(registryId);
 
+        // Generic hard-proof log (always)
+        info("[PM/RECV@" + serverName() + "] registryId=" + registryId
+                + " type=" + (definition != null ? definition.getPacketClass().getSimpleName() : "unknown")
+                + " channel=" + renderChannel(channel));
+
         if (definition == null) {
-            this.log("Received packet with no definition: " + registryId);
+            warn("[PM/RECV@" + serverName() + "] Unknown registry id: " + registryId);
             return;
         }
 
         Packet packet = definition.getProvider().createPacket();
-        packet.readData(outputStream);
+        packet.readData(in);
 
-        this.dispatch(channel, packet);
+        // Extra detail for homes
+        if (packet instanceof HomeTeleportRequestPacket h) {
+            info("[PM/RECV@" + serverName() + "/HOME] requestId=" + h.getRequestId()
+                    + " player=" + h.getPlayerId()
+                    + " home=" + h.getHomeName()
+                    + " target=" + h.getTargetServer()
+                    + " channel=" + renderChannel(channel));
+        }
+
+        dispatch(channel, packet);
     }
 
+    /* ====================== DISPATCH ====================== */
+
     private <T extends Packet> void dispatch(PacketChannel channel, T packet) {
-        PacketSubscriptionQueue<T> queue = (PacketSubscriptionQueue<T>) this.subscriptions.get(packet.getClass());
+        @SuppressWarnings("unchecked")
+        PacketSubscriptionQueue<T> queue =
+                (PacketSubscriptionQueue<T>) this.subscriptions.get(packet.getClass());
 
         if (queue == null) {
-            this.log("Received packet with no subscribers: " + packet.getClass().getName());
+            warn("[PM/DISPATCH@" + serverName() + "] No subscribers for " + packet.getClass().getName()
+                    + " channel=" + renderChannel(channel));
             return;
         }
 
         queue.dispatch(channel, packet);
     }
 
-    private void log(String message) {
-        this.plugin.getLogger().warning(message);
+    /* ====================== UTIL ====================== */
+
+    private String renderChannel(PacketChannel ch) {
+        try {
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (String id : ch) {
+                if (!first) sb.append(',');
+                sb.append(id);
+                first = false;
+            }
+            return sb.append(']').toString();
+        } catch (Throwable t) {
+            return ch.toString();
+        }
     }
 
-    public boolean isInitialized() {
-        return initialized;
+    private String serverName() {
+        try {
+            return plugin.getConfigService().serverName();
+        } catch (Throwable t) {
+            return "unknown";
+        }
     }
+
+    private void warn(String msg) { plugin.getLogger().warning(msg); }
+    private void info(String msg) { plugin.getLogger().info(msg); }
+
+    public boolean isInitialized() { return initialized; }
 
     public void close() {
         initialized = false;
         sender.close();
     }
 }
-

@@ -17,6 +17,8 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpAcceptCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
+import fr.elias.oreoEssentials.homes.TeleportBroker;
+import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.util.Lang;
@@ -109,7 +111,9 @@ public final class OreoEssentials extends JavaPlugin {
     // Kits + Tab
     private fr.elias.oreoEssentials.kits.KitsManager kitsManager;
     private fr.elias.oreoEssentials.tab.TabListManager tabListManager;
-
+    private WarpDirectory warpDirectory;
+    private SpawnDirectory spawnDirectory;
+    private TeleportBroker teleportBroker; // if you unified brokers
     public fr.elias.oreoEssentials.kits.KitsManager getKitsManager() { return kitsManager; }
     public fr.elias.oreoEssentials.tab.TabListManager getTabListManager() { return tabListManager; }
 
@@ -145,6 +149,8 @@ public final class OreoEssentials extends JavaPlugin {
         instance = this;
         saveDefaultConfig();
 
+        getLogger().info("[BOOT] OreoEssentials starting up…");
+
         // Skins init (your utilities)
         fr.elias.oreoEssentials.util.SkinRefresherBootstrap.init(this);
         fr.elias.oreoEssentials.util.SkinDebug.init(this);
@@ -157,6 +163,7 @@ public final class OreoEssentials extends JavaPlugin {
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
         getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
         ProxyMessenger proxyMessenger = new ProxyMessenger(this);
+        getLogger().info("[BOOT] Registered proxy plugin messaging channels.");
 
         // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
@@ -187,8 +194,9 @@ public final class OreoEssentials extends JavaPlugin {
         try {
             this.chatSyncManager = new ChatSyncManager(chatSyncEnabled, chatRabbitUri, muteService);
             if (chatSyncEnabled) this.chatSyncManager.subscribeMessages();
+            getLogger().info("[CHAT] ChatSync enabled=" + chatSyncEnabled);
         } catch (Exception e) {
-            getLogger().severe("ChatSync init failed: " + e.getMessage());
+            getLogger().severe("[CHAT] ChatSync init failed: " + e.getMessage());
             this.chatSyncManager = new ChatSyncManager(false, "", muteService);
         }
 
@@ -229,48 +237,71 @@ public final class OreoEssentials extends JavaPlugin {
         this.economyEnabled = getConfig().getBoolean("economy.enabled", !economyType.equals("none"));
         this.redisEnabled   = getConfig().getBoolean("redis.enabled", false);
         this.rabbitEnabled  = getConfig().getBoolean("rabbitmq.enabled", false);
+        final String localServerName   = configService.serverName(); // unified server id
+        getLogger().info("[BOOT] storage=" + essentialsStorage + " economyType=" + economyType
+                + " redis=" + redisEnabled + " rabbit=" + rabbitEnabled
+                + " server.name=" + localServerName);
 
         // -------- Essentials storage selection (Homes/Warps/Spawn/Back) --------
-        // Also sets up cross-server HomeDirectory when using MongoDB
+        // Also sets up cross-server directories when using MongoDB
         switch (essentialsStorage) {
             case "mongodb" -> {
                 String uri    = getConfig().getString("storage.mongo.uri", "mongodb://localhost:27017");
                 String dbName = getConfig().getString("storage.mongo.database", "oreo");
                 String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
-                String localServerName = configService.serverName(); // <-- unified server id
 
                 // Keep a client reference to close on disable
                 this.homesMongoClient = com.mongodb.client.MongoClients.create(uri);
-                // >>> ADD THIS LINE: auto-fix legacy/missing server fields to your config server.name
-                fr.elias.oreoEssentials.services.MongoHomesMigrator.run(
-                        this.homesMongoClient,
-                        dbName,
-                        prefix,
-                        org.bukkit.Bukkit.getServer().getName(), // legacy value often saved earlier (e.g., "Purpur")
-                        localServerName,
-                        getLogger()
-                );
+
+                // (Optional) migration helper if you used Bukkit server name previously
+                try {
+                    fr.elias.oreoEssentials.services.MongoHomesMigrator.run(
+                            this.homesMongoClient,
+                            dbName,
+                            prefix,
+                            org.bukkit.Bukkit.getServer().getName(), // legacy saved value
+                            localServerName,
+                            getLogger()
+                    );
+                } catch (Throwable ignored) {
+                    getLogger().info("[STORAGE] MongoHomesMigrator skipped.");
+                }
+
                 // Mongo-backed StorageApi (handles spawn/warps/homes/back)
                 this.storage = new fr.elias.oreoEssentials.services.MongoHomesStorage(
                         this.homesMongoClient, dbName, prefix, localServerName
                 );
 
-                // Cross-server home owner map
-                this.homeDirectory = new fr.elias.oreoEssentials.services.MongoHomeDirectory(
+                // Cross-server directories (home/warp/spawn owners)
+                this.homeDirectory  = new fr.elias.oreoEssentials.services.MongoHomeDirectory(
                         this.homesMongoClient, dbName, prefix + "home_directory"
                 );
+                try {
+                    this.warpDirectory  = new fr.elias.oreoEssentials.services.MongoWarpDirectory(
+                            this.homesMongoClient, dbName, prefix + "warp_directory"
+                    );
+                } catch (Throwable ignored) { this.warpDirectory = null; }
+                try {
+                    this.spawnDirectory = new fr.elias.oreoEssentials.services.MongoSpawnDirectory(
+                            this.homesMongoClient, dbName, prefix + "spawn_directory"
+                    );
+                } catch (Throwable ignored) { this.spawnDirectory = null; }
 
-                getLogger().info("Using MongoDB (MongoHomesStorage + MongoHomeDirectory) for essentials data.");
+                getLogger().info("[STORAGE] Using MongoDB (MongoHomesStorage + directories).");
             }
             case "json" -> {
                 this.storage       = new fr.elias.oreoEssentials.services.JsonStorage(this);
-                this.homeDirectory = null; // not supported on JSON
-                getLogger().info("Using JSON storage for essentials.");
+                this.homeDirectory = null;
+                this.warpDirectory = null;
+                this.spawnDirectory = null;
+                getLogger().info("[STORAGE] Using JSON.");
             }
             default -> {
                 this.storage       = new fr.elias.oreoEssentials.services.YamlStorage(this);
-                this.homeDirectory = null; // not supported on YAML
-                getLogger().info("Using YAML storage for essentials.");
+                this.homeDirectory = null;
+                this.warpDirectory = null;
+                this.spawnDirectory = null;
+                getLogger().info("[STORAGE] Using YAML.");
             }
         }
 
@@ -282,14 +313,14 @@ public final class OreoEssentials extends JavaPlugin {
                     getConfig().getString("redis.password", "")
             );
             if (!redis.connect()) {
-                getLogger().warning("Redis enabled but failed to connect. Continuing without cache.");
+                getLogger().warning("[REDIS] Enabled but failed to connect. Continuing without cache.");
             } else {
-                getLogger().info("Connected to Redis.");
+                getLogger().info("[REDIS] Connected.");
             }
         } else {
             // Dummy instance prevents null checks in your economy classes
             this.redis = new RedisManager("", 6379, "");
-            getLogger().info("Redis disabled.");
+            getLogger().info("[REDIS] Disabled.");
         }
 
         // Offline player cache
@@ -307,7 +338,7 @@ public final class OreoEssentials extends JavaPlugin {
                             getConfig().getString("economy.mongodb.collection")
                     );
                     if (!ok) {
-                        getLogger().severe("MongoDB economy connect failed. Disabling plugin.");
+                        getLogger().severe("[ECON] MongoDB connect failed. Disabling plugin.");
                         getServer().getPluginManager().disablePlugin(this);
                         return;
                     }
@@ -321,7 +352,7 @@ public final class OreoEssentials extends JavaPlugin {
                             getConfig().getString("economy.postgresql.password")
                     );
                     if (!ok) {
-                        getLogger().severe("PostgreSQL economy connect failed. Disabling plugin.");
+                        getLogger().severe("[ECON] PostgreSQL connect failed. Disabling plugin.");
                         getServer().getPluginManager().disablePlugin(this);
                         return;
                     }
@@ -331,7 +362,7 @@ public final class OreoEssentials extends JavaPlugin {
                     JsonEconomyDatabase mgr = new JsonEconomyDatabase(this, redis);
                     boolean ok = mgr.connect("", "", ""); // JSON ignores args
                     if (!ok) {
-                        getLogger().severe("JSON economy init failed. Disabling plugin.");
+                        getLogger().severe("[ECON] JSON init failed. Disabling plugin.");
                         getServer().getPluginManager().disablePlugin(this);
                         return;
                     }
@@ -343,7 +374,7 @@ public final class OreoEssentials extends JavaPlugin {
 
             if (this.database != null) {
                 if (getServer().getPluginManager().getPlugin("Vault") == null) {
-                    getLogger().severe("Vault not found but economy.enabled=true. Disabling plugin.");
+                    getLogger().severe("[ECON] Vault not found but economy.enabled=true. Disabling plugin.");
                     getServer().getPluginManager().disablePlugin(this);
                     return;
                 }
@@ -354,10 +385,10 @@ public final class OreoEssentials extends JavaPlugin {
 
                 RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
                 if (rsp == null) {
-                    getLogger().severe("Failed to hook Vault Economy.");
+                    getLogger().severe("[ECON] Failed to hook Vault Economy.");
                 } else {
                     this.vaultEconomy = rsp.getProvider();
-                    getLogger().info("Vault economy integration enabled.");
+                    getLogger().info("[ECON] Vault economy integration enabled.");
                 }
 
                 // Listeners for economy player data + join/quit packets
@@ -386,7 +417,7 @@ public final class OreoEssentials extends JavaPlugin {
                             new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
                     );
                 } else {
-                    getLogger().warning("Command 'pay' not found in plugin.yml; skipping registration.");
+                    getLogger().warning("[ECON] Command 'pay' not found in plugin.yml; skipping registration.");
                 }
 
                 if (getCommand("cheque") != null) {
@@ -395,14 +426,19 @@ public final class OreoEssentials extends JavaPlugin {
                             new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter()
                     );
                 } else {
-                    getLogger().warning("Command 'cheque' not found in plugin.yml; skipping registration.");
+                    getLogger().warning("[ECON] Command 'cheque' not found in plugin.yml; skipping registration.");
                 }
             } else {
-                getLogger().warning("Economy enabled but no database selected/connected; economy commands will be unavailable.");
+                getLogger().warning("[ECON] Enabled but no database selected/connected; economy commands unavailable.");
             }
         } else {
-            getLogger().info("Economy disabled. Skipping Vault, DB, and economy commands.");
+            getLogger().info("[ECON] Disabled. Skipping Vault, DB, and economy commands.");
         }
+
+        // -------- Essentials Services --------
+        this.spawnService = new SpawnService(storage);
+        this.warpService  = new WarpService(storage);
+        this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
 
         // -------- RabbitMQ (optional cross-server signaling) --------
         if (rabbitEnabled) {
@@ -410,24 +446,13 @@ public final class OreoEssentials extends JavaPlugin {
             this.packetManager = new PacketManager(this, rabbit);
             if (rabbit.connect()) {
                 packetManager.init();
-                packetManager.subscribeChannel(PacketChannels.GLOBAL);
 
-                // Cross-server home teleport request (coordinate with proxy switch)
-                packetManager.subscribe(
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket.class,
-                        (channel, pkt) -> {
-                            String thisServer = configService.serverName(); // <-- use unified server id
-                            if (!thisServer.equalsIgnoreCase(pkt.getTargetServer())) return;
+                // after packetManager.init();
+                packetManager.subscribeChannel(PacketChannels.GLOBAL); // if you still use global for broadcasts
 
-                            var player = getServer().getPlayer(pkt.getPlayerId());
-                            if (player != null && player.isOnline()) {
-                                var loc = getHomeService().getHome(pkt.getPlayerId(), pkt.getHomeName());
-                                if (loc != null) player.teleport(loc);
-                            } else {
-                                // Optionally store a pending teleport to complete on PlayerJoin
-                            }
-                        }
-                );
+                // *** IMPORTANT: subscribe to this server’s dedicated queue ***
+                packetManager.subscribeChannel(PacketChannel.individual(localServerName));
+                getLogger().info("[RABBIT] Subscribed to individual channel for this server: " + localServerName);
 
                 // Generic packets you already use
                 packetManager.subscribe(
@@ -443,31 +468,31 @@ public final class OreoEssentials extends JavaPlugin {
                         new PlayerQuitPacketHandler(this)
                 );
 
-                getLogger().info("RabbitMQ connected and subscriptions active.");
+                getLogger().info("[RABBIT] Connected and subscriptions active.");
             } else {
-                getLogger().severe("RabbitMQ connect failed; continuing without messaging.");
+                getLogger().severe("[RABBIT] Connect failed; continuing without messaging.");
                 this.packetManager = null;
             }
         } else {
-            getLogger().info("RabbitMQ disabled.");
+            getLogger().info("[RABBIT] Disabled.");
         }
 
-        // -------- Essentials Services --------
-        this.spawnService = new SpawnService(storage);
-        this.warpService  = new WarpService(storage);
-        this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
+        // -------- Cross-server teleport brokers --------
+        // Must be after services are created AND after packetManager is initialized.
+        if (packetManager != null && packetManager.isInitialized()) {
+            new fr.elias.oreoEssentials.teleport.CrossServerTeleportBroker(
+                    this,
+                    spawnService,
+                    warpService,
+                    packetManager,
+                    configService.serverName()
+            );
+            getLogger().info("[BROKER] CrossServerTeleportBroker ready (spawn/warp).");
 
-        // Create the cross-server home broker AFTER homeService is ready and ONLY if RabbitMQ is up
-        if (packetManager != null) {
             this.homeTpBroker = new fr.elias.oreoEssentials.homes.HomeTeleportBroker(this, homeService, packetManager);
-
-            // (Optional but recommended) run pending teleports when player joins this server
-            org.bukkit.Bukkit.getPluginManager().registerEvents(new org.bukkit.event.Listener() {
-                @org.bukkit.event.EventHandler
-                public void onJoin(org.bukkit.event.player.PlayerJoinEvent e) {
-                    homeTpBroker.onJoin(e); // <-- pass the event, not the UUID
-                }
-            }, this);
+            getLogger().info("[BROKER] HomeTeleportBroker ready (server=" + configService.serverName() + ").");
+        } else {
+            getLogger().warning("[BROKER] Brokers not started: PacketManager unavailable.");
         }
 
         this.backService      = new BackService(storage);
@@ -592,6 +617,8 @@ public final class OreoEssentials extends JavaPlugin {
 
 
 
+
+
     public boolean isMessagingAvailable() {
         return packetManager != null && packetManager.isInitialized();
     }
@@ -648,7 +675,9 @@ public final class OreoEssentials extends JavaPlugin {
     public GodService getGodService() { return godService; }
     public CommandManager getCommands() { return commands; }
     public ChatSyncManager getChatSyncManager() { return chatSyncManager; }
-
+    public WarpDirectory getWarpDirectory() { return warpDirectory; }
+    public SpawnDirectory getSpawnDirectory() { return spawnDirectory; }
+    public TeleportBroker getTeleportBroker() { return teleportBroker; }
     public RedisManager getRedis() { return redis; }
     public OfflinePlayerCache getOfflinePlayerCache() { return offlinePlayerCache; }
     public PlayerEconomyDatabase getDatabase() { return database; }

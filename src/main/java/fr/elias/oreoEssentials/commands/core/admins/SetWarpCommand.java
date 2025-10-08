@@ -1,12 +1,16 @@
 package fr.elias.oreoEssentials.commands.core.admins;
 
+import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.services.WarpDirectory;
 import fr.elias.oreoEssentials.services.WarpService;
 import fr.elias.oreoEssentials.util.Lang;
-import org.bukkit.command.CommandSender;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.command.CommandSender;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class SetWarpCommand implements OreoCommand {
@@ -27,9 +31,18 @@ public class SetWarpCommand implements OreoCommand {
             return true;
         }
         Player p = (Player) sender;
-        String name = args[0].toLowerCase();
+        String name = args[0].trim().toLowerCase(Locale.ROOT);
+
         warps.setWarp(name, p.getLocation());
         Lang.send(p, "warps.set", Map.of("warp", name), p);
+
+        // record owner server if directory exists (cross-server)
+        WarpDirectory warpDir = OreoEssentials.get().getWarpDirectory();
+        if (warpDir != null) {
+            String local = OreoEssentials.get().getConfig().getString("server.name", Bukkit.getServer().getName());
+            warpDir.setWarpServer(name, local);
+            p.sendMessage("§7(Cross-server) Warp owner set to §b" + local + "§7.");
+        }
         return true;
     }
 }

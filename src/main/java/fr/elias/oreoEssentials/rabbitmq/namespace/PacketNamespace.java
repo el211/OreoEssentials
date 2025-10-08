@@ -1,25 +1,27 @@
 // File: src/main/java/fr/elias/oreoEssentials/rabbitmq/namespace/PacketNamespace.java
 package fr.elias.oreoEssentials.rabbitmq.namespace;
 
-import com.google.common.collect.Sets;
 import fr.elias.oreoEssentials.rabbitmq.packet.Packet;
 
 import java.util.Collection;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A namespace groups packet definitions.
  *
- * Usage pattern:
- *  - Subclass implements {@link #registerPackets()} and calls {@link #registerPacket(int, Class, PacketProvider)} for each packet.
- *  - The first time someone asks for definitions (or calls ensureRegistered / registerInto),
- *    we run registerPackets() exactly once and cache the results.
+ * Usage:
+ *  - Subclasses implement {@link #registerPackets()} and call
+ *    {@link #registerPacket(int, Class, PacketProvider)} for each packet.
+ *  - Registration runs lazily exactly once (first access/registerInto()).
  */
 public abstract class PacketNamespace {
 
     private final short namespaceId;
-    private final Collection<PacketDefinition<?>> definitions = Sets.newConcurrentHashSet();
+    private final Set<PacketDefinition<?>> definitions =
+            ConcurrentHashMap.newKeySet();
 
-    // guard to ensure registerPackets() is executed once
+    // ensures registerPackets() is executed once per namespace
     private volatile boolean registered = false;
 
     protected PacketNamespace(short namespaceId) {
@@ -27,16 +29,20 @@ public abstract class PacketNamespace {
     }
 
     /**
-     * Subclasses call this inside {@link #registerPackets()} to add packets to the namespace.
+     * Subclasses call this inside {@link #registerPackets()} to add packets.
      */
-    protected final <T extends Packet> void registerPacket(int packetId, Class<T> packetClass, PacketProvider<T> provider) {
-        PacketDefinition<T> definition = new PacketDefinition<>(packetId, packetClass, provider, this);
-        definitions.add(definition);
+    protected final <T extends Packet> void registerPacket(
+            int packetId,
+            Class<T> packetClass,
+            PacketProvider<T> provider
+    ) {
+        PacketDefinition<T> def = new PacketDefinition<>(packetId, packetClass, provider, this);
+        definitions.add(def);
     }
 
     /**
-     * Implementations must register all their packets here (via {@link #registerPacket(...)})
-     * Do NOT call this yourself; it is invoked lazily by ensureRegistered().
+     * Implementations must register all their packets here via {@link #registerPacket(...)}.
+     * Do NOT call this directly; it's invoked lazily by {@link #ensureRegistered()}.
      */
     protected abstract void registerPackets();
 
@@ -60,16 +66,16 @@ public abstract class PacketNamespace {
 
     /**
      * Returns all definitions for this namespace.
-     * Lazily triggers {@link #registerPackets()} on the first call.
+     * Lazily triggers {@link #registerPackets()} on first call.
      */
     public final Collection<PacketDefinition<?>> getDefinitions() {
         ensureRegistered();
         return definitions;
+        // Note: returned collection is concurrent; callers should not modify it.
     }
 
     /**
-     * Convenience hook: register all definitions from this namespace into a registry.
-     * (Optional to use—handy for {@code PacketRegistry.register(namespace)}).
+     * Convenience: register all definitions from this namespace into a registry.
      */
     public final void registerInto(PacketRegistry registry) {
         ensureRegistered();

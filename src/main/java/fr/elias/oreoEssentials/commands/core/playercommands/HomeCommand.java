@@ -2,6 +2,7 @@ package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.HomeService;
@@ -18,6 +19,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class HomeCommand implements OreoCommand, TabCompleter {
+
     private final HomeService homes;
 
     public HomeCommand(HomeService homes) {
@@ -32,7 +34,7 @@ public class HomeCommand implements OreoCommand, TabCompleter {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        Player p = (Player) sender;
+        if (!(sender instanceof Player p)) return true;
 
         // /home or /home list -> show homes
         if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
@@ -52,17 +54,12 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         String raw = args[0];
         String key = normalize(raw);
 
-        // Determine where the home lives
+        // Where does the home live?
         String targetServer = homes.homeServer(p.getUniqueId(), key);
         String localServer  = homes.localServer();
+        if (targetServer == null) targetServer = localServer;
 
-        // ---- DEBUG LINES (temporary; remove after confirming) ----
-        p.sendMessage(ChatColor.GRAY + "[debug] target=" + targetServer + " local=" + localServer);
-        // ----------------------------------------------------------
-
-        if (targetServer == null) targetServer = localServer; // defensive
-
-        // If it's on THIS server -> do a normal teleport
+        // Local teleport
         if (targetServer.equalsIgnoreCase(localServer)) {
             Location loc = homes.getHome(p.getUniqueId(), key);
             if (loc == null) {
@@ -75,18 +72,30 @@ public class HomeCommand implements OreoCommand, TabCompleter {
             return true;
         }
 
-        // Cross-server flow:
-        // 1) Tell the target server which (player, home) to teleport when they arrive
-        PacketManager pm = OreoEssentials.get().getPacketManager();
+        // Cross-server: publish to the TARGET SERVER'S QUEUE (not global), then proxy switch
+        final OreoEssentials plugin = OreoEssentials.get();
+        final PacketManager pm = plugin.getPacketManager();
+
         if (pm != null && pm.isInitialized()) {
-            pm.sendPacket(new HomeTeleportRequestPacket(p.getUniqueId(), key, targetServer));
+            final String requestId = java.util.UUID.randomUUID().toString();
+            plugin.getLogger().info("[HOME/SEND] from=" + homes.localServer()
+                    + " player=" + p.getUniqueId()
+                    + " nameArg='" + key + "' -> targetServer=" + targetServer
+                    + " requestId=" + requestId);
+
+            // Build the packet
+            HomeTeleportRequestPacket pkt = new HomeTeleportRequestPacket(p.getUniqueId(), key, targetServer, requestId);
+
+            // *** KEY CHANGE: publish to the target server’s individual channel ***
+            PacketChannel targetChannel = PacketChannel.individual(targetServer);
+            pm.sendPacket(targetChannel, pkt);
         } else {
             p.sendMessage(ChatColor.RED + "Cross-server messaging is disabled. Ask an admin to enable RabbitMQ.");
             p.sendMessage(ChatColor.GRAY + "You can still switch with " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " and run " + ChatColor.AQUA + "/home " + key);
             return true;
         }
 
-        // 2) Switch the player to the owning server via proxy plugin message
+        // Switch via proxy
         boolean switched = sendPlayerToServer(p, targetServer);
         if (switched) {
             p.sendMessage(ChatColor.YELLOW + "Sending you to " + ChatColor.AQUA + targetServer +
@@ -139,10 +148,7 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         }
     }
 
-    /**
-     * Uses the Bungee/Velocity plugin messaging channel ("BungeeCord") to switch servers.
-     * Requires the plugin to have registered the outgoing channel.
-     */
+    /** Proxy switch */
     private boolean sendPlayerToServer(Player p, String serverName) {
         try {
             ByteArrayOutputStream b = new ByteArrayOutputStream();

@@ -2,64 +2,147 @@
 package fr.elias.oreoEssentials.homes;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.HomeService;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
+import org.bukkit.event.*;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.plugin.Plugin;
 
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
-public class HomeTeleportBroker implements Listener {
-    private final OreoEssentials plugin;
+public final class HomeTeleportBroker implements Listener {
+    private final Plugin plugin;
     private final HomeService homes;
-    private final String local;
-    private final Map<UUID, String> pending = new ConcurrentHashMap<>();
+    private final PacketManager pm;
+    private final String thisServer;
+    private final Logger log;
 
-    public HomeTeleportBroker(OreoEssentials plugin, HomeService homes, fr.elias.oreoEssentials.rabbitmq.packet.PacketManager pm) {
+    /** latest requested home per player (guards against stale packets) */
+    private final Map<UUID, String> lastRequestedHome = new ConcurrentHashMap<>();
+    /** latest requestId per player (to disambiguate multiple close requests) */
+    private final Map<UUID, String> lastRequestId = new ConcurrentHashMap<>();
+    /** presence means we owe a teleport on join / while online */
+    private final Map<UUID, Boolean> pending = new ConcurrentHashMap<>();
+
+    public HomeTeleportBroker(Plugin plugin, HomeService homes, PacketManager pm) {
         this.plugin = plugin;
         this.homes = homes;
-        this.local = homes.localServer();
+        this.pm = pm;
+        this.thisServer = OreoEssentials.get().getConfigService().serverName();
+        this.log = plugin.getLogger();
 
-        // Subscribe for cross-server home handoffs
+        // Loud startup confirmation that the broker is live on this server
+        log.info("[HOME/BROKER] up on server=" + thisServer + " pm.init=" + pm.isInitialized());
+
+        // Subscribe HOME teleport requests
         pm.subscribe(HomeTeleportRequestPacket.class, (channel, pkt) -> {
-            if (!local.equalsIgnoreCase(pkt.getTargetServer())) return;
+            if (!thisServer.equalsIgnoreCase(pkt.getTargetServer())) {
+                log.info("[HOME/REQ] ignoring (not my server). this=" + thisServer
+                        + " target=" + pkt.getTargetServer());
+                return;
+            }
 
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                Player p = Bukkit.getPlayer(pkt.getPlayerId());
-                if (p != null && p.isOnline()) {
-                    teleportNow(p.getUniqueId(), pkt.getHomeName());
-                } else {
-                    // player not here yet, store and handle on join
-                    pending.put(pkt.getPlayerId(), pkt.getHomeName());
-                }
-            });
+            final UUID id = pkt.getPlayerId();
+            final String home = pkt.getHomeName();
+            final String reqId = pkt.getRequestId();
+
+            lastRequestedHome.put(id, home);
+            lastRequestId.put(id, reqId);
+            pending.put(id, Boolean.TRUE);
+
+            final Player online = Bukkit.getPlayer(id);
+            // Loud proof this server accepted the matching packet
+            log.info("[HOME/REQ] recv server=" + thisServer
+                    + " player=" + id
+                    + " home=" + home
+                    + " requestId=" + reqId
+                    + " online=" + (online != null && online.isOnline()));
+
+            if (online != null && online.isOnline()) {
+                applyWithRetries(id);
+            }
         });
 
-        // listen for joins to complete pending teleports
+        // Events
         Bukkit.getPluginManager().registerEvents(this, plugin);
+        log.info("[BROKER/HOME] listening. server=" + thisServer + " pm.init=" + pm.isInitialized());
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent e) {
-        UUID id = e.getPlayer().getUniqueId();
-        String home = pending.remove(id);
-        if (home != null) teleportNow(id, home);
+        final UUID id = e.getPlayer().getUniqueId();
+        if (!pending.containsKey(id)) return;
+        log.info("[HOME/JOIN] player=" + id + " intent=" + lastRequestedHome.get(id)
+                + " requestId=" + lastRequestId.get(id));
+        applyWithRetries(id);
     }
 
-    private void teleportNow(UUID id, String home) {
-        Player p = Bukkit.getPlayer(id);
-        if (p == null) return;
-        var loc = homes.getHome(id, home);
-        if (loc == null) {
-            p.sendMessage("§cHome not found on this server anymore.");
-            return;
-        }
-        p.teleport(loc);
-        p.sendMessage("§aTeleported to home §b" + home + "§a.");
+    /* ---------------- helpers ---------------- */
+
+    private void applyWithRetries(UUID id) {
+        // try at 0t, +2t, +10t, +20t
+        runOnce(id, 0);
+        runOnce(id, 2);
+        runOnce(id, 10);
+        runOnce(id, 20);
     }
+
+    private void runOnce(UUID id, int tick) {
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            final Player p = Bukkit.getPlayer(id);
+            if (p == null || !p.isOnline()) {
+                log.info("[HOME/Retry] tick=" + tick + " player offline: " + id);
+                return;
+            }
+
+            final String expectHome = lastRequestedHome.get(id);
+            final String reqId = lastRequestId.get(id);
+            if (expectHome == null || reqId == null) {
+                log.info("[HOME/Retry] tick=" + tick + " no-intent for " + id);
+                return;
+            }
+
+            final Location loc = homes.getHome(id, expectHome);
+            if (loc == null) {
+                log.warning("[HOME/Retry] tick=" + tick + " home not found here. player=" + id
+                        + " home=" + expectHome + " requestId=" + reqId);
+                // stop trying for this intent
+                pending.remove(id);
+                lastRequestedHome.remove(id);
+                lastRequestId.remove(id);
+                return;
+            }
+
+            final boolean ok = p.teleport(loc);
+            log.info("[HOME/Retry] tick=" + tick
+                    + " teleported=" + ok
+                    + " player=" + p.getName()
+                    + " -> " + expectHome
+                    + " requestId=" + reqId
+                    + " loc=" + shortLoc(loc));
+
+            if (tick == 20) {
+                // final attempt done; clear flags
+                pending.remove(id);
+                lastRequestedHome.remove(id);
+                lastRequestId.remove(id);
+            }
+        }, tick);
+    }
+
+    private static String shortLoc(Location l) {
+        return "loc=" + (l.getWorld() != null ? l.getWorld().getName() : "null")
+                + "(" + fmt(l.getX()) + "," + fmt(l.getY()) + "," + fmt(l.getZ()) + ")"
+                + " yaw=" + fmt(l.getYaw()) + " pitch=" + fmt(l.getPitch());
+    }
+
+    private static String fmt(double d) { return String.format(java.util.Locale.ROOT, "%.2f", d); }
+    private static String fmt(float f)  { return String.format(java.util.Locale.ROOT, "%.2f", f); }
 }
