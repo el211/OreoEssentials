@@ -206,7 +206,6 @@ commands:
     permission: oreo.server
     usage: "/oeserver <server>"
 
-
   head:
     description: Give yourself a player head of the specified player
     permission: oreo.head
@@ -233,6 +232,20 @@ commands:
     description: Teleport a player to your location
     permission: oreo.tphere
     usage: "/tphere <player>"
+
+  # NEW: Random Teleport
+  rtp:
+    description: Randomly teleport within a radius (tier-based)
+    aliases: [ randomtp ]
+    permission: oreo.rtp
+    usage: "/rtp"
+
+  # NEW: Ender Chest
+  ec:
+    description: Open your Ender Chest (tier-based rows)
+    aliases: [ enderchest ]
+    permission: oreo.ec
+    usage: "/ec"
 
 permissions:
   oreo.*:
@@ -287,7 +300,11 @@ permissions:
       oreo.kits.open: true
       oreo.kit.claim: true
       oreo.kit.bypasscooldown: true
-      oreo.tphere: { default: op }
+      oreo.tphere: true
+
+      # NEW: RTP + EC
+      oreo.rtp: true
+      oreo.ec: true
 
       # legacy nodes used in your economy handlers
       rabbiteconomy.money.give: true
@@ -348,7 +365,6 @@ permissions:
   oreo.afelius.reload: { default: op }
 
   # Cosmetic / identities
-
   oreo.head: { default: op }
   oreo.nick: { default: op }
 
@@ -360,6 +376,16 @@ permissions:
   # Portals / JumpPads
   oreo.portal: { default: op }
   oreo.jumpad: { default: op }
+
+  # NEW: Random Teleport
+  oreo.rtp: { default: true }
+
+  # NEW: Ender Chest
+  oreo.ec: { default: true }
+
+  # Optional Tier permissions for RTP/EC boosts (grant via your perms plugin)
+  oreo.tier.vip: { default: false }
+  oreo.tier.mvp: { default: false }
 
   # Legacy RabbitEconomy nodes (compat)
   rabbiteconomy.money.give: { default: op }

@@ -43,6 +43,7 @@ crossserverhomes: true
 crossserverwarps: true
 crossserverspawn: true
 crossservereconomy: true
+crossserverec: true   # if true and storage is mongodb, /ec syncs across servers
 
 # -------- Homes limits --------
 homes:

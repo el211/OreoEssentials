@@ -143,6 +143,13 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.config.CrossServerSettings crossServerSettings;
     public fr.elias.oreoEssentials.config.CrossServerSettings getCrossServerSettings() { return crossServerSettings; }
 
+    // RTP + EnderChest
+    private fr.elias.oreoEssentials.rtp.RtpConfig rtpConfig;
+    public fr.elias.oreoEssentials.rtp.RtpConfig getRtpConfig() { return rtpConfig; }
+
+    private fr.elias.oreoEssentials.enderchest.EnderChestConfig ecConfig;
+    private fr.elias.oreoEssentials.enderchest.EnderChestService ecService;
+    public fr.elias.oreoEssentials.enderchest.EnderChestService getEnderChestService() { return ecService; }
 
 
 
@@ -440,6 +447,40 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[ECON] Disabled. Skipping Vault, DB, and economy commands.");
         }
 
+        // ---- RTP config
+        this.rtpConfig = new fr.elias.oreoEssentials.rtp.RtpConfig(this);
+
+        // ---- EnderChest config + storage (respect crossserverec)
+        this.ecConfig = new fr.elias.oreoEssentials.enderchest.EnderChestConfig(this);
+
+        boolean crossServerEc = getConfig().getBoolean("crossserverec", false);
+        fr.elias.oreoEssentials.enderchest.EnderChestStorage ecStorage;
+
+        if ("mongodb".equalsIgnoreCase(getConfig().getString("essentials.storage", "yaml"))
+                && crossServerEc
+                && this.homesMongoClient != null) {
+            String dbName = getConfig().getString("storage.mongo.database", "oreo");
+            String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
+            ecStorage = new fr.elias.oreoEssentials.enderchest.MongoEnderChestStorage(
+                    this.homesMongoClient, dbName, prefix, getLogger()   // <-- add getLogger()
+            );
+            getLogger().info("[EC] Using MongoDB cross-server ender chest storage.");
+        } else {
+            ecStorage = new fr.elias.oreoEssentials.enderchest.YamlEnderChestStorage(this);
+            getLogger().info("[EC] Using local YAML ender chest storage.");
+        }
+        this.ecService = new fr.elias.oreoEssentials.enderchest.EnderChestService(
+                this,
+                ecConfig,
+                ecStorage                                       // <-- remove crossServerEc
+        );
+
+// Register EC listener (saves on close / intercepts physical EC if cross-server)
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.enderchest.EnderChestListener(this, ecService, crossServerEc),
+                this
+        );
+
         // -------- Essentials Services --------
         this.spawnService = new SpawnService(storage);
         this.warpService  = new WarpService(storage);
@@ -456,7 +497,7 @@ public final class OreoEssentials extends JavaPlugin {
                 packetManager.subscribeChannel(PacketChannels.GLOBAL); // if you still use global for broadcasts
 
                 // *** IMPORTANT: subscribe to this server’s dedicated queue ***
-                packetManager.subscribeChannel(PacketChannel.individual(localServerName));
+                packetManager.subscribeChannel(fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel.individual(localServerName));
                 getLogger().info("[RABBIT] Subscribed to individual channel for this server: " + localServerName);
 
                 // Generic packets you already use
@@ -482,8 +523,8 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[RABBIT] Disabled.");
         }
 
-// -------- Cross-server teleport brokers --------
-// Must be after services are created AND after packetManager is initialized.
+        // -------- Cross-server teleport brokers --------
+        // Must be after services are created AND after packetManager is initialized.
         if (packetManager != null && packetManager.isInitialized()) {
 
             // Read toggles once
@@ -529,7 +570,6 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().warning("[BROKER] Brokers not started: PacketManager unavailable.");
         }
-
 
         this.backService      = new BackService(storage);
         this.messageService   = new MessageService();
@@ -627,6 +667,9 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new ServerProxyCommand(proxyMessenger))
                 .register(new SkinCommand())
                 .register(new CloneCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand())
+                // IMPORTANT: use EcCommand (and remove EnderChestCommand class)
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcCommand(this.ecService, crossServerEc))
                 .register(new HeadCommand());
 
         // -------- Tab completion wiring --------
@@ -650,6 +693,7 @@ public final class OreoEssentials extends JavaPlugin {
 
         getLogger().info("OreoEssentials enabled.");
     }
+
 
 
 
