@@ -246,6 +246,87 @@ commands:
     aliases: [ enderchest ]
     permission: oreo.ec
     usage: "/ec"
+  afk:
+    description: Toggle AFK status
+    permission: oreo.afk
+
+  trash:
+    description: Open a disposable inventory that is not saved
+    permission: oreo.trash
+
+  workbench:
+    description: Open a virtual crafting table
+    aliases: [ wb ]
+    permission: oreo.workbench
+
+  anvil:
+    description: Open a virtual anvil
+    permission: oreo.anvil
+
+  clear:
+    description: Clear inventory (/clear or /ci [player])
+    aliases: [ ci ]
+    permission: oreo.clear
+    usage: "/clear [player]"
+
+  seen:
+    description: Show when a player was last seen
+    permission: oreo.seen
+    usage: "/seen <player>"
+
+  ping:
+    description: Show your ping
+    permission: oreo.ping
+
+  hat:
+    description: Wear the item in your hand as a hat
+    permission: oreo.hat
+
+  realname:
+    description: Resolve a nickname to the player's real name
+    permission: oreo.realname
+    usage: "/realname <nickname>"
+  cook:
+    description: Quick-smelt the item in your hand using its furnace recipe
+    permission: oreo.cook
+    usage: "/cook [amount|max]"
+
+  furnace:
+    description: Opens furnace GUI to smelt items
+    permission: oreo.furnace
+
+  near:
+    description: List nearby players within a radius
+    permission: oreo.near
+    usage: "/near [radius]"
+
+  kill:
+    description: Kill yourself or another player
+    permission: oreo.kill
+    usage: "/kill [player]"
+
+  invsee:
+    description: View/edit a player's inventory
+    permission: oreo.invsee
+    usage: "/invsee <player>"
+
+  ecsee:
+    description: View/edit a player's ender chest (online = live; offline = virtual)
+    permission: oreo.ecsee
+    usage: "/ecsee <player>"
+
+  balance:
+    description: Show your balance or another player's balance
+    aliases: [ bal ]
+    permission: oreo.balance
+    usage: "/balance [player]"
+
+  baltop:
+    description: Show the richest players
+    permission: oreo.baltop
+    usage: "/baltop [size]"
+
+
 
 permissions:
   oreo.*:
@@ -301,6 +382,16 @@ permissions:
       oreo.kit.claim: true
       oreo.kit.bypasscooldown: true
       oreo.tphere: true
+      oreo.afk: true
+      oreo.hat: true
+      oreo.trash: true
+      oreo.workbench: true
+      oreo.anvil: true
+      oreo.clear: true
+      oreo.clear.others: true
+      oreo.realname: true
+      oreo.seen: true
+      oreo.ping: true
 
       # NEW: RTP + EC
       oreo.rtp: true
@@ -332,6 +423,26 @@ permissions:
   oreo.broadcast: { default: op }
   oreo.tp: { default: op }
   oreo.vanish: { default: op }
+  oreo.afk:              { default: true }
+  oreo.hat:              { default: true }
+  oreo.trash:            { default: true }
+  oreo.workbench:        { default: true }
+  oreo.anvil:            { default: true }
+  oreo.clear:            { default: true }
+  oreo.clear.others:     { default: op }
+  oreo.realname:         { default: op }
+  oreo.seen:             { default: true }
+  oreo.ping:             { default: true }
+  oreo.cook: { default: op }
+  oreo.furnace: { default: true }
+  oreo.near: { default: true }
+  oreo.kill: { default: op }
+  oreo.kill.others: { default: op }
+  oreo.invsee: { default: op }
+  oreo.ecsee: { default: op }
+  oreo.balance: { default: true }
+  oreo.balance.others: { default: op }
+  oreo.baltop: { default: true }
 
   # Economy base + sub-perms
   oreo.money: { default: op }

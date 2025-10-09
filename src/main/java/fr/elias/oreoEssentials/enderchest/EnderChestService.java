@@ -75,6 +75,13 @@ public class EnderChestService {
             plugin.getLogger().warning("[EC] Save failed for " + p.getUniqueId() + ": " + t.getMessage());
         }
     }
+    // in EnderChestService
+    public ItemStack[] loadFor(java.util.UUID uuid, int rows) {
+        return storage.load(uuid, rows);
+    }
+    public void saveFor(java.util.UUID uuid, int rows, ItemStack[] contents) {
+        storage.save(uuid, rows, contents);
+    }
 
     /* ---------------- permissions / slots ---------------- */
 

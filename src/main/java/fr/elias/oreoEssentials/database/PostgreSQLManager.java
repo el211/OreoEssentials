@@ -1,39 +1,46 @@
+// File: src/main/java/fr/elias/oreoEssentials/database/PostgreSQLManager.java
 package fr.elias.oreoEssentials.database;
-
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
-import java.sql.*;
-import java.util.UUID;
-import java.util.logging.Level;
 import org.bukkit.Bukkit;
 
-public class PostgreSQLManager implements PlayerEconomyDatabase{
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.logging.Level;
+
+public class PostgreSQLManager implements PlayerEconomyDatabase {
+
     private Connection connection;
     private final OreoEssentials plugin;
     private final RedisManager redis;
+
+    private static final String TABLE = "economy";
+    private static final double STARTING_BALANCE = 100.0;
 
     public PostgreSQLManager(OreoEssentials plugin, RedisManager redis) {
         this.plugin = plugin;
         this.redis = redis;
     }
 
+    @Override
     public boolean connect(String url, String user, String password) {
         try {
             Class.forName("org.postgresql.Driver");
             connection = DriverManager.getConnection(url, user, password);
             plugin.getLogger().info("✅ Connected to PostgreSQL database!");
 
-            // ✅ Ensure the economy table exists
-            String createTableQuery = "CREATE TABLE IF NOT EXISTS economy (" +
+            // Ensure table exists
+            String createTableQuery = "CREATE TABLE IF NOT EXISTS " + TABLE + " (" +
                     "player_uuid UUID PRIMARY KEY, " +
                     "name TEXT, " +
-                    "balance DOUBLE PRECISION NOT NULL DEFAULT 100.0)";
+                    "balance DOUBLE PRECISION NOT NULL DEFAULT " + STARTING_BALANCE + ")";
             try (Statement statement = connection.createStatement()) {
                 statement.executeUpdate(createTableQuery);
             }
             return true;
-
         } catch (SQLException e) {
             plugin.getLogger().severe("❌ Failed to connect to PostgreSQL!");
             e.printStackTrace();
@@ -59,52 +66,45 @@ public class PostgreSQLManager implements PlayerEconomyDatabase{
     @Override
     public double getBalance(UUID playerUUID) {
         Double cachedBalance = redis.getBalance(playerUUID);
-        if (cachedBalance != null) {
-            return cachedBalance;
-        }
+        if (cachedBalance != null) return cachedBalance;
 
-        String query = "SELECT balance FROM economy WHERE player_uuid = ?";
+        String query = "SELECT balance FROM " + TABLE + " WHERE player_uuid = ?";
         try (PreparedStatement stmt = connection.prepareStatement(query)) {
             stmt.setObject(1, playerUUID);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                double balance = rs.getDouble("balance");
-                redis.setBalance(playerUUID, balance);
-                return balance;
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    double balance = rs.getDouble("balance");
+                    redis.setBalance(playerUUID, balance);
+                    return balance;
+                }
             }
-
-
-
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "❌ Error fetching balance from PostgreSQL", e);
         }
-        return 100.0;
+        return STARTING_BALANCE;
     }
 
     @Override
     public double getOrCreateBalance(UUID playerUUID, String name) {
         Double cachedBalance = redis.getBalance(playerUUID);
-        if (cachedBalance != null) {
-            return cachedBalance;
-        }
+        if (cachedBalance != null) return cachedBalance;
 
-        String query = "SELECT balance FROM economy WHERE player_uuid = ?";
+        String query = "SELECT balance FROM " + TABLE + " WHERE player_uuid = ?";
         try (PreparedStatement stmt = connection.prepareStatement(query)) {
             stmt.setObject(1, playerUUID);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                double balance = rs.getDouble("balance");
-                redis.setBalance(playerUUID, balance);
-                return balance;
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    double balance = rs.getDouble("balance");
+                    redis.setBalance(playerUUID, balance);
+                    return balance;
+                }
             }
-
-            setBalance(playerUUID, name, 100.0);
-            return 100.0;
+            setBalance(playerUUID, name, STARTING_BALANCE);
+            return STARTING_BALANCE;
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "❌ Error fetching balance from PostgreSQL", e);
         }
-
-        return 100.0;
+        return STARTING_BALANCE;
     }
 
     @Override
@@ -127,8 +127,8 @@ public class PostgreSQLManager implements PlayerEconomyDatabase{
 
     @Override
     public void setBalance(UUID playerUUID, String name, double amount) {
-        String query = "INSERT INTO economy (player_uuid, name, balance) VALUES (?, ?, ?) " +
-                "ON CONFLICT (player_uuid) DO UPDATE SET balance = EXCLUDED.balance";
+        String query = "INSERT INTO " + TABLE + " (player_uuid, name, balance) VALUES (?, ?, ?) " +
+                "ON CONFLICT (player_uuid) DO UPDATE SET name = EXCLUDED.name, balance = EXCLUDED.balance";
 
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             try (PreparedStatement stmt = connection.prepareStatement(query)) {
@@ -145,22 +145,15 @@ public class PostgreSQLManager implements PlayerEconomyDatabase{
 
     @Override
     public void populateCache(OfflinePlayerCache cache) {
-        String query = "SELECT player_uuid, name FROM economy";
-
-        try (PreparedStatement stmt = connection.prepareStatement(query)) {
-            ResultSet rs = stmt.executeQuery();
+        String query = "SELECT player_uuid, name FROM " + TABLE;
+        try (PreparedStatement stmt = connection.prepareStatement(query);
+             ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
-                UUID playerUUID = rs.getObject("player_uuid", UUID.class);
+                UUID playerUUID = (UUID) rs.getObject("player_uuid");
                 String name = rs.getString("name");
-
-                if (name == null) {
-                    name = Bukkit.getOfflinePlayer(playerUUID).getName(); // No guarantees that this will work, geyser weird
-                }
-
-                if (name != null) {
-                    cache.add(name, playerUUID);
-                }
+                if (name == null) name = Bukkit.getOfflinePlayer(playerUUID).getName();
+                if (name != null) cache.add(name, playerUUID);
             }
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "❌ Error populating cache in PostgreSQL", e);
@@ -168,10 +161,10 @@ public class PostgreSQLManager implements PlayerEconomyDatabase{
     }
 
     public void deleteBalance(UUID playerUUID) {
-        String query = "DELETE FROM economy WHERE player_uuid = ?";
+        String query = "DELETE FROM " + TABLE + " WHERE player_uuid = ?";
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             try (PreparedStatement stmt = connection.prepareStatement(query)) {
-                stmt.setString(1, playerUUID.toString());
+                stmt.setObject(1, playerUUID);
                 stmt.executeUpdate();
                 redis.deleteBalance(playerUUID);
             } catch (SQLException e) {
@@ -180,8 +173,38 @@ public class PostgreSQLManager implements PlayerEconomyDatabase{
         });
     }
 
+    /* ---------------- Leaderboard ---------------- */
+
+    @Override
+    public boolean supportsLeaderboard() { return true; }
+
+    @Override
+    public List<TopEntry> topBalances(int limit) {
+        List<TopEntry> out = new ArrayList<>();
+        String sql = "SELECT player_uuid, name, balance FROM " + TABLE + " ORDER BY balance DESC LIMIT ?";
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, Math.max(1, limit));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    UUID uuid = (UUID) rs.getObject("player_uuid");
+                    double bal = rs.getDouble("balance");
+                    String name = rs.getString("name");
+                    if (name == null || name.isBlank()) {
+                        String lookedUp = Bukkit.getOfflinePlayer(uuid).getName();
+                        name = (lookedUp != null) ? lookedUp : uuid.toString();
+                    }
+                    out.add(new TopEntry(uuid, name, bal));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "[ECON] topBalances failed", e);
+        }
+        return out;
+    }
+
+    @Override
     public void clearCache() {
         redis.clearCache();
     }
 }
-

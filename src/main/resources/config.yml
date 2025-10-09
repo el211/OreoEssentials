@@ -73,7 +73,7 @@ economy:
   enabled: true                 # false => no economy DB + no economy commands
   # none | json | mongodb | postgresql
   type: "json"
-
+  baltop-size: 10
   # Generic balance rules (used by JSON; other backends may reference these too)
   starting-balance: 100.0
   max-balance: 1000000000
@@ -81,7 +81,7 @@ economy:
   allow-negative: false
 
   # MongoDB economy backend (used if type = mongodb)
-  mongodb:
+  mongodb: #if you need a mongodb server, contact us on discord https://discord.gg/A6wCGJD2Ez we cna have one for you for 2$ per month
     uri: "mongodb://localhost:27017"
     database: "minecraft_economy"
     collection: "balances"
@@ -104,7 +104,7 @@ redis:
 
 # -------- RabbitMQ (optional; used by ChatSync AND home-teleport packets) --------
 # Enable this on *every* server if you want cross-server /home to auto-teleport after proxy switch.
-rabbitmq:
+rabbitmq: #if you need a rabbitmq database and you don't have one, contact us on discord https://discord.gg/A6wCGJD2Ez we cna have one for you for 2$ per month
   enabled: false
   uri: "amqps://user:pass@host/vhost"
 

@@ -75,9 +75,14 @@ import fr.elias.oreoEssentials.vault.VaultEconomyProvider;
 import net.milkbowl.vault.economy.Economy;
 
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 public final class OreoEssentials extends JavaPlugin {
 
@@ -643,6 +648,9 @@ public final class OreoEssentials extends JavaPlugin {
         // Nick (has completer)
         var nickCmd = new fr.elias.oreoEssentials.commands.core.playercommands.NickCommand();
         this.commands.register(nickCmd);
+        // --- AFK service
+        var afkService = new fr.elias.oreoEssentials.services.AfkService();
+        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.AfkListener(afkService), this);
 
         // Register all remaining commands
         this.commands
@@ -684,12 +692,43 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand())
                 .register(new fr.elias.oreoEssentials.playersync.PlayerSyncCommand(this, playerSyncService, invSyncEnabled))
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcCommand(this.ecService, crossServerEc))
-                .register(new HeadCommand());
+                .register(new HeadCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.AfkCommand(afkService))
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.TrashCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.WorkbenchCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.AnvilCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.ClearCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.SeenCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.PingCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.HatCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.RealNameCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.FurnaceCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.NearCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.KillCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.CookCommand())
+                .register(new fr.elias.oreoEssentials.commands.ecocommands.BalanceCommand(this))
+                .register(new fr.elias.oreoEssentials.commands.ecocommands.BalTopCommand(this))
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
 
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
         }
+        if (getCommand("balance") != null) {
+            getCommand("balance").setTabCompleter((sender, cmd, alias, args) -> {
+                if (args.length == 1 && sender.hasPermission("oreo.balance.others")) {
+                    String partial = args[0].toLowerCase(java.util.Locale.ROOT);
+                    return org.bukkit.Bukkit.getOnlinePlayers().stream()
+                            .map(org.bukkit.entity.Player::getName)
+                            .filter(n -> n.toLowerCase(java.util.Locale.ROOT).startsWith(partial))
+                            .sorted(String.CASE_INSENSITIVE_ORDER)
+                            .toList();
+                }
+                return java.util.List.of();
+            });
+        }
+
         if (getCommand("skin") != null)   getCommand("skin").setTabCompleter(new SkinCommand());
         if (getCommand("clone") != null)  getCommand("clone").setTabCompleter(new CloneCommand());
         if (getCommand("head") != null)   getCommand("head").setTabCompleter(new HeadCommand());
@@ -701,7 +740,11 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("unban") != null)  getCommand("unban").setTabCompleter(new UnbanCommand());
         if (getCommand("nick") != null)   getCommand("nick").setTabCompleter(nickCmd);
         if (getCommand("unmute") != null) getCommand("unmute").setTabCompleter(unmuteCmd);
-
+        // tab completers for player-arg commands
+        if (getCommand("invsee") != null)
+            getCommand("invsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand());
+        if (getCommand("ecsee") != null)
+            getCommand("ecsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
         // -------- PlaceholderAPI hook (optional; reflection) --------
         tryRegisterPlaceholderAPI();
 

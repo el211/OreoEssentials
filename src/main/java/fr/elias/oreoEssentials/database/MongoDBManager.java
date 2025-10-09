@@ -5,17 +5,19 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
-import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
+import com.mongodb.client.model.Sorts;
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
 import org.bson.Document;
 import org.bukkit.Bukkit;
 
-import java.util.Objects;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class MongoDBManager implements PlayerEconomyDatabase {
@@ -25,7 +27,7 @@ public class MongoDBManager implements PlayerEconomyDatabase {
     private MongoDatabase database;
     private MongoCollection<Document> collection;
 
-    // TODO: feed these from config later
+    // You can wire these from config later if desired
     private static final double STARTING_BALANCE = 100.0;
     private static final double MIN_BALANCE = 0.0;
     private static final double MAX_BALANCE = 1_000_000_000.0;
@@ -42,9 +44,11 @@ public class MongoDBManager implements PlayerEconomyDatabase {
             this.database = mongoClient.getDatabase(database);
             this.collection = this.database.getCollection(collection);
 
-            // Unique index on playerUUID for faster lookups & integrity
-            this.collection.createIndex(Indexes.ascending("playerUUID"),
-                    new IndexOptions().unique(true));
+            // Unique index on playerUUID for integrity + performance
+            this.collection.createIndex(
+                    Indexes.ascending("playerUUID"),
+                    new IndexOptions().unique(true)
+            );
 
             System.out.println("[OreoEssentials] ✅ Connected to MongoDB: " + database);
             return true;
@@ -57,10 +61,10 @@ public class MongoDBManager implements PlayerEconomyDatabase {
 
     @Override
     public void giveBalance(UUID playerUUID, String name, double amount) {
-        // Atomic increment in DB; then refresh cache
-        String id = playerUUID.toString();
+        final String id = playerUUID.toString();
         try {
-            collection.updateOne(Filters.eq("playerUUID", id),
+            collection.updateOne(
+                    Filters.eq("playerUUID", id),
                     Updates.combine(
                             Updates.set("playerUUID", id),
                             Updates.set("name", name),
@@ -68,7 +72,6 @@ public class MongoDBManager implements PlayerEconomyDatabase {
                     ),
                     new UpdateOptions().upsert(true)
             );
-            // Force cache refresh from DB source of truth
             redis.deleteBalance(playerUUID);
             redis.setBalance(playerUUID, getBalance(playerUUID));
         } catch (Exception e) {
@@ -78,10 +81,26 @@ public class MongoDBManager implements PlayerEconomyDatabase {
 
     @Override
     public void takeBalance(UUID playerUUID, String name, double amount) {
-        // Respect MIN/ALLOW_NEGATIVE via clamp using setBalance()
         double current = getBalance(playerUUID);
         double target = current - amount;
         setBalance(playerUUID, name, target);
+    }
+
+    @Override
+    public void setBalance(UUID playerUUID, String name, double amount) {
+        final String id = playerUUID.toString();
+        double clamped = clamp(amount, MIN_BALANCE, MAX_BALANCE, ALLOW_NEGATIVE);
+
+        Document doc = new Document("playerUUID", id)
+                .append("name", name)
+                .append("balance", clamped);
+
+        try {
+            collection.replaceOne(Filters.eq("playerUUID", id), doc, new ReplaceOptions().upsert(true));
+            redis.setBalance(playerUUID, clamped);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -115,27 +134,6 @@ public class MongoDBManager implements PlayerEconomyDatabase {
     }
 
     @Override
-    public void setBalance(UUID playerUUID, String name, double amount) {
-        String id = playerUUID.toString();
-
-        double clamped = clamp(amount, MIN_BALANCE, MAX_BALANCE, ALLOW_NEGATIVE);
-
-        Document doc = new Document("playerUUID", id)
-                .append("name", name)
-                .append("balance", clamped);
-
-        try {
-            collection.replaceOne(Filters.eq("playerUUID", id),
-                    doc, new ReplaceOptions().upsert(true));
-
-            // Cache new value
-            redis.setBalance(playerUUID, clamped);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Override
     public void populateCache(OfflinePlayerCache cache) {
         for (Document doc : collection.find()) {
             try {
@@ -143,12 +141,9 @@ public class MongoDBManager implements PlayerEconomyDatabase {
                 if (s == null) continue;
                 UUID id = UUID.fromString(s);
                 String name = doc.getString("name");
-                if (name == null) {
-                    name = Bukkit.getOfflinePlayer(id).getName();
-                }
+                if (name == null) name = Bukkit.getOfflinePlayer(id).getName();
                 if (name != null) cache.add(name, id);
-            } catch (Exception ignored) {
-            }
+            } catch (Exception ignored) { }
         }
     }
 
@@ -165,11 +160,47 @@ public class MongoDBManager implements PlayerEconomyDatabase {
         }
     }
 
-    // ---- helpers ----
+    /* ---------------- Leaderboard ---------------- */
+
+    @Override
+    public boolean supportsLeaderboard() { return true; }
+
+    @Override
+    public List<TopEntry> topBalances(int limit) {
+        List<TopEntry> out = new ArrayList<>();
+        int lim = Math.max(1, limit);
+
+        try {
+            for (Document d : collection.find()
+                    .projection(new Document("playerUUID", 1).append("name", 1).append("balance", 1))
+                    .sort(Sorts.descending("balance"))
+                    .limit(lim)) {
+
+                String uuidStr = d.getString("playerUUID");
+                if (uuidStr == null) continue;
+
+                UUID uuid;
+                try { uuid = UUID.fromString(uuidStr); } catch (Exception e) { continue; }
+
+                double bal = readNumber(d, "balance", 0.0);
+                String name = d.getString("name");
+                if (name == null || name.isBlank()) {
+                    String lookedUp = Bukkit.getOfflinePlayer(uuid).getName();
+                    name = (lookedUp != null) ? lookedUp : uuid.toString();
+                }
+                out.add(new TopEntry(uuid, name, bal));
+            }
+        } catch (Exception e) {
+            System.err.println("[OreoEssentials] [ECON] topBalances failed: " + e.getMessage());
+        }
+        return out;
+    }
+
+    /* ---------------- helpers ---------------- */
 
     private static double readNumber(Document doc, String key, double def) {
         Object v = doc.get(key);
-        if (v instanceof Number) return ((Number) v).doubleValue();
+        if (v instanceof Number n) return n.doubleValue();
         return def;
     }
 
