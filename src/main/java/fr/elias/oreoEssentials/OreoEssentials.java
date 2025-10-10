@@ -1,7 +1,6 @@
 // File: src/main/java/fr/elias/oreoEssentials/OreoEssentials.java
 package fr.elias.oreoEssentials;
 
-import com.mongodb.client.MongoClients;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
 // Core commands (essentials-like)
@@ -18,11 +17,8 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
-import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
-import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.util.Lang;
-import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClient;
 
 // Tab completion
@@ -55,9 +51,6 @@ import fr.elias.oreoEssentials.rabbitmq.handler.PlayerJoinPacketHandler;
 import fr.elias.oreoEssentials.rabbitmq.handler.PlayerQuitPacketHandler;
 import fr.elias.oreoEssentials.rabbitmq.handler.RemoteMessagePacketHandler;
 import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
-import fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerJoinPacket;
-import fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerQuitPacket;
-import fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket;
 import fr.elias.oreoEssentials.rabbitmq.sender.RabbitMQSender;
 
 // Services
@@ -75,14 +68,9 @@ import fr.elias.oreoEssentials.vault.VaultEconomyProvider;
 import net.milkbowl.vault.economy.Economy;
 
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.util.List;
-import java.util.Locale;
-import java.util.stream.Collectors;
 
 public final class OreoEssentials extends JavaPlugin {
 
@@ -697,7 +685,7 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.TrashCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.WorkbenchCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.AnvilCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.ClearCommand())
+                .register(new ClearCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.SeenCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.PingCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.HatCommand())

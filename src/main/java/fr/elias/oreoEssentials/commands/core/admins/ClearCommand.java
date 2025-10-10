@@ -1,4 +1,4 @@
-package fr.elias.oreoEssentials.commands.core.playercommands;
+package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import org.bukkit.Bukkit;
