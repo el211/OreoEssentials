@@ -68,6 +68,54 @@ tpa:
 debug:
   skins: true
 
+# -------- boosbar --------
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+
+bossbar:
+  enabled: true
+  text: "<gradient:#FF1493:#00FF7F>Welcome</gradient> {player}"
+  color: PURPLE         # WHITE, BLUE, GREEN, PINK, PURPLE, RED, YELLOW
+  style: SEGMENTED_10   # SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12, SEGMENTED_20
+  progress: 1.0         # 0.0..1.0
+  update-ticks: 40      # re-render every 2s (20 ticks = 1s)
+
+
+
+
+# -------- Scoreboard (sidebar) --------
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+scoreboard:
+  enabled: true
+  default-enabled: true
+  update-ticks: 20
+  title:
+    frame-ticks: 10
+    frames:
+      - "&d&lOreo&f&lEssentials"
+      - "&5&lOreo&f&lEssentials"
+      - "&d&lOreo&f&lEssentials"
+  lines:
+    - "&7Player: &f{player}"
+    - "&7Money: &f%vault_eco_balance_formatted%"
+    - "&7Online: &f%server_online%/%server_max_players%"
+    - ""
+    - "&7TPS: &f%server_tps_1%"
+    - "&7Ping: &f%player_ping%"
+  worlds:
+    whitelist: []   # show only in these worlds (empty = all)
+    blacklist: []   # or hide in these worlds
+
+
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+#---------------------------------------------------------------------
+
+
+
 # -------- Economy (Vault-backed) --------
 economy:
   enabled: true                 # false => no economy DB + no economy commands

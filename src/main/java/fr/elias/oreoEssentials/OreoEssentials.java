@@ -18,8 +18,13 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
 import fr.elias.oreoEssentials.services.*;
+import fr.elias.oreoEssentials.services.chatservices.MuteService;
+import fr.elias.oreoEssentials.services.mongoservices.*;
 import fr.elias.oreoEssentials.util.Lang;
 import com.mongodb.client.MongoClient;
+import fr.elias.oreoEssentials.scoreboard.ScoreboardConfig;
+import fr.elias.oreoEssentials.scoreboard.ScoreboardService;
+import fr.elias.oreoEssentials.scoreboard.ScoreboardToggleCommand;
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
@@ -109,6 +114,8 @@ public final class OreoEssentials extends JavaPlugin {
     private TeleportBroker teleportBroker; // if you unified brokers
     public fr.elias.oreoEssentials.kits.KitsManager getKitsManager() { return kitsManager; }
     public fr.elias.oreoEssentials.tab.TabListManager getTabListManager() { return tabListManager; }
+    private fr.elias.oreoEssentials.bossbar.BossBarService bossBarService;
+    public fr.elias.oreoEssentials.bossbar.BossBarService getBossBarService() { return bossBarService; }
 
     // Economy / messaging stack
     private PlayerEconomyDatabase database;
@@ -144,6 +151,7 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.enderchest.EnderChestService ecService;
     public fr.elias.oreoEssentials.enderchest.EnderChestService getEnderChestService() { return ecService; }
 
+    private ScoreboardService scoreboardService;
 
 
 
@@ -258,7 +266,7 @@ public final class OreoEssentials extends JavaPlugin {
 
                 // (Optional) migration helper if you used Bukkit server name previously
                 try {
-                    fr.elias.oreoEssentials.services.MongoHomesMigrator.run(
+                    MongoHomesMigrator.run(
                             this.homesMongoClient,
                             dbName,
                             prefix,
@@ -271,21 +279,21 @@ public final class OreoEssentials extends JavaPlugin {
                 }
 
                 // Mongo-backed StorageApi (handles spawn/warps/homes/back)
-                this.storage = new fr.elias.oreoEssentials.services.MongoHomesStorage(
+                this.storage = new MongoHomesStorage(
                         this.homesMongoClient, dbName, prefix, localServerName
                 );
 
                 // Cross-server directories (home/warp/spawn owners)
-                this.homeDirectory  = new fr.elias.oreoEssentials.services.MongoHomeDirectory(
+                this.homeDirectory  = new MongoHomeDirectory(
                         this.homesMongoClient, dbName, prefix + "home_directory"
                 );
                 try {
-                    this.warpDirectory  = new fr.elias.oreoEssentials.services.MongoWarpDirectory(
+                    this.warpDirectory  = new MongoWarpDirectory(
                             this.homesMongoClient, dbName, prefix + "warp_directory"
                     );
                 } catch (Throwable ignored) { this.warpDirectory = null; }
                 try {
-                    this.spawnDirectory = new fr.elias.oreoEssentials.services.MongoSpawnDirectory(
+                    this.spawnDirectory = new MongoSpawnDirectory(
                             this.homesMongoClient, dbName, prefix + "spawn_directory"
                     );
                 } catch (Throwable ignored) { this.spawnDirectory = null; }
@@ -624,6 +632,21 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- Commands (manager then registrations) --------
         this.commands = new CommandManager(this);
 
+
+        // --- BossBar (controlled by config: bossbar.enabled)
+        this.bossBarService = new fr.elias.oreoEssentials.bossbar.BossBarService(this);
+        this.bossBarService.start();
+        this.commands.register(new fr.elias.oreoEssentials.bossbar.BossBarToggleCommand(this.bossBarService));
+
+        // --- Scoreboard (controlled by config: scoreboard.enabled)
+        ScoreboardConfig sbCfg = ScoreboardConfig.load(this);
+        this.scoreboardService = new ScoreboardService(this, sbCfg);
+        this.scoreboardService.start();
+
+// /scoreboard toggle
+        this.commands.register(new ScoreboardToggleCommand(this.scoreboardService));
+
+
         var tphere = new fr.elias.oreoEssentials.commands.core.admins.TphereCommand();
         this.commands.register(tphere);
         if (getCommand("tphere") != null) {
@@ -697,7 +720,8 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.CookCommand())
                 .register(new fr.elias.oreoEssentials.commands.ecocommands.BalanceCommand(this))
                 .register(new fr.elias.oreoEssentials.commands.ecocommands.BalTopCommand(this))
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand());
 
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
@@ -759,7 +783,11 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (chatSyncManager != null) chatSyncManager.close(); } catch (Exception ignored) {}
         try { if (tabListManager != null) tabListManager.stop(); } catch (Exception ignored) {}
         try { if (kitsManager != null) kitsManager.saveData(); } catch (Exception ignored) {}
+        try { if (scoreboardService != null) scoreboardService.stop(); } catch (Exception ignored) {}
         try { if (this.homesMongoClient != null) this.homesMongoClient.close(); } catch (Exception ignored) {}
+        try { if (bossBarService != null) bossBarService.stop(); } catch (Exception ignored) {}
+
+
 
         getLogger().info("OreoEssentials disabled.");
     }
@@ -800,13 +828,19 @@ public final class OreoEssentials extends JavaPlugin {
     public GodService getGodService() { return godService; }
     public CommandManager getCommands() { return commands; }
     public ChatSyncManager getChatSyncManager() { return chatSyncManager; }
+
+    public fr.elias.oreoEssentials.chat.CustomConfig getChatConfig() { return chatConfig; }
+
     public WarpDirectory getWarpDirectory() { return warpDirectory; }
     public SpawnDirectory getSpawnDirectory() { return spawnDirectory; }
+
     public TeleportBroker getTeleportBroker() { return teleportBroker; }
     public RedisManager getRedis() { return redis; }
     public OfflinePlayerCache getOfflinePlayerCache() { return offlinePlayerCache; }
     public PlayerEconomyDatabase getDatabase() { return database; }
     public PacketManager getPacketManager() { return packetManager; }
+    public ScoreboardService getScoreboardService() { return scoreboardService; }
+
     public EconomyBootstrap getEcoBootstrap() { return ecoBootstrap; }
     public Economy getVaultEconomy() { return vaultEconomy; }
 }

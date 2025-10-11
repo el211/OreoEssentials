@@ -6,7 +6,7 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.oreoEssentials.services.MuteService;
+import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 

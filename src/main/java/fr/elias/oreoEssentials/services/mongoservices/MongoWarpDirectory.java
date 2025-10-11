@@ -1,9 +1,10 @@
 // src/main/java/fr/elias/oreoEssentials/services/MongoWarpDirectory.java
-package fr.elias.oreoEssentials.services;
+package fr.elias.oreoEssentials.services.mongoservices;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.*;
+import fr.elias.oreoEssentials.services.WarpDirectory;
 import org.bson.Document;
 
 import java.util.Locale;

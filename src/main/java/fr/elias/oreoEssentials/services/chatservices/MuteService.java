@@ -1,4 +1,4 @@
-package fr.elias.oreoEssentials.services;
+package fr.elias.oreoEssentials.services.chatservices;
 
 import com.mongodb.lang.Nullable;
 import org.bukkit.Bukkit;

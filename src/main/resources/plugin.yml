@@ -2,7 +2,7 @@ name: OreoEssentials
 version: "1.0-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
 api-version: "1.21"
-description: "All-in-one essentials plugin with kits, economy, chat, and QoL."
+description: "All-in-one essentials plugin with homes/warps/spawn, RTP, economy (Vault), chat tools, portals/jump pads, cross-server EC & player sync."
 authors: [ "elias" ]
 
 softdepend:
@@ -74,6 +74,16 @@ commands:
     description: Deny a teleport request
     permission: oreo.tpa
 
+  tp:
+    description: Teleport to a player, or teleport a player to another
+    permission: oreo.tp
+    usage: "/tp <player> [target]"
+
+  tphere:
+    description: Teleport a player to your location
+    permission: oreo.tphere
+    usage: "/tphere <player>"
+
   fly:
     description: Toggle flight
     permission: oreo.fly
@@ -103,7 +113,7 @@ commands:
     permission: oreo.broadcast
     usage: "/broadcast <message>"
 
-  # Economy commands
+  # Economy core
   money:
     description: View/give/take/set player balances
     permission: oreo.money
@@ -116,8 +126,19 @@ commands:
 
   cheque:
     description: Create/redeem money cheques
-    permission: rabbiteconomy.cheque.create
+    permission: oreo.cheque.create
     usage: "/cheque <create|redeem> ..."
+
+  balance:
+    description: Show your balance or another player's balance
+    aliases: [ bal ]
+    permission: oreo.balance
+    usage: "/balance [player]"
+
+  baltop:
+    description: Show the richest players
+    permission: oreo.baltop
+    usage: "/baltop [size]"
 
   # Utilities
   deathback:
@@ -125,13 +146,11 @@ commands:
     permission: oreo.deathback
     usage: "/deathback"
 
-  # God mode
   god:
     description: Toggle invulnerability (god mode)
     permission: oreo.god
     usage: "/god [player]"
 
-  # Portals / JumpPads
   portal:
     description: Manage cuboid portals
     permission: oreo.portal
@@ -141,11 +160,6 @@ commands:
     description: Manage jump pads
     permission: oreo.jumpad
     usage: "/jumpad <create|remove|list|info>"
-
-  tp:
-    description: Teleport to a player, or teleport a player to another
-    permission: oreo.tp
-    usage: "/tp <player> [target]"
 
   vanish:
     description: Toggle vanish (hide from players and mobs)
@@ -194,7 +208,7 @@ commands:
     permission: oreo.unmute
     usage: "/unmute <player>"
 
-  # Proxy commands
+  # Proxy / utility roots
   oe:
     description: OreoEssentials utility root command
     permission: oreo.oe
@@ -206,18 +220,17 @@ commands:
     permission: oreo.server
     usage: "/oeserver <server>"
 
+  # Cosmetics & misc
   head:
     description: Give yourself a player head of the specified player
     permission: oreo.head
     usage: "/head <player>"
 
-  # Nicknames
   nick:
     description: Change your displayed name (chat + tab) or reset it
     permission: oreo.nick
     usage: "/nick <newName> | /nick unnick"
 
-  # Kits
   kits:
     description: Open the kits GUI
     permission: oreo.kits.open
@@ -228,24 +241,26 @@ commands:
     permission: oreo.kit.claim
     usage: "/kit <name>"
 
-  tphere:
-    description: Teleport a player to your location
-    permission: oreo.tphere
-    usage: "/tphere <player>"
-
-  # NEW: Random Teleport
+  # RTP & EnderChest
   rtp:
     description: Randomly teleport within a radius (tier-based)
     aliases: [ randomtp ]
     permission: oreo.rtp
     usage: "/rtp"
 
-  # NEW: Ender Chest
   ec:
     description: Open your Ender Chest (tier-based rows)
     aliases: [ enderchest ]
     permission: oreo.ec
     usage: "/ec"
+
+  # Player sync toggle GUI
+  sync:
+    description: Open the Player Sync toggle menu (inventory/xp/health/hunger)
+    permission: oreo.sync
+    usage: "/sync"
+
+  # QoL / utilities
   afk:
     description: Toggle AFK status
     permission: oreo.afk
@@ -262,6 +277,15 @@ commands:
   anvil:
     description: Open a virtual anvil
     permission: oreo.anvil
+
+  furnace:
+    description: Open a virtual furnace GUI
+    permission: oreo.furnace
+
+  cook:
+    description: Quick-smelt the item in your hand using its furnace recipe
+    permission: oreo.cook
+    usage: "/cook [amount|max]"
 
   clear:
     description: Clear inventory (/clear or /ci [player])
@@ -286,14 +310,6 @@ commands:
     description: Resolve a nickname to the player's real name
     permission: oreo.realname
     usage: "/realname <nickname>"
-  cook:
-    description: Quick-smelt the item in your hand using its furnace recipe
-    permission: oreo.cook
-    usage: "/cook [amount|max]"
-
-  furnace:
-    description: Opens furnace GUI to smelt items
-    permission: oreo.furnace
 
   near:
     description: List nearby players within a radius
@@ -315,19 +331,25 @@ commands:
     permission: oreo.ecsee
     usage: "/ecsee <player>"
 
-  balance:
-    description: Show your balance or another player's balance
-    aliases: [ bal ]
-    permission: oreo.balance
-    usage: "/balance [player]"
+  skin:
+    description: Change or reset your skin
+    permission: oreo.skin
+    usage: "/skin <player|url|reset>"
 
-  baltop:
-    description: Show the richest players
-    permission: oreo.baltop
-    usage: "/baltop [size]"
+  clone:
+    description: Clone a player's inventory (admin)
+    permission: oreo.clone
+    usage: "/clone <player>"
 
+  bossbar:
+    description: Toggle your personal boss bar
+    usage: "/bossbar toggle"
+    permission: oreo.bossbar.toggle
 
-
+  oereload:
+    description: Reload all OreoEssentials configs
+    aliases: [ oereloadall, oer ]
+    permission: oreo.reload
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -344,6 +366,8 @@ permissions:
       oreo.delhome: true
       oreo.homes: true
       oreo.tpa: true
+      oreo.tp: true
+      oreo.tphere: true
       oreo.fly: true
       oreo.heal: true
       oreo.feed: true
@@ -356,11 +380,13 @@ permissions:
       oreo.pay: true
       oreo.cheque.create: true
       oreo.cheque.redeem: true
+      oreo.balance: true
+      oreo.balance.others: true
+      oreo.baltop: true
       oreo.deathback: true
       oreo.god: true
       oreo.portal: true
       oreo.jumpad: true
-      oreo.tp: true
       oreo.vanish: true
       oreo.ban: true
       oreo.unban: true
@@ -381,126 +407,119 @@ permissions:
       oreo.kits.open: true
       oreo.kit.claim: true
       oreo.kit.bypasscooldown: true
-      oreo.tphere: true
+      oreo.rtp: true
+      oreo.ec: true
+      oreo.sync: true
       oreo.afk: true
       oreo.hat: true
       oreo.trash: true
       oreo.workbench: true
       oreo.anvil: true
+      oreo.furnace: true
+      oreo.cook: true
       oreo.clear: true
       oreo.clear.others: true
       oreo.realname: true
       oreo.seen: true
       oreo.ping: true
+      oreo.near: true
+      oreo.kill: true
+      oreo.kill.others: true
+      oreo.invsee: true
+      oreo.ecsee: true
+      oreo.bossbar.toggle: true
 
-      # NEW: RTP + EC
-      oreo.rtp: true
-      oreo.ec: true
+  # Basics
+  oreo.spawn:               { default: true }
+  oreo.setspawn:            { default: op }
+  oreo.back:                { default: true }
+  oreo.warp:                { default: true }
+  oreo.setwarp:             { default: op }
+  oreo.delwarp:             { default: op }
+  oreo.home:                { default: true }
+  oreo.sethome:             { default: true }
+  oreo.delhome:             { default: true }
+  oreo.homes:               { default: true }
+  oreo.tpa:                 { default: true }
+  oreo.tp:                  { default: op }
+  oreo.tphere:              { default: op }
 
-      # legacy nodes used in your economy handlers
-      rabbiteconomy.money.give: true
-      rabbiteconomy.money.take: true
-      rabbiteconomy.money.set: true
-      rabbiteconomy.cheque.create: true
-      rabbiteconomy.cheque.redeem: true
+  oreo.fly:                 { default: op }
+  oreo.heal:                { default: op }
+  oreo.feed:                { default: op }
+  oreo.msg:                 { default: true }
+  oreo.broadcast:           { default: op }
 
-  # Essentials basics
-  oreo.spawn: { default: true }
-  oreo.setspawn: { default: op }
-  oreo.back: { default: true }
-  oreo.warp: { default: true }
-  oreo.setwarp: { default: op }
-  oreo.delwarp: { default: op }
-  oreo.home: { default: true }
-  oreo.sethome: { default: true }
-  oreo.delhome: { default: true }
-  oreo.homes: { default: true }
-  oreo.tpa: { default: true }
-  oreo.fly: { default: op }
-  oreo.heal: { default: op }
-  oreo.feed: { default: op }
-  oreo.msg: { default: true }
-  oreo.broadcast: { default: op }
-  oreo.tp: { default: op }
-  oreo.vanish: { default: op }
-  oreo.afk:              { default: true }
-  oreo.hat:              { default: true }
-  oreo.trash:            { default: true }
-  oreo.workbench:        { default: true }
-  oreo.anvil:            { default: true }
-  oreo.clear:            { default: true }
-  oreo.clear.others:     { default: op }
-  oreo.realname:         { default: op }
-  oreo.seen:             { default: true }
-  oreo.ping:             { default: true }
-  oreo.cook: { default: op }
-  oreo.furnace: { default: true }
-  oreo.near: { default: true }
-  oreo.kill: { default: op }
-  oreo.kill.others: { default: op }
-  oreo.invsee: { default: op }
-  oreo.ecsee: { default: op }
-  oreo.balance: { default: true }
-  oreo.balance.others: { default: op }
-  oreo.baltop: { default: true }
+  # Economy
+  oreo.money:               { default: op }
+  oreo.money.give:          { default: op }
+  oreo.money.take:          { default: op }
+  oreo.money.set:           { default: op }
+  oreo.pay:                 { default: true }
+  oreo.cheque.create:       { default: op }
+  oreo.cheque.redeem:       { default: true }
+  oreo.balance:             { default: true }
+  oreo.balance.others:      { default: op }
+  oreo.baltop:              { default: true }
 
-  # Economy base + sub-perms
-  oreo.money: { default: op }
-  oreo.money.give: { default: op }
-  oreo.money.take: { default: op }
-  oreo.money.set: { default: op }
-  oreo.pay: { default: true }
-  oreo.cheque.create: { default: op }
-  oreo.cheque.redeem: { default: true }
-
-  # Moderation
-  oreo.ban: { default: op }
-  oreo.unban: { default: op }
-  oreo.kick: { default: op }
-  oreo.freeze: { default: op }
-  oreo.mute: { default: op }
-  oreo.unmute: { default: op }
-
-  # Proxy/root
-  oreo.oe: { default: true }
-  oreo.server: { default: true }
-
-  # Enchant
-  oreo.enchant: { default: op }
-  oreo.enchant.unsafe: { default: op }
+  # Utilities & misc
+  oreo.deathback:           { default: true }
+  oreo.god:                 { default: op }
+  oreo.portal:              { default: op }
+  oreo.jumpad:              { default: op }
+  oreo.vanish:              { default: op }
+  oreo.ban:                 { default: op }
+  oreo.unban:               { default: op }
+  oreo.kick:                { default: op }
+  oreo.freeze:              { default: op }
+  oreo.enchant:             { default: op }
+  oreo.enchant.unsafe:      { default: op }
   oreo.enchant.ignoreconflicts: { default: op }
+  oreo.afelius.reload:      { default: op }
+  oreo.mute:                { default: op }
+  oreo.unmute:              { default: op }
+  oreo.oe:                  { default: true }
+  oreo.server:              { default: true }
+  oreo.skin:                { default: true }
+  oreo.clone:               { default: op }
+  oreo.head:                { default: op }
+  oreo.nick:                { default: op }
+  oreo.kits.open:           { default: true }
+  oreo.kit.claim:           { default: true }
+  oreo.kit.bypasscooldown:  { default: op }
 
-  # Utilities
-  oreo.deathback: { default: true }
-  oreo.god: { default: op }
-  oreo.afelius.reload: { default: op }
+  # QoL toggles & GUIs
+  oreo.sync:                { default: true }
+  oreo.afk:                 { default: true }
+  oreo.hat:                 { default: true }
+  oreo.trash:               { default: true }
+  oreo.workbench:           { default: true }
+  oreo.anvil:               { default: true }
+  oreo.furnace:             { default: true }
+  oreo.cook:                { default: op }
+  oreo.clear:               { default: true }
+  oreo.clear.others:        { default: op }
+  oreo.realname:            { default: op }
+  oreo.seen:                { default: true }
+  oreo.ping:                { default: true }
+  oreo.near:                { default: true }
+  oreo.kill:                { default: op }
+  oreo.kill.others:         { default: op }
+  oreo.invsee:              { default: op }
+  oreo.ecsee:               { default: op }
 
-  # Cosmetic / identities
-  oreo.head: { default: op }
-  oreo.nick: { default: op }
+  # RTP & EC
+  oreo.rtp:                 { default: true }
+  oreo.ec:                  { default: true }
 
-  # Kits
-  oreo.kits.open: { default: true }
-  oreo.kit.claim: { default: true }
-  oreo.kit.bypasscooldown: { default: op }
+  # Optional rank/tier nodes (used by RTP radius & EnderChest rows)
+  oreo.tier.vip:            { default: false }
+  oreo.tier.mvp:            { default: false }
 
-  # Portals / JumpPads
-  oreo.portal: { default: op }
-  oreo.jumpad: { default: op }
-
-  # NEW: Random Teleport
-  oreo.rtp: { default: true }
-
-  # NEW: Ender Chest
-  oreo.ec: { default: true }
-
-  # Optional Tier permissions for RTP/EC boosts (grant via your perms plugin)
-  oreo.tier.vip: { default: false }
-  oreo.tier.mvp: { default: false }
-
-  # Legacy RabbitEconomy nodes (compat)
-  rabbiteconomy.money.give: { default: op }
-  rabbiteconomy.money.take: { default: op }
-  rabbiteconomy.money.set: { default: op }
-  rabbiteconomy.cheque.create: { default: op }
-  rabbiteconomy.cheque.redeem: { default: true }
+  # BossBar
+  oreo.bossbar.toggle:
+    description: Allows toggling the boss bar
+    default: true
+  oreo.reload:
+    description: Allows reloading all OreoEssentials configs
+    default: op

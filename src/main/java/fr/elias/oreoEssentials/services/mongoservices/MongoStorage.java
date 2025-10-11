@@ -1,11 +1,13 @@
 // File: src/main/java/fr/elias/oreoEssentials/services/MongoStorage.java
-package fr.elias.oreoEssentials.services;
+package fr.elias.oreoEssentials.services.mongoservices;
 
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import fr.elias.oreoEssentials.services.ConfigService;
+import fr.elias.oreoEssentials.services.StorageApi;
 import fr.elias.oreoEssentials.util.LocUtil;
 import org.bson.Document;
 import org.bukkit.Location;

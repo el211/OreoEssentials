@@ -4,7 +4,7 @@ package fr.elias.oreoEssentials.commands.core.moderation;
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.integration.DiscordModerationNotifier;
-import fr.elias.oreoEssentials.services.MuteService;
+import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;

@@ -1,10 +1,11 @@
-package fr.elias.oreoEssentials.services;
+package fr.elias.oreoEssentials.services.mongoservices;
 
 import com.mongodb.client.*;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.ReplaceOptions;
+import fr.elias.oreoEssentials.services.StorageApi;
 import org.bson.Document;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;

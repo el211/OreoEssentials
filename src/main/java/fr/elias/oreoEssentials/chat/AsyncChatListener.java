@@ -1,7 +1,7 @@
 package fr.elias.oreoEssentials.chat;
 
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.oreoEssentials.services.MuteService;
+import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
 import fr.elias.oreoEssentials.util.DiscordWebhook;
 import org.bukkit.Bukkit;

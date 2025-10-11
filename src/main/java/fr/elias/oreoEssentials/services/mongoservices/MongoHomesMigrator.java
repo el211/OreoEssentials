@@ -1,5 +1,5 @@
 // File: src/main/java/fr/elias/oreoEssentials/services/MongoHomesMigrator.java
-package fr.elias.oreoEssentials.services;
+package fr.elias.oreoEssentials.services.mongoservices;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
