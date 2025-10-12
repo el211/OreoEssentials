@@ -34,7 +34,7 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&c✘ Failed reloading config.yml: &7" + t.getMessage()));
         }
 
-        // 2) lang.yml (via your Lang.init loader)
+        // 2) lang.yml
         try {
             Lang.init(plugin);
             sender.sendMessage(col("&a✔ Reloaded &flang.yml"));
@@ -44,8 +44,7 @@ public final class ReloadAllCommand implements OreoCommand {
             skip++;
         }
 
-        // 3) Chat (chat-format.yml, discord webhook, etc.)
-        // Reuse your Afelius reload command so all internals rewire consistently.
+        // 3) Chat (chat-format.yml etc.) via your Afelius command
         try {
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "afelius reload all");
             sender.sendMessage(col("&a✔ Reloaded &fchat-format.yml &7(via /afelius reload all)"));
@@ -55,7 +54,7 @@ public final class ReloadAllCommand implements OreoCommand {
             skip++;
         }
 
-        // 4) Tab list (best-effort: reload() else stop()+start())
+        // 4) Tab list
         try {
             Object tab = plugin.getTabListManager();
             if (tab != null) {
@@ -75,7 +74,7 @@ public final class ReloadAllCommand implements OreoCommand {
             skip++;
         }
 
-        // 5) Kits (kits.yml) — try reload() or load()
+        // 5) Kits (kits.yml)
         try {
             Object km = plugin.getKitsManager();
             if (km != null) {
@@ -93,22 +92,23 @@ public final class ReloadAllCommand implements OreoCommand {
             skip++;
         }
 
-        // 6) RTP config (if it exposes reload())
+        // 6) RTP (rtp.yml)
         try {
             var rtpCfg = plugin.getRtpConfig();
-            if (rtpCfg != null && callNoArgs(rtpCfg, "reload")) {
+            if (rtpCfg != null) {
+                rtpCfg.reload();
                 sender.sendMessage(col("&a✔ Reloaded &frtp.yml"));
                 ok++;
             } else {
-                sender.sendMessage(col("&e• Skipped rtp.yml (no reload hook)"));
+                sender.sendMessage(col("&e• Skipped rtp.yml (service unavailable)"));
                 skip++;
             }
-        } catch (Throwable ignored) {
-            sender.sendMessage(col("&e• Skipped rtp.yml (no reload hook)"));
+        } catch (Throwable t) {
+            sender.sendMessage(col("&e• Skipped rtp.yml: &7" + t.getMessage()));
             skip++;
         }
 
-        // 7) EnderChest config/service (reload/refresh if available)
+        // 7) EnderChest config/service
         try {
             var ecService = plugin.getEnderChestService();
             if (ecService != null && (callNoArgs(ecService, "reload") || callNoArgs(ecService, "refresh"))) {
@@ -122,7 +122,8 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&e• Skipped enderchest.yml (no reload hook)"));
             skip++;
         }
-        // BossBar
+
+        // 8) BossBar (requires a bossbar service getter in your plugin)
         try {
             var bb = plugin.getBossBarService();
             if (bb != null) {
@@ -137,7 +138,7 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&c✘ Failed reloading bossbar: &7" + t.getMessage()));
         }
 
-        // 8) Scoreboard – this is the one you asked about
+        // 9) Scoreboard
         try {
             if (plugin.getScoreboardService() != null) {
                 plugin.getScoreboardService().reload();
@@ -151,7 +152,7 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&c✘ Failed reloading scoreboard: &7" + t.getMessage()));
         }
 
-        // 9) (Optional) Discord notifier if it has reload()
+        // 10) Discord integration (optional)
         try {
             var dm = plugin.getDiscordMod();
             if (dm != null && callNoArgs(dm, "reload")) {

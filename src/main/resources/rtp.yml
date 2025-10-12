@@ -1,26 +1,29 @@
-# Max random-teleport distance per rank.
-# "default" is used when no other rank key matches the player.
-# Keys map to the *permission* "oreo.tier.<key>" (e.g., oreo.tier.vip)
-# The largest matching value is used.
+# global fallbacks
 default: 200
-vip: 400
-mvp: 1000
-
-# Max attempts to find a safe spot before giving up
 attempts: 30
-
-# Min Y and Max Y where a safe landing block can be searched
 min-y: 50
 max-y: 200
 
-# List of unsafe blocks to avoid landing *on*
+# tiers (global)
+oreo.tier.vip: 500
+oreo.tier.mvp: 1000
+
+# limit to these worlds (omit or [] for all)
+allowed-worlds: [ world, world_nether, world_the_end ]
+
 unsafe-blocks:
   - LAVA
   - FIRE
-  - MAGMA_BLOCK
   - CACTUS
-  - CAMPFIRE
-  - SOUL_CAMPFIRE
+  - MAGMA_BLOCK
 
-# Worlds where /rtp is allowed. Empty list means all worlds.
-allowed-worlds: []
+# per-world overrides (optional)
+worlds:
+  world:
+    default: 300
+    oreo.tier.vip: 700
+    oreo.tier.mvp: 1200
+  world_nether:
+    default: 200
+  world_the_end:
+    default: 150
