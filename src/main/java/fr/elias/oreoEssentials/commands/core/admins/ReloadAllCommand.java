@@ -123,7 +123,7 @@ public final class ReloadAllCommand implements OreoCommand {
             skip++;
         }
 
-        // 8) BossBar (requires a bossbar service getter in your plugin)
+        // 8) BossBar
         try {
             var bb = plugin.getBossBarService();
             if (bb != null) {
@@ -167,6 +167,21 @@ public final class ReloadAllCommand implements OreoCommand {
             skip++;
         }
 
+        // 11) PlayerVaults (NEW)
+        try {
+            var pv = plugin.getPlayervaultsService();
+            if (pv != null) {
+                pv.reload(); // re-read config + rebind storage (Mongo/YAML)
+                sender.sendMessage(col("&a✔ Reloaded &fplayervaults &7(" + pvStorageName(pv) + ")"));
+                ok++;
+            } else {
+                sender.sendMessage(col("&e• Skipped playervaults (service unavailable)"));
+                skip++;
+            }
+        } catch (Throwable t) {
+            sender.sendMessage(col("&c✘ Failed reloading playervaults: &7" + t.getMessage()));
+        }
+
         long took = System.currentTimeMillis() - start;
         sender.sendMessage(col("&7Reload complete: &a" + ok + " OK&7, &e" + skip + " skipped&7. (&f" + took + " ms&7)"));
         sender.sendMessage(col("&8(Some modules don’t support hot reload yet; a server restart may be required.)"));
@@ -186,5 +201,22 @@ public final class ReloadAllCommand implements OreoCommand {
 
     private static String col(String s) {
         return ChatColor.translateAlternateColorCodes('&', s);
+    }
+
+    // tiny helper for a nicer message
+    private static String pvStorageName(fr.elias.oreoEssentials.playervaults.PlayerVaultsService svc) {
+        // best-effort hint; avoids adding getters on storage
+        try {
+            var f = svc.getClass().getDeclaredField("storage");
+            f.setAccessible(true);
+            Object st = f.get(svc);
+            if (st == null) return "disabled";
+            String n = st.getClass().getSimpleName().toLowerCase();
+            if (n.contains("mongo")) return "mongodb";
+            if (n.contains("yaml"))  return "yaml";
+            return n;
+        } catch (Throwable ignored) {
+            return "ok";
+        }
     }
 }

@@ -16,34 +16,57 @@ import java.util.List;
 public final class PlayerVaultsService {
 
     private final OreoEssentials plugin;
-    private final PlayerVaultsConfig cfg;
-    private final PlayerVaultsStorage storage;
+    private volatile PlayerVaultsConfig cfg;       // reloadable
+    private volatile PlayerVaultsStorage storage;  // reloadable
 
     public PlayerVaultsService(OreoEssentials plugin) {
         this.plugin = plugin;
-        this.cfg = new PlayerVaultsConfig(plugin);
+        reload(); // initial boot
+    }
 
-        if (!cfg.enabled()) { this.storage = null; return; }
+    /** Re-read config and (re)create storage if needed. Safe to call at runtime. */
+    public synchronized void reload() {
+        PlayerVaultsConfig newCfg = new PlayerVaultsConfig(plugin);
 
-        final String pvMode   = cfg.storage().toLowerCase();
+        if (!newCfg.enabled()) {
+            try { if (storage != null) storage.flush(); } catch (Throwable ignored) {}
+            storage = null;
+            cfg = newCfg;
+            plugin.getLogger().info("[Vaults] Disabled by config.");
+            return;
+        }
+
+        final String pvMode   = newCfg.storage().toLowerCase();
         final String mainMode = plugin.getConfig().getString("essentials.storage", "yaml").toLowerCase();
-        final boolean wantMongo = pvMode.equals("mongodb") || (pvMode.equals("auto") && mainMode.equals("mongodb"));
+        final boolean wantMongo = pvMode.equals("mongodb") || (pvMode.equals("auto") && "mongodb".equals(mainMode));
 
+        PlayerVaultsStorage newStorage;
         if (wantMongo) {
             MongoClient client = getHomesMongoClient(plugin);
             if (client != null) {
                 String db   = plugin.getConfig().getString("storage.mongo.database", "oreo");
-                String coll = cfg.collection();
-                this.storage = new MongoPlayerVaultsStorage(client, db, coll, "global");
+                String coll = newCfg.collection();
+                newStorage  = new MongoPlayerVaultsStorage(client, db, coll, "global");
             } else {
-                this.storage = new YamlPlayerVaultsStorage(plugin);
+                newStorage = new YamlPlayerVaultsStorage(plugin);
             }
         } else {
-            this.storage = new YamlPlayerVaultsStorage(plugin);
+            newStorage = new YamlPlayerVaultsStorage(plugin);
         }
+
+        PlayerVaultsStorage old = this.storage;
+        this.storage = newStorage;
+        this.cfg = newCfg;
+
+        if (old != null && old != newStorage) {
+            try { old.flush(); } catch (Throwable ignored) {}
+        }
+
+        plugin.getLogger().info("[Vaults] Reloaded (storage=" +
+                (newStorage instanceof MongoPlayerVaultsStorage ? "mongodb" : "yaml") + ").");
     }
 
-    public boolean enabled() { return cfg.enabled() && storage != null; }
+    public boolean enabled() { return cfg != null && cfg.enabled() && storage != null; }
 
     /* ---------------- GUI entry points ---------------- */
 
@@ -61,6 +84,7 @@ public final class PlayerVaultsService {
     public void openVault(Player p, int id) {
         if (!enabled()) return;
 
+        // access check (perm or unlocked-by-rank)
         if (!canAccess(p, id)) {
             deny(p, cfg.denyMessage().replace("%id%", String.valueOf(id)));
             return;
@@ -68,7 +92,7 @@ public final class PlayerVaultsService {
 
         // 1) allowed SLOTS (config/perms)
         int allowedSlots = resolveSlots(p, id);
-        allowedSlots = Math.max(1, Math.min(cfg.slotCap(), allowedSlots));
+        allowedSlots = Math.max(1, Math.min(cfg.slotsCap(), allowedSlots));
 
         // 2) visible rows (Bukkit inventories are multiples of 9)
         int rowsVisible = Math.max(1, (int) Math.ceil(allowedSlots / 9.0));
@@ -81,7 +105,7 @@ public final class PlayerVaultsService {
             System.arraycopy(snap.contents(), 0, contents, 0, Math.min(allowedSlots, snap.contents().length));
         }
 
-        // 4) open masked view
+        // 4) open masked view (view will mask blocked cells, and save only the allowed region)
         VaultView.open(plugin, this, cfg, p, id, rowsVisible, allowedSlots, contents);
         p.playSound(p.getLocation(), cfg.openSound(), 1f, 1f);
     }
@@ -94,18 +118,24 @@ public final class PlayerVaultsService {
         return id >= 1 && id <= unlocked;
     }
 
+    /** Called by the view when saving; strips blocked cells before persisting. */
     public void saveLimited(Player p, int id, int rowsVisible, int allowedSlots, org.bukkit.inventory.ItemStack[] inv) {
         org.bukkit.inventory.ItemStack[] toSave = new org.bukkit.inventory.ItemStack[allowedSlots];
         System.arraycopy(inv, 0, toSave, 0, Math.min(allowedSlots, inv.length));
         storage.save(p.getUniqueId(), id, rowsVisible, toSave);
     }
 
-    public void stop() { try { if (storage != null) storage.flush(); } catch (Throwable ignored) {} }
+    public void stop() {
+        try { if (storage != null) storage.flush(); } catch (Throwable ignored) {}
+    }
+
+    /* ---------------- Permissions / slot logic ---------------- */
 
     public boolean hasUsePermission(Player p, int id) {
         if (p.hasPermission("oreo.vault.bypass")
-                || p.hasPermission("oreo.vault.use."+id)
+                || p.hasPermission("oreo.vault.use." + id)
                 || p.hasPermission("oreo.vault.use.*")) return true;
+
         // rank-based auto unlocks
         String group = getPrimaryGroup(p);
         int unlocked = cfg.unlockedCountFor(group);
@@ -118,10 +148,10 @@ public final class PlayerVaultsService {
         int fromCfg = cfg.slotsFromConfig(vaultId, rank);
         if (fromCfg > 0) return fromCfg;
 
-        for (int n = cfg.slotCap(); n >= 1; n--) {
+        for (int n = cfg.slotsCap(); n >= 1; n--) {
             if (p.hasPermission("oreo.vault.slots." + vaultId + "." + n)) return n;
         }
-        for (int n = cfg.slotCap(); n >= 1; n--) {
+        for (int n = cfg.slotsCap(); n >= 1; n--) {
             if (p.hasPermission("oreo.vault.slots.global." + n)) return n;
         }
         return cfg.defaultSlots();
