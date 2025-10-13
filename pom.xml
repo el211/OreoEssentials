@@ -79,6 +79,11 @@
             <id>codemc-snapshots</id>
             <url>https://repo.codemc.io/repository/maven-snapshots/</url>
         </repository>
+        <repository>
+            <id>nexus</id>
+            <name>Lumine Public</name>
+            <url>https://mvn.lumine.io/repository/maven-public/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -97,6 +102,13 @@
             <groupId>com.github.retrooper</groupId>
             <artifactId>packetevents-spigot</artifactId>
             <version>2.9.5</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.lumine</groupId>
+            <artifactId>Mythic-Dist</artifactId>
+            <version>5.6.1</version>
             <scope>provided</scope>
         </dependency>
 

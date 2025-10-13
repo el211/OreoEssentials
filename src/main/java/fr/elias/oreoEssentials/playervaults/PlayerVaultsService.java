@@ -16,18 +16,19 @@ import java.util.List;
 public final class PlayerVaultsService {
 
     private final OreoEssentials plugin;
-    private volatile PlayerVaultsConfig cfg;       // reloadable
-    private volatile PlayerVaultsStorage storage;  // reloadable
+    private PlayerVaultsConfig cfg;
+    private PlayerVaultsStorage storage;
+
 
     public PlayerVaultsService(OreoEssentials plugin) {
         this.plugin = plugin;
         reload(); // initial boot
     }
-
     /** Re-read config and (re)create storage if needed. Safe to call at runtime. */
     public synchronized void reload() {
         PlayerVaultsConfig newCfg = new PlayerVaultsConfig(plugin);
 
+        // If disabled now, drop storage and update cfg
         if (!newCfg.enabled()) {
             try { if (storage != null) storage.flush(); } catch (Throwable ignored) {}
             storage = null;
@@ -36,35 +37,40 @@ public final class PlayerVaultsService {
             return;
         }
 
+        // Decide desired backend (mongodb vs yaml) based on pv + essentials
         final String pvMode   = newCfg.storage().toLowerCase();
         final String mainMode = plugin.getConfig().getString("essentials.storage", "yaml").toLowerCase();
         final boolean wantMongo = pvMode.equals("mongodb") || (pvMode.equals("auto") && "mongodb".equals(mainMode));
 
+        // Build new storage instance if needed
         PlayerVaultsStorage newStorage;
         if (wantMongo) {
-            MongoClient client = getHomesMongoClient(plugin);
+            com.mongodb.client.MongoClient client = getHomesMongoClient(plugin);
             if (client != null) {
                 String db   = plugin.getConfig().getString("storage.mongo.database", "oreo");
                 String coll = newCfg.collection();
                 newStorage  = new MongoPlayerVaultsStorage(client, db, coll, "global");
             } else {
+                // Fallback to YAML if no shared Mongo client
                 newStorage = new YamlPlayerVaultsStorage(plugin);
             }
         } else {
             newStorage = new YamlPlayerVaultsStorage(plugin);
         }
 
+        // Swap cfg + storage (flush old if backend actually changed)
         PlayerVaultsStorage old = this.storage;
         this.storage = newStorage;
         this.cfg = newCfg;
 
-        if (old != null && old != newStorage) {
+        if (old != null && old.getClass() != newStorage.getClass()) {
             try { old.flush(); } catch (Throwable ignored) {}
         }
 
         plugin.getLogger().info("[Vaults] Reloaded (storage=" +
                 (newStorage instanceof MongoPlayerVaultsStorage ? "mongodb" : "yaml") + ").");
     }
+
 
     public boolean enabled() { return cfg != null && cfg.enabled() && storage != null; }
 

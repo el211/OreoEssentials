@@ -156,6 +156,7 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.enderchest.EnderChestService getEnderChestService() { return ecService; }
 
     private ScoreboardService scoreboardService;
+    private fr.elias.oreoEssentials.mobs.HealthBarListener healthBarListener;
 
 
 
@@ -170,6 +171,19 @@ public final class OreoEssentials extends JavaPlugin {
 
         fr.elias.oreoEssentials.util.SkinRefresherBootstrap.init(this);
         fr.elias.oreoEssentials.util.SkinDebug.init(this);
+        // Health bar for mobs
+        try {
+            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(this);
+            if (hbl.isEnabled()) {
+                this.healthBarListener = hbl;
+                getServer().getPluginManager().registerEvents(hbl, this);
+                getLogger().info("[MOBS] Health bars enabled.");
+            } else {
+                getLogger().info("[MOBS] Health bars disabled by config.");
+            }
+        } catch (Throwable t) {
+            getLogger().warning("[MOBS] Failed to init health bars: " + t.getMessage());
+        }
 
         // Locales
         Lang.init(this);
@@ -803,6 +817,7 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (bossBarService != null) bossBarService.stop(); } catch (Exception ignored) {}
         try { if (playervaultsService != null) playervaultsService.stop(); } catch (Exception ignored) {}
 
+        this.healthBarListener = null; // GC will handle the rest
 
 
 
@@ -845,6 +860,8 @@ public final class OreoEssentials extends JavaPlugin {
     public GodService getGodService() { return godService; }
     public CommandManager getCommands() { return commands; }
     public ChatSyncManager getChatSyncManager() { return chatSyncManager; }
+    public fr.elias.oreoEssentials.mobs.HealthBarListener getHealthBarListener() { return healthBarListener; }
+
 
     public fr.elias.oreoEssentials.chat.CustomConfig getChatConfig() { return chatConfig; }
 

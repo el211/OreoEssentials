@@ -226,6 +226,24 @@ playervaults:
       "2":
         vip: 6                  # VIP: 6 SLOTS in vault #2
 
+mobs:
+  show-healthmobs: true  # master ON/OFF
+
+  # optional tuning (safe defaults provided if you omit this whole block)
+  healthbar:
+    format: "&c❤ <bar> &7(<current>/<max>) &f<name>"
+    segments: 20
+    full: "▰"
+    empty: "▱"
+    color-full: "&a"
+    color-mid: "&e"
+    color-low: "&c"
+    mid-threshold: 0.5   # <= 50% switches to color-mid
+    low-threshold: 0.2   # <= 20% switches to color-low
+    include-passive: true
+    include-players: false
+    only-when-damaged: false    # if true, name is visible only after first damage
+    use-mythicmobs: true        # if MythicMobs is installed, show their display name
 
 
 

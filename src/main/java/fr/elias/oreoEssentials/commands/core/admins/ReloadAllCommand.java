@@ -166,10 +166,30 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&e• Skipped discord integration (no reload hook)"));
             skip++;
         }
-
-        // 11) PlayerVaults (NEW)
+        // Health bars (mobs)
         try {
-            var pv = plugin.getPlayervaultsService();
+            // Re-register the listener based on fresh config
+            var core = OreoEssentials.get(); // <-- rename to avoid shadowing
+            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(core);
+            if (hbl.isEnabled()) {
+                Bukkit.getPluginManager().registerEvents(hbl, core);
+                var f = OreoEssentials.class.getDeclaredField("healthBarListener");
+                f.setAccessible(true);
+                f.set(core, hbl);
+                sender.sendMessage(col("&a✔ Reloaded &fmob health bars"));
+            } else {
+                sender.sendMessage(col("&e• Mob health bars disabled by config"));
+                var f = OreoEssentials.class.getDeclaredField("healthBarListener");
+                f.setAccessible(true);
+                f.set(core, null);
+            }
+        } catch (Throwable t) {
+            sender.sendMessage(col("&e• Skipped mob health bars: &7" + t.getMessage()));
+        }
+
+        // PlayerVaults
+        try {
+            var pv = plugin.getPlayervaultsService(); // make sure this getter name matches your plugin
             if (pv != null) {
                 pv.reload(); // re-read config + rebind storage (Mongo/YAML)
                 sender.sendMessage(col("&a✔ Reloaded &fplayervaults &7(" + pvStorageName(pv) + ")"));
@@ -181,6 +201,7 @@ public final class ReloadAllCommand implements OreoCommand {
         } catch (Throwable t) {
             sender.sendMessage(col("&c✘ Failed reloading playervaults: &7" + t.getMessage()));
         }
+
 
         long took = System.currentTimeMillis() - start;
         sender.sendMessage(col("&7Reload complete: &a" + ok + " OK&7, &e" + skip + " skipped&7. (&f" + took + " ms&7)"));
