@@ -188,6 +188,47 @@ jumpads:
   particle: "CLOUD"
   particle_count: 12
 
+
+playervaults:
+  enabled: true
+  storage: auto                 # auto|yaml|mongodb  -> "auto" uses mongodb when essentials.storage=mongodb
+  collection: "oreo_playervaults"
+
+  # SLOTS mode (not rows!)
+  slots-cap: 54                 # 1..54
+  default-slots: 9              # fallback if nothing else matches
+
+  deny-message: "&cYou don't have permission to access vault &f#%id%&c."
+  sounds:
+    open: UI_BUTTON_CLICK
+    deny: ENTITY_VILLAGER_NO
+
+  # Title for the inventory (shows visible rows); <id> and <rows> are supported
+  vault-title: "&8Vault &f#<id> &7(<rows>x9)"
+
+  menu:
+    title: "&8Player Vaults"
+    item-unlocked-name: "&aVault &f#<id>"
+    item-locked-name: "&cVault &f#<id> &7(locked)"
+    item-unlocked-lore: "&7Click to open"
+    item-locked-lore: "&7You don't have access"
+
+  vaults-per-rank:
+    global:
+      default: 1               # default rank: unlock 1 vault ID (vault #1)
+      vip: 4
+      mvp: 5
+      admin: 6
+    per-vault:
+      "1":
+        default: 2             # <-- 2 SLOTS in vault #1 for default rank
+        vip: 5                  # VIP: 5 SLOTS in vault #1
+      "2":
+        vip: 6                  # VIP: 6 SLOTS in vault #2
+
+
+
+
 # -------- Join messages (Afelius) --------
 Join_messages:
   enable: true

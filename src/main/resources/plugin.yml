@@ -350,6 +350,12 @@ commands:
     description: Reload all OreoEssentials configs
     aliases: [ oereloadall, oer ]
     permission: oreo.reload
+  # subcommand lives under the existing /oe manager; this is the literal executor:
+  oevault:
+    description: Open the PlayerVaults menu or a specific vault
+    usage: "/oevault [id]"
+
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -428,7 +434,14 @@ permissions:
       oreo.invsee: true
       oreo.ecsee: true
       oreo.bossbar.toggle: true
-
+    oreo.vault.menu:
+      default: true
+    oreo.vault.use.*:
+      default: false
+    oreo.vault.use.1:
+      default: false
+    oreo.vault.use.2:
+     default: false
   # Basics
   oreo.spawn:               { default: true }
   oreo.setspawn:            { default: op }
@@ -515,6 +528,14 @@ permissions:
   # Optional rank/tier nodes (used by RTP radius & EnderChest rows)
   oreo.tier.vip:            { default: false }
   oreo.tier.mvp:            { default: false }
+  oreo.vault.rows.global.3: { default: true }
+  oreo.vault.rows.global.4: { default: false }
+  oreo.vault.rows.global.5: { default: false }
+  oreo.vault.rows.global.6: { default: false }
+
+  # per-vault overrides
+  oreo.vault.rows.1.5: { default: false }
+  oreo.vault.rows.2.6: { default: false }
 
   # BossBar
   oreo.bossbar.toggle:
@@ -522,4 +543,6 @@ permissions:
     default: true
   oreo.reload:
     description: Allows reloading all OreoEssentials configs
+    default: op
+  oreo.vault.bypass:
     default: op

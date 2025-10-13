@@ -124,6 +124,10 @@ public final class OreoEssentials extends JavaPlugin {
 
     // Vault provider reference (optional)
     private Economy vaultEconomy;
+    // PlayerVaults
+    private fr.elias.oreoEssentials.playervaults.PlayerVaultsService playervaultsService;
+    public fr.elias.oreoEssentials.playervaults.PlayerVaultsService getPlayervaultsService() { return playervaultsService; }
+
 
     // Toggles
     private boolean economyEnabled;
@@ -179,6 +183,7 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
         this.invManager.init();
+
 
         // Discord moderation notifier (separate config)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
@@ -451,7 +456,13 @@ public final class OreoEssentials extends JavaPlugin {
 
         // ---- EnderChest config + storage (respect crossserverec)
         this.ecConfig = new fr.elias.oreoEssentials.enderchest.EnderChestConfig(this);
-
+        // --- PlayerVaults (SmartInvs + YAML/Mongo; cross-server)
+        this.playervaultsService = new fr.elias.oreoEssentials.playervaults.PlayerVaultsService(this);
+        if (this.playervaultsService.enabled()) {
+            getLogger().info("[Vaults] PlayerVaults enabled.");
+        } else {
+            getLogger().info("[Vaults] PlayerVaults disabled by config or storage unavailable.");
+        }
         boolean crossServerEc = getConfig().getBoolean("crossserverec", false);
         fr.elias.oreoEssentials.enderchest.EnderChestStorage ecStorage;
 
@@ -721,7 +732,8 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.ecocommands.BalanceCommand(this))
                 .register(new fr.elias.oreoEssentials.commands.ecocommands.BalTopCommand(this))
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand());
+                .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand());
 
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
@@ -765,6 +777,9 @@ public final class OreoEssentials extends JavaPlugin {
 
 
 
+    public fr.elias.oreoEssentials.playervaults.PlayerVaultsService getPlayerVaultsService() {
+        return playervaultsService;
+    }
 
 
 
@@ -786,6 +801,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (scoreboardService != null) scoreboardService.stop(); } catch (Exception ignored) {}
         try { if (this.homesMongoClient != null) this.homesMongoClient.close(); } catch (Exception ignored) {}
         try { if (bossBarService != null) bossBarService.stop(); } catch (Exception ignored) {}
+        try { if (playervaultsService != null) playervaultsService.stop(); } catch (Exception ignored) {}
+
 
 
 
