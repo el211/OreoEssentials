@@ -4,7 +4,6 @@ import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.enderchest.EnderChestService;
 import fr.elias.oreoEssentials.enderchest.EnderChestStorage;
-import fr.elias.oreoEssentials.util.Uuids;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
@@ -42,24 +41,23 @@ public class EcSeeCommand implements OreoCommand, TabCompleter {
             return true;
         }
 
-        Logger log = OreoEssentials.get().getLogger();
+        final var plugin = OreoEssentials.get();
+        final Logger log = plugin.getLogger();
+        final boolean debug = plugin.getConfig().getBoolean("debug", false);
 
-        // Prefer exact online name (works better with Geyser/Floodgate)
-        Player onlineByName = Bukkit.getPlayerExact(args[0]);
-        UUID targetId;
+        UUID targetId = resolveTargetId(args[0]);
+        if (targetId == null) {
+            viewer.sendMessage(ChatColor.RED + "Player not found.");
+            return true;
+        }
+
         String targetName;
-
-        if (onlineByName != null && onlineByName.isOnline()) {
-            targetId = onlineByName.getUniqueId();
-            targetName = onlineByName.getName();
+        Player online = Bukkit.getPlayer(targetId);
+        if (online != null) {
+            targetName = online.getName();
         } else {
-            targetId = Uuids.resolve(args[0]);
-            if (targetId == null) {
-                viewer.sendMessage(ChatColor.RED + "Player not found.");
-                return true;
-            }
             OfflinePlayer off = Bukkit.getOfflinePlayer(targetId);
-            targetName = (off.getName() != null) ? off.getName() : targetId.toString();
+            targetName = (off.getName() != null ? off.getName() : args[0]);
         }
 
         EnderChestService svc = Bukkit.getServicesManager().load(EnderChestService.class);
@@ -69,42 +67,38 @@ public class EcSeeCommand implements OreoCommand, TabCompleter {
         }
 
         // ---- Decide best source for contents ----
-        ItemStack[] contents = new ItemStack[EC_SIZE];
-        String source = "unknown";
+        ItemStack[] contents;
+        String source;
         Player live = Bukkit.getPlayer(targetId);
 
         if (live != null && live.isOnline()) {
-            boolean viewingVirtual =
-                    live.getOpenInventory() != null
-                            && EnderChestService.TITLE.equals(live.getOpenInventory().getTitle());
+            boolean viewingVirtual = live.getOpenInventory() != null
+                    && EnderChestService.TITLE.equals(live.getOpenInventory().getTitle());
 
             if (viewingVirtual) {
-                // If the player currently has YOUR virtual EC GUI open — read from that GUI
-                contents = Arrays.copyOf(
-                        live.getOpenInventory().getTopInventory().getContents(),
-                        EC_SIZE
-                );
+                contents = Arrays.copyOf(live.getOpenInventory().getTopInventory().getContents(), EC_SIZE);
                 source = "LIVE_VIRTUAL_GUI";
             } else {
-                // Use your service snapshot (virtual EC) so we see the same data as /ec
                 contents = EnderChestStorage.clamp(svc.loadFor(targetId, 3), 3);
                 source = "SERVICE_SNAPSHOT_ONLINE";
             }
 
-            // Optional: compare vanilla EC just for diagnostics
-            ItemStack[] vanilla = Arrays.copyOf(live.getEnderChest().getContents(), EC_SIZE);
-            int vanillaNonEmpty = countNonEmpty(vanilla);
-            log.info("[ECSEE] Online target=" + targetName
-                    + " source=" + source
-                    + " snapshotNonEmpty=" + countNonEmpty(contents)
-                    + " vanillaNonEmpty=" + vanillaNonEmpty);
+            if (debug) {
+                ItemStack[] vanilla = Arrays.copyOf(live.getEnderChest().getContents(), EC_SIZE);
+                int vanillaNonEmpty = countNonEmpty(vanilla);
+                log.info("[ECSEE] Online target=" + targetName
+                        + " source=" + source
+                        + " snapshotNonEmpty=" + countNonEmpty(contents)
+                        + " vanillaNonEmpty=" + vanillaNonEmpty);
+            }
         } else {
-            // Player is offline → read from storage
             contents = EnderChestStorage.clamp(svc.loadFor(targetId, 3), 3);
             source = "SERVICE_SNAPSHOT_OFFLINE";
-            log.info("[ECSEE] Offline target=" + targetName
-                    + " source=" + source
-                    + " snapshotNonEmpty=" + countNonEmpty(contents));
+            if (debug) {
+                log.info("[ECSEE] Offline target=" + targetName
+                        + " source=" + source
+                        + " snapshotNonEmpty=" + countNonEmpty(contents));
+            }
         }
 
         // ---- Open proxy GUI ----
@@ -132,7 +126,7 @@ public class EcSeeCommand implements OreoCommand, TabCompleter {
                 // Persist (so cross-server & future joins see changes)
                 svc.saveFor(targetId, 3, edited);
 
-                // If target is online on THIS server and has the virtual EC open, mirror to that GUI
+                // If target is online on THIS server, try to mirror live view
                 Player liveNow = Bukkit.getPlayer(targetId);
                 if (liveNow != null && liveNow.isOnline()) {
                     try {
@@ -144,21 +138,21 @@ public class EcSeeCommand implements OreoCommand, TabCompleter {
                             for (int i = 0; i < EC_SIZE; i++) {
                                 liveNow.getOpenInventory().getTopInventory().setItem(i, edited[i]);
                             }
-                            // Make sure the service writes whatever we reflected
                             svc.saveFromInventory(liveNow, liveNow.getOpenInventory().getTopInventory());
-                            log.info("[ECSEE] Mirrored changes to target's VIRTUAL GUI. target=" + targetName);
+                            if (debug) log.info("[ECSEE] Mirrored changes to target's VIRTUAL GUI. target=" + targetName);
                         } else {
-                            // As a fallback you can also write vanilla EC; it won’t hurt if unused
                             liveNow.getEnderChest().setContents(edited);
-                            log.info("[ECSEE] Wrote changes to target's VANILLA EC. target=" + targetName);
+                            if (debug) log.info("[ECSEE] Wrote changes to target's VANILLA EC. target=" + targetName);
                         }
                     } catch (Throwable t) {
                         log.warning("[ECSEE] Failed to push live changes for " + targetName + ": " + t.getMessage());
                     }
                 }
 
-                log.info("[ECSEE] Saved " + countNonEmpty(edited) + " non-empty slots for " + targetName
-                        + " (initialSource=" + finalSource + ")");
+                if (debug) {
+                    log.info("[ECSEE] Saved " + countNonEmpty(edited) + " non-empty slots for " + targetName
+                            + " (initialSource=" + finalSource + ")");
+                }
                 HandlerList.unregisterAll(this);
                 p.sendMessage(ChatColor.GREEN + "Saved changes to " + ChatColor.AQUA + targetName + ChatColor.GREEN + "'s ender chest.");
             }
@@ -172,6 +166,17 @@ public class EcSeeCommand implements OreoCommand, TabCompleter {
         if (arr == null) return 0;
         for (ItemStack it : arr) if (it != null && it.getType() != org.bukkit.Material.AIR) c++;
         return c;
+    }
+
+    /** Minimal, API-safe resolver: exact online → UUID string → plugin resolver. */
+    private static UUID resolveTargetId(String arg) {
+        Player p = Bukkit.getPlayerExact(arg);
+        if (p != null) return p.getUniqueId();
+
+        try { return UUID.fromString(arg); } catch (IllegalArgumentException ignored) {}
+
+        // Final fallback: your resolver (handles offline-mode / floodgate mapping as you implemented it)
+        return fr.elias.oreoEssentials.util.Uuids.resolve(arg);
     }
 
     @Override

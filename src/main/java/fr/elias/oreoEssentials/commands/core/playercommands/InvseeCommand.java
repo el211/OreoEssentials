@@ -4,7 +4,6 @@ import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.cross.InvBridge;
 import fr.elias.oreoEssentials.services.InventoryService;
-import fr.elias.oreoEssentials.util.Uuids;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
@@ -33,7 +32,7 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
     private static final int GUI_SIZE = 54;
     private static final int HOTBAR_START = 0;   // 0..8
     private static final int MAIN_START   = 9;   // 9..35
-    private static final int ARMOR_START  = 45;  // 45..48 (boots, leggings, chest, helmet)
+    private static final int ARMOR_START  = 45;  // 45..48
     private static final int OFFHAND_SLOT = 49;  // 49
 
     @Override
@@ -49,24 +48,23 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
             return true;
         }
 
-        Logger log = OreoEssentials.get().getLogger();
+        final var plugin = OreoEssentials.get();
+        final Logger log = plugin.getLogger();
+        final boolean debug = plugin.getConfig().getBoolean("debug", false);
 
-        // Prefer exact online name first (better with Geyser/Floodgate)
-        Player onlineByName = Bukkit.getPlayerExact(args[0]);
-        UUID targetId;
+        UUID targetId = resolveTargetId(args[0]);
+        if (targetId == null) {
+            viewer.sendMessage(ChatColor.RED + "Player not found.");
+            return true;
+        }
+
         String targetName;
-
-        if (onlineByName != null && onlineByName.isOnline()) {
-            targetId = onlineByName.getUniqueId();
-            targetName = onlineByName.getName();
+        Player online = Bukkit.getPlayer(targetId);
+        if (online != null) {
+            targetName = online.getName();
         } else {
-            targetId = Uuids.resolve(args[0]);
-            if (targetId == null) {
-                viewer.sendMessage(ChatColor.RED + "Player not found.");
-                return true;
-            }
             OfflinePlayer off = Bukkit.getOfflinePlayer(targetId);
-            targetName = (off.getName() != null) ? off.getName() : targetId.toString();
+            targetName = (off.getName() != null ? off.getName() : args[0]);
         }
 
         InventoryService svc = Bukkit.getServicesManager().load(InventoryService.class);
@@ -75,9 +73,8 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
             return true;
         }
 
-        OreoEssentials plugin = OreoEssentials.get();
         boolean crossServerInv   = plugin.getConfig().getBoolean("crossserverinv", false);
-        boolean allowRemoteEdits = plugin.getConfig().getBoolean("invsee.allow-edit-while-online-elsewhere", true); // default true helps admins
+        boolean allowRemoteEdits = plugin.getConfig().getBoolean("invsee.allow-edit-while-online-elsewhere", true);
         InvBridge bridge = plugin.getInvBridge(); // may be null if Rabbit disabled
 
         Player liveHere = Bukkit.getPlayer(targetId);
@@ -87,11 +84,12 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
         boolean editable = onThisServer || (!crossServerInv) || allowRemoteEdits;
 
         // ---- Build GUI ----
-        Inventory gui = Bukkit.createInventory(null, GUI_SIZE, ChatColor.AQUA + "Inventory " + ChatColor.GRAY + "(" + targetName + ")");
+        Inventory gui = Bukkit.createInventory(null, GUI_SIZE,
+                ChatColor.AQUA + "Inventory " + ChatColor.GRAY + "(" + targetName + ")");
 
         // ---- Choose snapshot source ----
-        InventoryService.Snapshot snap = null;
-        String source = "unknown";
+        InventoryService.Snapshot snap;
+        String source;
 
         if (onThisServer) {
             PlayerInventory pi = liveHere.getInventory();
@@ -101,34 +99,32 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
             snap.offhand  = pi.getItemInOffHand();
             source = "LIVE_LOCAL";
         } else if (crossServerInv && bridge != null) {
-            // Ask other servers for a LIVE snapshot first (prevents dupes)
             snap = bridge.requestLiveInv(targetId);
             if (snap != null && (hasAny(snap.contents) || hasAny(snap.armor) || notAir(snap.offhand))) {
                 source = "LIVE_REMOTE_BRIDGE";
             } else {
-                // fallback to storage
                 snap = svc.load(targetId);
                 if (snap == null) snap = new InventoryService.Snapshot();
                 source = "STORAGE_FALLBACK";
             }
         } else {
-            // Cross-server disabled → just storage
             snap = svc.load(targetId);
             if (snap == null) snap = new InventoryService.Snapshot();
             source = "STORAGE_ONLY";
         }
 
-        log.info("[INVSEE] Open: target=" + targetName + " source=" + source
-                + " contNonEmpty=" + countNonEmpty(snap.contents)
-                + " armorNonEmpty=" + countNonEmpty(snap.armor)
-                + " offhand=" + notAir(snap.offhand)
-                + " editable=" + editable);
+        if (debug) {
+            log.info("[INVSEE] Open: target=" + targetName + " source=" + source
+                    + " contNonEmpty=" + countNonEmpty(snap.contents)
+                    + " armorNonEmpty=" + countNonEmpty(snap.armor)
+                    + " offhand=" + notAir(snap.offhand)
+                    + " editable=" + editable);
+        }
 
         // Populate GUI
         ItemStack[] cont = pad(snap.contents, 41);
         for (int i = 0; i < 9; i++) gui.setItem(HOTBAR_START + i, cont[i]);
         for (int i = 9; i < 36; i++) gui.setItem(MAIN_START + (i - 9), cont[i]);
-
         ItemStack[] armor = pad(snap.armor, 4);
         for (int i = 0; i < 4; i++) gui.setItem(ARMOR_START + i, armor[i]);
         gui.setItem(OFFHAND_SLOT, snap.offhand);
@@ -199,7 +195,7 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
                         pi.setArmorContents(Arrays.copyOf(edited.armor, 4));
                         pi.setItemInOffHand(edited.offhand);
                         applied = true;
-                        log.info("[INVSEE] Applied LIVE (local) changes to " + targetName);
+                        if (debug) log.info("[INVSEE] Applied LIVE (local) changes to " + targetName);
                     } catch (Throwable t) {
                         log.warning("[INVSEE] Local live apply failed for " + targetName + ": " + t.getMessage());
                     }
@@ -207,7 +203,7 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
                     try {
                         boolean ok = bridge.applyLiveInv(targetId, edited);
                         applied = ok;
-                        log.info("[INVSEE] Remote apply via bridge for " + targetName + " -> " + ok);
+                        if (debug) log.info("[INVSEE] Remote apply via bridge for " + targetName + " -> " + ok);
                     } catch (Throwable t) {
                         log.warning("[INVSEE] Remote apply error for " + targetName + ": " + t.getMessage());
                     }
@@ -216,16 +212,17 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
                 // Persist snapshot regardless (so future joins / non-live cases get it)
                 try {
                     svc.save(targetId, edited);
-                    log.info("[INVSEE] Saved snapshot for " + targetName
-                            + " cont=" + countNonEmpty(edited.contents)
-                            + " armor=" + countNonEmpty(edited.armor)
-                            + " offhand=" + notAir(edited.offhand));
+                    if (debug) {
+                        log.info("[INVSEE] Saved snapshot for " + targetName
+                                + " cont=" + countNonEmpty(edited.contents)
+                                + " armor=" + countNonEmpty(edited.armor)
+                                + " offhand=" + notAir(edited.offhand));
+                    }
                 } catch (Throwable t) {
                     log.warning("[INVSEE] Failed saving snapshot for " + targetName + ": " + t.getMessage());
                 }
 
                 if (!applied && crossServerInv) {
-                    // Warn admin so they know it didn’t hit the live player
                     p.sendMessage(ChatColor.YELLOW + "Note: The player may be online on another server; "
                             + "your changes were saved to storage but might not have applied live.");
                 }
@@ -238,20 +235,26 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
         return true;
     }
 
-    private static boolean hasAny(ItemStack[] arr) {
-        return countNonEmpty(arr) > 0;
-    }
-    private static boolean notAir(ItemStack it) {
-        return it != null && it.getType() != org.bukkit.Material.AIR;
-    }
+    private static boolean hasAny(ItemStack[] arr) { return countNonEmpty(arr) > 0; }
+    private static boolean notAir(ItemStack it) { return it != null && it.getType() != org.bukkit.Material.AIR; }
     private static int countNonEmpty(ItemStack[] arr) {
-        int c = 0;
-        if (arr == null) return 0;
+        int c = 0; if (arr == null) return 0;
         for (ItemStack it : arr) if (it != null && it.getType() != org.bukkit.Material.AIR) c++;
         return c;
     }
     private static ItemStack[] pad(ItemStack[] src, int size) {
         return Arrays.copyOf(src == null ? new ItemStack[size] : src, size);
+    }
+
+    /** Minimal, API-safe resolver: exact online → UUID string → plugin resolver. */
+    private static UUID resolveTargetId(String arg) {
+        Player p = Bukkit.getPlayerExact(arg);
+        if (p != null) return p.getUniqueId();
+
+        try { return UUID.fromString(arg); } catch (IllegalArgumentException ignored) {}
+
+        // Final fallback: your resolver (handles offline-mode / floodgate mapping as you implemented it)
+        return fr.elias.oreoEssentials.util.Uuids.resolve(arg);
     }
 
     @Override
