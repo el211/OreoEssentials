@@ -1,9 +1,9 @@
-// src/main/java/fr/elias/oreoEssentials/rabbitmq/namespace/PacketRegistry.java
 package fr.elias.oreoEssentials.rabbitmq.namespace;
 
 import fr.elias.oreoEssentials.rabbitmq.namespace.impl.HomesPacketNamespace;
 import fr.elias.oreoEssentials.rabbitmq.namespace.impl.SpawnPacketNamespace;
 import fr.elias.oreoEssentials.rabbitmq.namespace.impl.WarpsPacketNamespace;
+import fr.elias.oreoEssentials.rabbitmq.namespace.impl.CrossInvPacketNamespace;
 import fr.elias.oreoEssentials.rabbitmq.packet.Packet;
 
 import java.util.Map;
@@ -17,13 +17,16 @@ public class PacketRegistry {
             new ConcurrentHashMap<>();
 
     public PacketRegistry() {
-        // 1) Register your built-ins (if any)
+        // Built-ins (if any)
         registerDefaults();
 
-        // 2) Register cross-server teleport namespaces
+        // Existing namespaces
         register(new HomesPacketNamespace());
         register(new WarpsPacketNamespace());
         register(new SpawnPacketNamespace());
+
+        // Cross-server inv/ec namespace (uses PacketDefinition(int, Class, Provider, Namespace))
+        register(new CrossInvPacketNamespace());
     }
 
     /* -------- Public API -------- */

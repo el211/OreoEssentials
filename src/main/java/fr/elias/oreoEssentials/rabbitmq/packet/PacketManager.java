@@ -36,10 +36,13 @@ public class PacketManager implements IncomingPacketListener {
     public void init() {
         initialized = true;
         this.sender.registerListener(this);
+        // Optional: debug trace for init
+        dbg("[PM/INIT@" + serverName() + "] PacketManager initialized and listener registered.");
     }
 
     public void subscribeChannel(PacketChannel channel) {
         this.sender.registerChannel(channel);
+        dbg("[PM/CHAN@" + serverName() + "] Subscribed channel " + renderChannel(channel));
     }
 
     /* ====================== SEND ====================== */
@@ -56,14 +59,15 @@ public class PacketManager implements IncomingPacketListener {
         out.writeLong(definition.getRegistryId());
         packet.writeData(out);
 
-        // Generic hard-proof log (always)
-        info("[PM/PUBLISH@" + serverName() + "] id=" + definition.getRegistryId()
+        // Debug (not always)
+        dbg("[PM/PUBLISH@" + serverName() + "] id=" + definition.getRegistryId()
                 + " type=" + packet.getClass().getSimpleName()
                 + " channel=" + renderChannel(target));
 
-        // Extra detail for homes
+        // Extra detail for homes (debug-only)
         if (packet instanceof HomeTeleportRequestPacket h) {
-            info("[PM/PUBLISH@" + serverName() + "/HOME] requestId=" + h.getRequestId()
+            dbg("[PM/PUBLISH@" + serverName() + "/HOME]"
+                    + " requestId=" + h.getRequestId()
                     + " player=" + h.getPlayerId()
                     + " home=" + h.getHomeName()
                     + " target=" + h.getTargetServer()
@@ -83,6 +87,7 @@ public class PacketManager implements IncomingPacketListener {
                 (PacketSubscriptionQueue<T>) this.subscriptions.computeIfAbsent(
                         packetClass, key -> new PacketSubscriptionQueue<>(packetClass));
         queue.subscribe(subscriber);
+        dbg("[PM/SUB@" + serverName() + "] Subscribed " + packetClass.getSimpleName());
     }
 
     /* ====================== RECEIVE ====================== */
@@ -94,8 +99,8 @@ public class PacketManager implements IncomingPacketListener {
 
         PacketDefinition<?> definition = this.packetRegistry.getDefinition(registryId);
 
-        // Generic hard-proof log (always)
-        info("[PM/RECV@" + serverName() + "] registryId=" + registryId
+        // Debug (not always)
+        dbg("[PM/RECV@" + serverName() + "] registryId=" + registryId
                 + " type=" + (definition != null ? definition.getPacketClass().getSimpleName() : "unknown")
                 + " channel=" + renderChannel(channel));
 
@@ -107,9 +112,10 @@ public class PacketManager implements IncomingPacketListener {
         Packet packet = definition.getProvider().createPacket();
         packet.readData(in);
 
-        // Extra detail for homes
+        // Extra detail for homes (debug-only)
         if (packet instanceof HomeTeleportRequestPacket h) {
-            info("[PM/RECV@" + serverName() + "/HOME] requestId=" + h.getRequestId()
+            dbg("[PM/RECV@" + serverName() + "/HOME]"
+                    + " requestId=" + h.getRequestId()
                     + " player=" + h.getPlayerId()
                     + " home=" + h.getHomeName()
                     + " target=" + h.getTargetServer()
@@ -161,12 +167,19 @@ public class PacketManager implements IncomingPacketListener {
     }
 
     private void warn(String msg) { plugin.getLogger().warning(msg); }
-    private void info(String msg) { plugin.getLogger().info(msg); }
+    private void info(String msg) { plugin.getLogger().info(msg); } // kept for rare always-on logs if needed
+
+    /* ---- debug helpers ---- */
+    private boolean isDebug() {
+        try { return plugin.getConfig().getBoolean("debug", false); } catch (Throwable t) { return false; }
+    }
+    private void dbg(String msg) { if (isDebug()) plugin.getLogger().info(msg); }
 
     public boolean isInitialized() { return initialized; }
 
     public void close() {
         initialized = false;
         sender.close();
+        dbg("[PM/CLOSE@" + serverName() + "] PacketManager closed.");
     }
 }

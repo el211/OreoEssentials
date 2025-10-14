@@ -127,6 +127,9 @@ public final class OreoEssentials extends JavaPlugin {
     // PlayerVaults
     private fr.elias.oreoEssentials.playervaults.PlayerVaultsService playervaultsService;
     public fr.elias.oreoEssentials.playervaults.PlayerVaultsService getPlayervaultsService() { return playervaultsService; }
+    // Cross-server inventory bridge (invsee/ecsee)
+    private fr.elias.oreoEssentials.cross.InvBridge invBridge;
+    public fr.elias.oreoEssentials.cross.InvBridge getInvBridge() { return invBridge; }
 
 
     // Toggles
@@ -498,6 +501,12 @@ public final class OreoEssentials extends JavaPlugin {
                 ecConfig,
                 ecStorage
         );
+        Bukkit.getServicesManager().register(
+                fr.elias.oreoEssentials.enderchest.EnderChestService.class,
+                this.ecService,
+                this,
+                org.bukkit.plugin.ServicePriority.Normal
+        );
     // --- Player Sync bootstrap ---
         final boolean invSyncEnabled = getConfig().getBoolean("crossserverinv", false);
 
@@ -520,6 +529,46 @@ public final class OreoEssentials extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new fr.elias.oreoEssentials.playersync.PlayerSyncListener(playerSyncService, invSyncEnabled),
                 this
+        );
+// --- expose InventoryService so /invsee works for offline & cross-server ---
+// This adapter saves/loads using the same PlayerSync storage (Mongo/YAML) you already configured.
+        fr.elias.oreoEssentials.services.InventoryService invSvc =
+                new fr.elias.oreoEssentials.services.InventoryService() {
+                    @Override
+                    public Snapshot load(java.util.UUID uuid) {
+                        try {
+                            var s = invStorage.load(uuid); // uses Mongo or YAML depending on your config
+                            if (s == null) return null;
+                            Snapshot snap = new Snapshot();
+                            snap.contents = s.inventory;
+                            snap.armor    = s.armor;
+                            snap.offhand  = s.offhand;
+                            return snap;
+                        } catch (Exception e) {
+                            getLogger().warning("[INVSEE] load failed: " + e.getMessage());
+                            return null;
+                        }
+                    }
+                    @Override
+                    public void save(java.util.UUID uuid, Snapshot snapshot) {
+                        try {
+                            var s = new fr.elias.oreoEssentials.playersync.PlayerSyncSnapshot();
+                            s.inventory = snapshot.contents;
+                            s.armor     = snapshot.armor;
+                            s.offhand   = snapshot.offhand;
+                            // other fields left default; we only care about inventory parts here
+                            invStorage.save(uuid, s);
+                        } catch (Exception e) {
+                            getLogger().warning("[INVSEE] save failed: " + e.getMessage());
+                        }
+                    }
+                };
+
+        Bukkit.getServicesManager().register(
+                fr.elias.oreoEssentials.services.InventoryService.class,
+                invSvc,
+                this,
+                org.bukkit.plugin.ServicePriority.Normal
         );
 
         getServer().getPluginManager().registerEvents(
@@ -565,6 +614,13 @@ public final class OreoEssentials extends JavaPlugin {
             }
         } else {
             getLogger().info("[RABBIT] Disabled.");
+        }
+        // ---- Cross-server InvBridge (only if Rabbit is available) ----
+        this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(this, packetManager, configService.serverName());
+        getLogger().info("[INV-BRIDGE] Cross-server bridge ready.");
+        if (this.packetManager == null || !this.packetManager.isInitialized()) {
+            this.invBridge = null;
+            getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable).");
         }
 
         // -------- Cross-server teleport brokers --------

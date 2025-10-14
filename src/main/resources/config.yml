@@ -11,6 +11,7 @@ server:
   # Unique logical name for THIS server (used to tag who "owns" a home)
   name: "survival-1"
 
+
 # -------- Essentials data store (homes/warps/spawn/back) --------
 essentials:
   # yaml | json | mongodb
@@ -46,6 +47,8 @@ crossservereconomy: true
 
 # --- Cross-server player state sync ---
 crossserverinv: true   # master on/off for the whole feature
+invsee:
+  allow-edit-while-online-elsewhere: true
 
 # default toggle state for new players (can be changed per player via /sync)
 playersync:
@@ -64,9 +67,8 @@ homes:
 tpa:
   timeoutSeconds: 60
 
-# -------- Skins debugging --------
-debug:
-  skins: true
+
+debug: false
 
 # -------- boosbar --------
 #---------------------------------------------------------------------
