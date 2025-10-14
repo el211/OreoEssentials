@@ -285,7 +285,9 @@ public final class OreoEssentials extends JavaPlugin {
 
                 // Keep a client reference to close on disable
                 this.homesMongoClient = com.mongodb.client.MongoClients.create(uri);
-
+                this.playerDirectory = new fr.elias.oreoEssentials.playerdirectory.PlayerDirectory(
+                        this.homesMongoClient, dbName, prefix
+                );
                 // (Optional) migration helper if you used Bukkit server name previously
                 try {
                     MongoHomesMigrator.run(
@@ -923,7 +925,8 @@ public final class OreoEssentials extends JavaPlugin {
 
     public WarpDirectory getWarpDirectory() { return warpDirectory; }
     public SpawnDirectory getSpawnDirectory() { return spawnDirectory; }
-
+    private fr.elias.oreoEssentials.playerdirectory.PlayerDirectory playerDirectory;
+    public fr.elias.oreoEssentials.playerdirectory.PlayerDirectory getPlayerDirectory() { return playerDirectory; }
     public TeleportBroker getTeleportBroker() { return teleportBroker; }
     public RedisManager getRedis() { return redis; }
     public OfflinePlayerCache getOfflinePlayerCache() { return offlinePlayerCache; }

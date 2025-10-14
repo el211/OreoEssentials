@@ -251,9 +251,14 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
         Player p = Bukkit.getPlayerExact(arg);
         if (p != null) return p.getUniqueId();
 
+        // Try parsing as UUID
         try { return UUID.fromString(arg); } catch (IllegalArgumentException ignored) {}
 
-        // Final fallback: your resolver (handles offline-mode / floodgate mapping as you implemented it)
+        // Add this block to check the global player directory (MongoDB)
+        UUID global = OreoEssentials.get().getPlayerDirectory().lookupUuidByName(arg);
+        if (global != null) return global;
+
+        // Final fallback: your old resolver (Floodgate, etc)
         return fr.elias.oreoEssentials.util.Uuids.resolve(arg);
     }
 

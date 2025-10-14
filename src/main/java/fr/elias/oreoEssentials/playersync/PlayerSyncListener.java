@@ -1,5 +1,6 @@
 package fr.elias.oreoEssentials.playersync;
 
+import fr.elias.oreoEssentials.OreoEssentials;
 import org.bukkit.event.*;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -23,8 +24,16 @@ public final class PlayerSyncListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent e) {
         if (!enabled) return;
-        // Apply after a short delay so vanilla join state is ready
         Player p = e.getPlayer();
+
+        // Save mapping to global directory on join
+        try {
+            OreoEssentials.get().getPlayerDirectory().saveMapping(p.getName(), p.getUniqueId());
+        } catch (Exception ex) {
+            // Log error if you want
+        }
+
+        // Apply after a short delay so vanilla join state is ready
         p.getServer().getScheduler().runTaskLater(
                 p.getServer().getPluginManager().getPlugin("OreoEssentials"),
                 () -> service.loadAndApply(p),
