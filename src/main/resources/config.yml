@@ -227,23 +227,39 @@ playervaults:
         vip: 6                  # VIP: 6 SLOTS in vault #2
 
 mobs:
-  show-healthmobs: true  # master ON/OFF
-
-  # optional tuning (safe defaults provided if you omit this whole block)
+  show-healthmobs: true
   healthbar:
-    format: "&c❤ <bar> &7(<current>/<max>) &f<name>"
-    segments: 20
-    full: "▰"
-    empty: "▱"
+    update-interval-ticks: 5
+    view-distance: 32.0
+    require-line-of-sight: true
+    spawn-per-tick-cap: 40   # NEW: max new holograms created per sweeper tick
+
+    format:
+      - "&f<name>"
+      - "&c❤ <bar> &7(<current>/<max>)"
+    show-numbers: true
+    segments: 10
+    full: "█"
+    empty: "░"
+    rounded: true
+    left-edge: "❮"
+    right-edge: "❯"
     color-full: "&a"
     color-mid: "&e"
     color-low: "&c"
-    mid-threshold: 0.5   # <= 50% switches to color-mid
-    low-threshold: 0.2   # <= 20% switches to color-low
+    mid-threshold: 0.5
+    low-threshold: 0.2
     include-passive: true
     include-players: false
-    only-when-damaged: false    # if true, name is visible only after first damage
-    use-mythicmobs: true        # if MythicMobs is installed, show their display name
+    only-when-damaged: false
+    line-offset: 0.35
+    y-offset: 0.5
+    use-mythicmobs: true
+
+
+
+
+
 
 
 
