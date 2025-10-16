@@ -878,10 +878,11 @@ public final class OreoEssentials extends JavaPlugin {
         }
 
         if (getCommand("otherhome") != null) {
-            var c = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);
-            getCommand("otherhome").setExecutor(c);
-            getCommand("otherhome").setTabCompleter(c);
+            var otherHome = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);
+            this.commands.register(otherHome);                 // uses your CommandManager (OreoCommand)
+            getCommand("otherhome").setTabCompleter(otherHome); // TabCompleter is fine to set directly
         }
+
 
         if (getCommand("skin") != null)   getCommand("skin").setTabCompleter(new SkinCommand());
         if (getCommand("clone") != null)  getCommand("clone").setTabCompleter(new CloneCommand());
@@ -991,7 +992,9 @@ public final class OreoEssentials extends JavaPlugin {
     public PlayerEconomyDatabase getDatabase() { return database; }
     public PacketManager getPacketManager() { return packetManager; }
     public ScoreboardService getScoreboardService() { return scoreboardService; }
-
+    public fr.elias.oreoEssentials.homes.HomeTeleportBroker getHomeTeleportBroker() {
+        return homeTpBroker;
+    }
     public EconomyBootstrap getEcoBootstrap() { return ecoBootstrap; }
     public Economy getVaultEconomy() { return vaultEconomy; }
 }

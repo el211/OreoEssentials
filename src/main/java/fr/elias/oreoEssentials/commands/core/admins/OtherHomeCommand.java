@@ -1,111 +1,141 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/admins/OtherHomeCommand.java
 package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.oreoEssentials.homes.TeleportBroker;
+import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
+import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
+import fr.elias.oreoEssentials.rabbitmq.packet.impl.OtherHomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.HomeService;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
-import org.bukkit.command.*;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class OtherHomeCommand implements CommandExecutor, TabCompleter {
+public class OtherHomeCommand implements OreoCommand, org.bukkit.command.TabCompleter {
 
     private final OreoEssentials plugin;
-    private final HomeService homeService;
+    private final HomeService homes;
 
-    public OtherHomeCommand(OreoEssentials plugin, HomeService homeService) {
+    public OtherHomeCommand(OreoEssentials plugin, HomeService homes) {
         this.plugin = plugin;
-        this.homeService = homeService;
+        this.homes = homes;
     }
 
+    @Override public String name() { return "otherhome"; }
+    @Override public List<String> aliases() { return List.of(); }
+    @Override public String permission() { return "oreo.homes.other"; }
+    @Override public String usage() { return "<player> <home>"; }
+    @Override public boolean playerOnly() { return true; }
+
     @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+    public boolean execute(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player admin)) return true;
         if (!sender.hasPermission("oreo.homes.other")) {
-            sender.sendMessage("§cYou don’t have permission.");
+            sender.sendMessage(ChatColor.RED + "You don’t have permission.");
             return true;
         }
-        if (!(sender instanceof Player admin)) {
-            sender.sendMessage("§cOnly players can use this.");
-            return true;
-        }
-        if (args.length < 1) {
-            sender.sendMessage("§eUsage: §6/" + label + " <player> [home]");
+        if (args.length < 2) {
+            sender.sendMessage(ChatColor.YELLOW + "Usage: " + ChatColor.GOLD + "/" + label + " <player> <home>");
             return true;
         }
 
         OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
         if (target == null || (target.getName() == null && !target.hasPlayedBefore())) {
-            sender.sendMessage("§cUnknown player: §e" + args[0]);
-            return true;
-        }
-        UUID owner = target.getUniqueId();
-
-        Map<String, Stored> homes = fetchHomes(owner);
-        if (homes.isEmpty()) {
-            sender.sendMessage("§7" + (target.getName() != null ? target.getName() : owner) + " §7has no homes.");
+            sender.sendMessage(ChatColor.RED + "Unknown player: " + ChatColor.YELLOW + args[0]);
             return true;
         }
 
-        String chosenName;
-        if (args.length >= 2) {
-            chosenName = args[1].toLowerCase(Locale.ROOT);
-            if (!homes.containsKey(chosenName)) {
-                sender.sendMessage("§cHome not found: §e" + args[1] + "§7. Available: §f" + String.join("§7, §f", homes.keySet()));
+        final UUID ownerId = target.getUniqueId();
+        final String homeName = normalize(args[1]);
+
+        // 1) Find which server owns <owner>/<home>
+        String targetServer = resolveHomeServer(ownerId, homeName);
+        if (targetServer == null) targetServer = homes.localServer();
+        final String localServer = homes.localServer();
+
+        // 2) If it's local, teleport directly
+        if (targetServer.equalsIgnoreCase(localServer)) {
+            Location loc = homes.getHome(ownerId, homeName);
+            if (loc == null) {
+                sender.sendMessage(ChatColor.RED + "Home not found: " + ChatColor.YELLOW + args[1]);
                 return true;
             }
-        } else if (homes.size() == 1) {
-            chosenName = homes.keySet().iterator().next();
-        } else {
-            sender.sendMessage("§eSpecify a home. Available: §f" + String.join("§7, §f", homes.keySet()));
-            return true;
-        }
-
-        Stored h = homes.get(chosenName);
-
-        // Normalize server names
-        final String localServer = plugin.getConfigService().serverName();
-        final String bukkitServer = Bukkit.getServer().getName();
-        final String homeServer = (h.server == null || h.server.isBlank()) ? localServer : h.server;
-
-        // Same-server: if it matches either canonical server id OR Bukkit server name
-        if (homeServer.equalsIgnoreCase(localServer) || homeServer.equalsIgnoreCase(bukkitServer)) {
-            World w = Bukkit.getWorld(h.world);
+            World w = loc.getWorld();
             if (w == null) {
-                sender.sendMessage("§cWorld not loaded: §e" + h.world);
+                sender.sendMessage(ChatColor.RED + "World not loaded: " + ChatColor.YELLOW + (loc.getWorld() != null ? loc.getWorld().getName() : "null"));
                 return true;
             }
-            Location loc = new Location(w, h.x, h.y, h.z);
-            admin.teleport(loc); // avoid compile dependency on TeleportService
-            sender.sendMessage("§aTeleported to §b" + (target.getName() != null ? target.getName() : owner) + "§a’s home §b" + chosenName + "§a.");
+            admin.teleport(loc);
+            sender.sendMessage(ChatColor.GREEN + "Teleported to " + ChatColor.AQUA
+                    + (target.getName() != null ? target.getName() : ownerId) + ChatColor.GREEN
+                    + "’s home " + ChatColor.AQUA + homeName + ChatColor.GREEN + ".");
             return true;
         }
 
-        // Cross-server: request via TeleportBroker
-        TeleportBroker broker = plugin.getTeleportBroker();
-        if (broker == null) {
-            sender.sendMessage("§cCross-server homes are disabled or broker unavailable.");
+        // 3) Cross-server disabled?
+        var cs = plugin.getCrossServerSettings();
+        if (!cs.homes()) {
+            sender.sendMessage(ChatColor.RED + "Cross-server homes are disabled by server config.");
+            sender.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer
+                    + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/otherhome "
+                    + (target.getName() != null ? target.getName() : ownerId) + " " + homeName);
             return true;
         }
 
-        boolean queued = broker.requestTeleportOtherHome(admin.getUniqueId(), owner, chosenName);
-        if (queued) {
-            sender.sendMessage("§aCross-server teleport requested to §b" + homeServer + "§a. You may be moved shortly.");
+        // 4) Publish to the target server’s INDIVIDUAL channel (same as /home)
+        PacketManager pm = plugin.getPacketManager();
+        if (pm != null && pm.isInitialized()) {
+            final String requestId = java.util.UUID.randomUUID().toString();
+
+            OtherHomeTeleportRequestPacket pkt = new OtherHomeTeleportRequestPacket(
+                    admin.getUniqueId(), ownerId, homeName, targetServer, requestId
+            );
+
+            PacketChannel channel = PacketChannel.individual(targetServer);
+            pm.sendPacket(channel, pkt);
+
+            plugin.getLogger().info("[HOME/SEND-OTHER] from=" + localServer
+                    + " subject=" + admin.getUniqueId()
+                    + " owner=" + ownerId
+                    + " home=" + homeName
+                    + " -> target=" + targetServer
+                    + " requestId=" + requestId);
         } else {
-            sender.sendMessage("§cFailed to queue cross-server teleport (couldn’t resolve target server).");
+            sender.sendMessage(ChatColor.RED + "Cross-server messaging is disabled. Ask an admin to enable RabbitMQ.");
+            sender.sendMessage(ChatColor.GRAY + "You can still switch with " + ChatColor.AQUA + "/server " + targetServer
+                    + ChatColor.GRAY + " and run " + ChatColor.AQUA + "/otherhome "
+                    + (target.getName() != null ? target.getName() : ownerId) + " " + homeName);
+            return true;
+        }
+
+        // 5) Switch the admin (subject) to the target server (same as /home)
+        if (sendPlayerToServer(admin, targetServer)) {
+            sender.sendMessage(ChatColor.YELLOW + "Sending you to " + ChatColor.AQUA + targetServer
+                    + ChatColor.YELLOW + "… you’ll be teleported to "
+                    + ChatColor.AQUA + (target.getName() != null ? target.getName() : ownerId)
+                    + ChatColor.YELLOW + "’s home " + ChatColor.AQUA + homeName + ChatColor.YELLOW + " on arrival.");
+        } else {
+            sender.sendMessage(ChatColor.RED + "Failed to switch you to " + targetServer + ".");
+            sender.sendMessage(ChatColor.GRAY + "Make sure that server name matches your proxy config.");
         }
         return true;
     }
 
+    /* ---------- tab completion ---------- */
+
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (!sender.hasPermission("oreo.homes.other")) return Collections.emptyList();
+    public List<String> onTabComplete(CommandSender sender, org.bukkit.command.Command cmd, String alias, String[] args) {
+        if (!(sender instanceof Player)) return List.of();
+        if (!sender.hasPermission("oreo.homes.other")) return List.of();
 
         if (args.length == 1) {
             String p = args[0].toLowerCase(Locale.ROOT);
@@ -117,84 +147,75 @@ public class OtherHomeCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2) {
             OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
-            if (target == null) return Collections.emptyList();
-            Map<String, Stored> homes = fetchHomes(target.getUniqueId());
-            String prefix = args[1].toLowerCase(Locale.ROOT);
-            return homes.keySet().stream()
-                    .filter(h -> h.startsWith(prefix))
+            if (target == null) return List.of();
+            return safeHomesOf(target.getUniqueId()).stream()
+                    .filter(h -> h.startsWith(args[1].toLowerCase(Locale.ROOT)))
                     .sorted(String.CASE_INSENSITIVE_ORDER)
                     .collect(Collectors.toList());
         }
-        return Collections.emptyList();
+        return List.of();
     }
 
-    /* ---------------- Helpers ---------------- */
+    /* ---------- helpers ---------- */
+
+    private Set<String> safeHomesOf(UUID owner) {
+        try {
+            Set<String> s = homes.homes(owner);
+            return (s == null) ? Collections.emptySet() : s;
+        } catch (Throwable t) { return Collections.emptySet(); }
+    }
+
+    private String resolveHomeServer(UUID ownerId, String homeName) {
+        // Prefer dedicated method if your HomeService has it:
+        try {
+            Method m = homes.getClass().getMethod("homeServer", UUID.class, String.class);
+            Object v = m.invoke(homes, ownerId, homeName);
+            if (v != null) return v.toString();
+        } catch (NoSuchMethodException ignored) {
+            // fall back to listHomes/getHomes + getServer()
+            try {
+                Method m = homes.getClass().getMethod("listHomes", UUID.class);
+                Object res = m.invoke(homes, ownerId);
+                String srv = extractServerFromMap(res, homeName);
+                if (srv != null) return srv;
+            } catch (NoSuchMethodException ignored2) {
+                try {
+                    Method m = homes.getClass().getMethod("getHomes", UUID.class);
+                    Object res = m.invoke(homes, ownerId);
+                    String srv = extractServerFromMap(res, homeName);
+                    if (srv != null) return srv;
+                } catch (Throwable ignored3) {}
+            } catch (Throwable ignored4) {}
+        } catch (Throwable ignored) {}
+
+        return null; // unknown -> let caller treat as local
+    }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Stored> fetchHomes(UUID owner) {
-        Object mapObj = null;
-
+    private String extractServerFromMap(Object mapObj, String homeName) {
+        if (!(mapObj instanceof Map<?, ?> map)) return null;
+        Object dto = map.get(homeName.toLowerCase(Locale.ROOT));
+        if (dto == null) return null;
         try {
-            Method m = homeService.getClass().getMethod("listHomes", UUID.class);
-            mapObj = m.invoke(homeService, owner);
-        } catch (NoSuchMethodException ignored) {
-        } catch (Throwable t) {
-            plugin.getLogger().fine("[OtherHome] listHomes reflect failed: " + t.getMessage());
-        }
-
-        if (mapObj == null) {
-            try {
-                Method m = homeService.getClass().getMethod("getHomes", UUID.class);
-                mapObj = m.invoke(homeService, owner);
-            } catch (NoSuchMethodException ignored) {
-            } catch (Throwable t) {
-                plugin.getLogger().fine("[OtherHome] getHomes reflect failed: " + t.getMessage());
-            }
-        }
-
-        if (!(mapObj instanceof Map)) return Collections.emptyMap();
-        Map<?, ?> raw = (Map<?, ?>) mapObj;
-
-        final String localServer = plugin.getConfigService().serverName();
-        final String bukkitServer = Bukkit.getServer().getName();
-
-        Map<String, Stored> out = new LinkedHashMap<>();
-        for (Map.Entry<?, ?> e : raw.entrySet()) {
-            String name = String.valueOf(e.getKey()).toLowerCase(Locale.ROOT);
-            Object h = e.getValue();
-            try {
-                Method mWorld  = h.getClass().getMethod("getWorld");
-                Method mX      = h.getClass().getMethod("getX");
-                Method mY      = h.getClass().getMethod("getY");
-                Method mZ      = h.getClass().getMethod("getZ");
-                Method mServer = null;
-                try { mServer = h.getClass().getMethod("getServer"); } catch (NoSuchMethodException ignored) {}
-
-                String world = (String) mWorld.invoke(h);
-                double x = ((Number) mX.invoke(h)).doubleValue();
-                double y = ((Number) mY.invoke(h)).doubleValue();
-                double z = ((Number) mZ.invoke(h)).doubleValue();
-
-                String srv = null;
-                if (mServer != null) srv = (String) mServer.invoke(h);
-                // default + normalize
-                if (srv == null || srv.isBlank()) srv = localServer;
-                if (srv.equalsIgnoreCase(bukkitServer)) srv = localServer;
-
-                out.put(name, new Stored(world, x, y, z, srv));
-            } catch (Throwable ex) {
-                plugin.getLogger().fine("[OtherHome] Bad home entry for " + name + ": " + ex.getMessage());
-            }
-        }
-        return out;
+            Method gs = dto.getClass().getMethod("getServer");
+            Object v  = gs.invoke(dto);
+            return v == null ? null : v.toString();
+        } catch (Throwable ignored) { return null; }
     }
 
-    private static final class Stored {
-        final String world;
-        final double x, y, z;
-        final String server;
-        Stored(String world, double x, double y, double z, String server) {
-            this.world = world; this.x = x; this.y = y; this.z = z; this.server = server;
+    private static String normalize(String s) { return s == null ? "" : s.trim().toLowerCase(Locale.ROOT); }
+
+    private boolean sendPlayerToServer(Player p, String serverName) {
+        try {
+            ByteArrayOutputStream b = new ByteArrayOutputStream();
+            DataOutputStream out = new DataOutputStream(b);
+            out.writeUTF("Connect");
+            out.writeUTF(serverName);
+            p.sendPluginMessage(OreoEssentials.get(), "BungeeCord", b.toByteArray());
+            return true;
+        } catch (Exception ex) {
+            Bukkit.getLogger().warning("[OreoEssentials] Failed to send Connect plugin message: " + ex.getMessage());
+            return false;
         }
     }
 }
