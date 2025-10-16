@@ -51,6 +51,44 @@ public class JsonStorage implements StorageApi {
             return removed;
         }
     }
+    @Override
+    public Map<String, HomeService.StoredHome> listHomes(UUID owner) {
+        synchronized (lock) {
+            Map<String, HomeService.StoredHome> out = new LinkedHashMap<>();
+
+            PlayerData p = data.players.get(owner.toString());
+            if (p == null || p.homes == null) return out;
+
+            for (Map.Entry<String, Document> e : p.homes.entrySet()) {
+                String name = e.getKey().toLowerCase(Locale.ROOT);
+                Document d = e.getValue();
+                if (d == null) continue;
+
+                String world = d.getString("world");
+                double x = asDouble(d.get("x"));
+                double y = asDouble(d.get("y"));
+                double z = asDouble(d.get("z"));
+
+                // JSON storage is local-only, so default server to this server’s name
+                String server = org.bukkit.Bukkit.getServer().getName();
+
+                out.put(name, new HomeService.StoredHome(world, x, y, z, server));
+            }
+            return out;
+        }
+    }
+
+    private static double asDouble(Object v) {
+        if (v instanceof Number n) return n.doubleValue();
+        try { return Double.parseDouble(String.valueOf(v)); } catch (Exception e) { return 0.0; }
+    }
+
+
+    private static double toDouble(Object v) {
+        if (v instanceof Number n) return n.doubleValue();
+        try { return Double.parseDouble(String.valueOf(v)); } catch (Exception e) { return 0.0; }
+    }
+
     @Override public Location getWarp(String name) {
         synchronized (lock) {
             return fromDoc(data.warps.get(name.toLowerCase(Locale.ROOT)));

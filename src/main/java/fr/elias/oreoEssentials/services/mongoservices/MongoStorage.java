@@ -1,4 +1,4 @@
-// File: src/main/java/fr/elias/oreoEssentials/services/MongoStorage.java
+// File: src/main/java/fr/elias/oreoEssentials/services/mongoservices/MongoStorage.java
 package fr.elias.oreoEssentials.services.mongoservices;
 
 import com.mongodb.client.FindIterable;
@@ -7,12 +7,17 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import fr.elias.oreoEssentials.services.ConfigService;
+import fr.elias.oreoEssentials.services.HomeService;
 import fr.elias.oreoEssentials.services.StorageApi;
 import fr.elias.oreoEssentials.util.LocUtil;
 import org.bson.Document;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.plugin.Plugin;
 
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -41,69 +46,126 @@ public class MongoStorage implements StorageApi {
         // indexes are optional here; data set is small
     }
 
+    /* ---------------- spawn ---------------- */
+
     @Override public void setSpawn(Location loc) {
         Document d = new Document("_id", "spawn").append("loc", LocUtil.toDoc(loc));
         colSpawn.replaceOne(eq("_id", "spawn"), d, new com.mongodb.client.model.ReplaceOptions().upsert(true));
     }
+
     @Override public Location getSpawn() {
         Document d = colSpawn.find(eq("_id", "spawn")).first();
         if (d == null) return null;
         return LocUtil.fromDoc(d.get("loc", Document.class));
     }
 
+    /* ---------------- warps ---------------- */
+
     @Override public void setWarp(String name, Location loc) {
-        String id = name.toLowerCase();
+        String id = name.toLowerCase(Locale.ROOT);
         Document d = new Document("_id", id).append("loc", LocUtil.toDoc(loc));
         colWarps.replaceOne(eq("_id", id), d, new com.mongodb.client.model.ReplaceOptions().upsert(true));
     }
+
     @Override public boolean delWarp(String name) {
-        return colWarps.deleteOne(eq("_id", name.toLowerCase())).getDeletedCount() > 0;
+        return colWarps.deleteOne(eq("_id", name.toLowerCase(Locale.ROOT))).getDeletedCount() > 0;
     }
+
     @Override public Location getWarp(String name) {
-        Document d = colWarps.find(eq("_id", name.toLowerCase())).first();
+        Document d = colWarps.find(eq("_id", name.toLowerCase(Locale.ROOT))).first();
         if (d == null) return null;
         return LocUtil.fromDoc(d.get("loc", Document.class));
     }
+
     @Override public Set<String> listWarps() {
         FindIterable<Document> it = colWarps.find().projection(new Document("_id", 1));
         return java.util.stream.StreamSupport.stream(it.spliterator(), false)
                 .map(doc -> doc.getString("_id"))
-                .sorted()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
                 .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
     }
 
+    /* ---------------- homes ---------------- */
+
     @Override public boolean setHome(UUID uuid, String name, Location loc) {
         String id = uuid.toString();
-        String key = "homes."+name.toLowerCase();
+        String key = "homes." + name.toLowerCase(Locale.ROOT);
         colPlayers.updateOne(eq("_id", id),
                 combine(set("_id", id), set(key, LocUtil.toDoc(loc))),
                 new com.mongodb.client.model.UpdateOptions().upsert(true));
         return true;
     }
+
     @Override public boolean delHome(UUID uuid, String name) {
         String id = uuid.toString();
-        String key = "homes."+name.toLowerCase();
+        String key = "homes." + name.toLowerCase(Locale.ROOT);
         var res = colPlayers.updateOne(eq("_id", id), unset(key));
         return res.getModifiedCount() > 0;
     }
+
     @Override public Location getHome(UUID uuid, String name) {
         Document d = colPlayers.find(eq("_id", uuid.toString()))
-                .projection(new Document("homes."+name.toLowerCase(), 1)).first();
+                .projection(new Document("homes." + name.toLowerCase(Locale.ROOT), 1)).first();
         if (d == null) return null;
         Document homes = d.get("homes", Document.class);
         if (homes == null) return null;
-        Document loc = homes.get(name.toLowerCase(), Document.class);
+        Document loc = homes.get(name.toLowerCase(Locale.ROOT), Document.class);
         if (loc == null) return null;
         return LocUtil.fromDoc(loc);
     }
+
     @Override public Set<String> homes(UUID uuid) {
         Document d = colPlayers.find(eq("_id", uuid.toString()))
                 .projection(new Document("homes", 1)).first();
         if (d == null) return java.util.Set.of();
         Document homes = d.get("homes", Document.class);
         if (homes == null) return java.util.Set.of();
-        return homes.keySet().stream().sorted().collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        return homes.keySet().stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
     }
+
+    /**
+     * NEW: structured listing used by /otherhomes and /otherhome
+     * This legacy store only keeps a LocUtil doc; it doesn't store "server",
+     * so we fill it with the current server name.
+     */
+    @Override
+    public Map<String, HomeService.StoredHome> listHomes(UUID owner) {
+        Map<String, HomeService.StoredHome> out = new LinkedHashMap<>();
+
+        Document d = colPlayers.find(eq("_id", owner.toString()))
+                .projection(new Document("homes", 1)).first();
+        if (d == null) return out;
+        Document homes = d.get("homes", Document.class);
+        if (homes == null) return out;
+
+        String defaultServer = Bukkit.getServer().getName();
+
+        for (String name : homes.keySet()) {
+            Document loc = homes.get(name, Document.class);
+            if (loc == null) continue;
+
+            // LocUtil doc: world (name), x, y, z, yaw, pitch
+            String world = loc.getString("world");
+            if (world == null || world.isBlank()) world = "world";
+
+            double x = num(loc, "x");
+            double y = num(loc, "y");
+            double z = num(loc, "z");
+
+            out.put(name.toLowerCase(Locale.ROOT),
+                    new HomeService.StoredHome(world, x, y, z, defaultServer));
+        }
+        return out;
+    }
+
+    private static double num(Document d, String key) {
+        Number n = d.get(key, Number.class);
+        return n == null ? 0.0 : n.doubleValue();
+    }
+
+    /* ---------------- last location ---------------- */
 
     @Override public void setLast(UUID uuid, Location loc) {
         String id = uuid.toString();
@@ -111,6 +173,7 @@ public class MongoStorage implements StorageApi {
                 combine(set("_id", id), set("lastLocation", LocUtil.toDoc(loc))),
                 new com.mongodb.client.model.UpdateOptions().upsert(true));
     }
+
     @Override public Location getLast(UUID uuid) {
         Document d = colPlayers.find(eq("_id", uuid.toString()))
                 .projection(new Document("lastLocation", 1)).first();
@@ -120,7 +183,10 @@ public class MongoStorage implements StorageApi {
         return LocUtil.fromDoc(loc);
     }
 
+    /* ---------------- lifecycle ---------------- */
+
     @Override public void flush() { /* no-op for Mongo */ }
+
     @Override public void close() {
         try { client.close(); } catch (Exception ignored) {}
     }

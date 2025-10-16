@@ -94,6 +94,7 @@ public final class HomeTeleportBroker implements Listener {
         runOnce(id, 20);
     }
 
+
     private void runOnce(UUID id, int tick) {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             final Player p = Bukkit.getPlayer(id);

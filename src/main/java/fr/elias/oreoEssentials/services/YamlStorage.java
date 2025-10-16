@@ -9,6 +9,8 @@ import org.bukkit.plugin.Plugin;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -154,5 +156,31 @@ public class YamlStorage implements StorageApi {
         saveWarps();
         saveSpawn();
     }
+    @Override
+    public Map<String, HomeService.StoredHome> listHomes(UUID owner) {
+        Map<String, HomeService.StoredHome> out = new LinkedHashMap<>();
+
+        var yml = player(owner);
+        var homesSec = yml.getConfigurationSection("homes");
+        if (homesSec == null) return out;
+
+        for (String name : homesSec.getKeys(false)) {
+            var sec = homesSec.getConfigurationSection(name);
+            org.bukkit.Location loc = fr.elias.oreoEssentials.util.LocUtil.read(sec);
+            if (loc == null) continue;
+
+            String world = (loc.getWorld() != null ? loc.getWorld().getName() : "world");
+            double x = loc.getX();
+            double yy = loc.getY();
+            double z = loc.getZ();
+            String server = org.bukkit.Bukkit.getServer().getName();
+
+            out.put(name.toLowerCase(java.util.Locale.ROOT),
+                    new HomeService.StoredHome(world, x, yy, z, server));
+        }
+        return out;
+    }
+
+
     @Override public void close() { /* no-op */ }
 }

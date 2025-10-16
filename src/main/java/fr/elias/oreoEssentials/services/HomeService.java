@@ -4,6 +4,7 @@ package fr.elias.oreoEssentials.services;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -48,6 +49,35 @@ public class HomeService {
         if (directory == null) return localServer;
         String s = directory.getHomeServer(uuid, name);
         return s == null ? localServer : s;
+    }
+// inside HomeService.java
+
+    public static final class StoredHome {
+        private final String world;
+        private final double x, y, z;
+        private final String server;
+
+        public StoredHome(String world, double x, double y, double z, String server) {
+            this.world = world;
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.server = server;
+        }
+        public String getWorld()  { return world; }
+        public double getX()      { return x; }
+        public double getY()      { return y; }
+        public double getZ()      { return z; }
+        public String getServer() { return server; }
+    }
+
+    /**
+     * Returns all homes for the given player, keyed by (lower-cased) home name.
+     * This is the canonical method that /otherhomes and /otherhome use.
+     */
+    public Map<String, StoredHome> listHomes(java.util.UUID owner) {
+        // delegate to storage (see next step)
+        return storage.listHomes(owner);
     }
 
     public String localServer() { return localServer; }

@@ -1,5 +1,5 @@
 name: OreoEssentials
-version: "1.1-SNAPSHOT"
+version: "1.3-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
 api-version: "1.21"
 description: "All-in-one essentials plugin with homes/warps/spawn, RTP, economy (Vault), chat tools, portals/jump pads, cross-server EC & player sync."
@@ -364,6 +364,24 @@ commands:
     description: Show recent killall records
     usage: /killallrlog [limit]
     permission: oreo.killall.view
+
+  olagg:
+    description: OreoEssentials ClearLag controls
+    usage: /olagg <help|reload|clear|killmobs>
+    permission: oreo.lag.use
+
+  otherhomes:
+    description: List another player's homes
+    permission: oreo.homes.other
+    usage: "/otherhomes <player>"
+    aliases: [ listhomesof, ohomes ]
+
+  otherhome:
+    description: Teleport to another player's home
+    permission: oreo.homes.other
+    usage: "/otherhome <player> [home]"
+    aliases: [ ohome ]
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -402,6 +420,7 @@ permissions:
       oreo.portal: true
       oreo.jumpad: true
       oreo.vanish: true
+      oreo.homes.other: true
       oreo.ban: true
       oreo.unban: true
       oreo.kick: true
@@ -509,6 +528,7 @@ permissions:
   oreo.kit.claim:           { default: true }
   oreo.kit.bypasscooldown:  { default: op }
 
+
   # QoL toggles & GUIs
   oreo.sync:                { default: true }
   oreo.afk:                 { default: true }
@@ -544,7 +564,10 @@ permissions:
   # per-vault overrides
   oreo.vault.rows.1.5: { default: false }
   oreo.vault.rows.2.6: { default: false }
-
+  oreo.lag.use: { default: op }
+  oreo.lag.reload: { default: op }
+  oreo.lag.clear:  { default: op }
+  oreo.lag.killmobs: { default: op }
   # BossBar
   oreo.bossbar.toggle:
     description: Allows toggling the boss bar
@@ -553,4 +576,7 @@ permissions:
     description: Allows reloading all OreoEssentials configs
     default: op
   oreo.vault.bypass:
+    default: op
+  oreo.homes.other:
+    description: Allow admins to list and teleport to other players' homes
     default: op

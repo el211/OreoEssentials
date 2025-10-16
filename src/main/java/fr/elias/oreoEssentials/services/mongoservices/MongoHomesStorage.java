@@ -6,6 +6,10 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.ReplaceOptions;
 import fr.elias.oreoEssentials.services.StorageApi;
+import fr.elias.oreoEssentials.services.HomeService;   // <-- add
+import java.util.LinkedHashMap;                        // optional, if not already present
+import java.util.Map;                                  // <-- add
+
 import org.bson.Document;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -113,6 +117,36 @@ public class MongoHomesStorage implements StorageApi {
 
         homesCol.replaceOne(key, doc, new ReplaceOptions().upsert(true));
         return true;
+    }
+    @Override
+    public Map<String, HomeService.StoredHome> listHomes(UUID owner) {
+        Map<String, HomeService.StoredHome> out = new LinkedHashMap<>();
+        try (MongoCursor<Document> cur = homesCol.find(Filters.eq("uuid", owner.toString())).iterator()) {
+            while (cur.hasNext()) {
+                Document d = cur.next();
+                String name = d.getString("name");
+                if (name == null) continue;
+
+                // you store the location in "data": { world, worldName, x, y, z, yaw, pitch }
+                Document data = d.get("data", Document.class);
+                if (data == null) continue;
+
+                String worldName = data.getString("worldName");
+                if (worldName == null || worldName.isBlank()) worldName = "world";
+
+                double x = data.get("x", Number.class).doubleValue();
+                double y = data.get("y", Number.class).doubleValue();
+                double z = data.get("z", Number.class).doubleValue();
+
+                // server field is at top-level document (written in setHome)
+                String server = d.getString("server");
+                if (server == null || server.isBlank()) server = Bukkit.getServer().getName();
+
+                out.put(name.toLowerCase(Locale.ROOT),
+                        new HomeService.StoredHome(worldName, x, y, z, server));
+            }
+        }
+        return out;
     }
 
     @Override

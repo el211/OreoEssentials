@@ -2,6 +2,8 @@
 package fr.elias.oreoEssentials.services;
 
 import org.bukkit.Location;
+import java.util.Map;
+import fr.elias.oreoEssentials.services.HomeService;
 
 import java.util.Set;
 import java.util.UUID;
@@ -23,7 +25,7 @@ public interface StorageApi {
     boolean delHome(UUID uuid, String name);
     Location getHome(UUID uuid, String name);
     Set<String> homes(UUID uuid);
-
+    Map<String, HomeService.StoredHome> listHomes(UUID owner);
     // back
     void setLast(UUID uuid, Location loc);
     Location getLast(UUID uuid);

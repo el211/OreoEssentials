@@ -1,6 +1,7 @@
 // File: src/main/java/fr/elias/oreoEssentials/OreoEssentials.java
 package fr.elias.oreoEssentials;
 
+import fr.elias.oreoEssentials.clearlag.ClearLagManager;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
 // Core commands (essentials-like)
@@ -162,6 +163,7 @@ public final class OreoEssentials extends JavaPlugin {
 
     private ScoreboardService scoreboardService;
     private fr.elias.oreoEssentials.mobs.HealthBarListener healthBarListener;
+    private ClearLagManager clearLag;
 
 
 
@@ -175,21 +177,18 @@ public final class OreoEssentials extends JavaPlugin {
 
         getLogger().info("[BOOT] OreoEssentials starting up…");
 
+        // Make sure ClearLag config exists very early (so schedulers can start later)
+        try {
+            java.io.File f = new java.io.File(getDataFolder(), "clearlag.yml");
+            if (!f.exists()) {
+                // copies clearlag.yml from your jar's /resources to plugins/OreoEssentials/
+                saveResource("clearlag.yml", false);
+            }
+        } catch (Throwable ignored) {}
+
+
         fr.elias.oreoEssentials.util.SkinRefresherBootstrap.init(this);
         fr.elias.oreoEssentials.util.SkinDebug.init(this);
-        // Health bar for mobs
-        try {
-            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(this);
-            if (hbl.isEnabled()) {
-                this.healthBarListener = hbl;
-                getServer().getPluginManager().registerEvents(hbl, this);
-                getLogger().info("[MOBS] Health bars enabled.");
-            } else {
-                getLogger().info("[MOBS] Health bars disabled by config.");
-            }
-        } catch (Throwable t) {
-            getLogger().warning("[MOBS] Failed to init health bars: " + t.getMessage());
-        }
 
         // Locales
         Lang.init(this);
@@ -204,24 +203,208 @@ public final class OreoEssentials extends JavaPlugin {
         this.invManager = new InventoryManager(this);
         this.invManager.init();
 
-
-        // Discord moderation notifier (separate config)
-        this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
-
-        var killExec = new KillallRecorderCommand(this, killallLogger);
-        getCommand("killallr").setExecutor(killExec);
-        getCommand("killallr").setTabCompleter(killExec);
-
-        getCommand("killallrlog").setExecutor(new KillallLogViewCommand(killallLogger));
-
-        // Kits & Tab
-        this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);
-        new fr.elias.oreoEssentials.kits.KitCommands(this, kitsManager);
-        this.tabListManager = new fr.elias.oreoEssentials.tab.TabListManager(this);
-
         // -------- Moderation core needed by chat --------
         muteService = new MuteService(this);
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
+
+        // -------- Core config service & ECONOMY BOOTSTRAP (EARLY, BEFORE ANYONE QUERIES VAULT!) --------
+        // (Moved here to ensure our Vault economy provider is registered ASAP)
+        this.configService = new ConfigService(this);
+
+        // Feature toggles (read early so we can stand up Redis/Economy first)
+        final String essentialsStorage = getConfig().getString("essentials.storage", "yaml").toLowerCase();
+        final String economyType       = getConfig().getString("economy.type", "none").toLowerCase();
+        this.economyEnabled = getConfig().getBoolean("economy.enabled", !economyType.equals("none"));
+        this.redisEnabled   = getConfig().getBoolean("redis.enabled", false);
+        this.rabbitEnabled  = getConfig().getBoolean("rabbitmq.enabled", false);
+        final String localServerName   = configService.serverName(); // unified server id
+        getLogger().info("[BOOT] storage=" + essentialsStorage + " economyType=" + economyType
+                + " redis=" + redisEnabled + " rabbit=" + rabbitEnabled
+                + " server.name=" + localServerName);
+
+        // -------- Redis cache (optional; for economy caches, etc.) [EARLY] --------
+        if (redisEnabled) {
+            this.redis = new RedisManager(
+                    getConfig().getString("redis.host", "localhost"),
+                    getConfig().getInt("redis.port", 6379),
+                    getConfig().getString("redis.password", "")
+            );
+            if (!redis.connect()) {
+                getLogger().warning("[REDIS] Enabled but failed to connect. Continuing without cache.");
+            } else {
+                getLogger().info("[REDIS] Connected.");
+            }
+        } else {
+            // Dummy instance prevents null checks in your economy classes
+            this.redis = new RedisManager("", 6379, "");
+            getLogger().info("[REDIS] Disabled.");
+        }
+
+        // -------- INTERNAL ECONOMY + VAULT REGISTRATION (ASAP) --------
+        // Stand up internal bootstrap scaffolding (currencies, services, etc.)
+        this.ecoBootstrap = new EconomyBootstrap(this);
+        this.ecoBootstrap.enable();
+
+        if (economyEnabled) {
+            this.database = null;
+            switch (economyType) {
+                case "mongodb" -> {
+                    MongoDBManager mgr = new MongoDBManager(redis);
+                    boolean ok = mgr.connect(
+                            getConfig().getString("economy.mongodb.uri"),
+                            getConfig().getString("economy.mongodb.database"),
+                            getConfig().getString("economy.mongodb.collection")
+                    );
+                    if (!ok) {
+                        getLogger().severe("[ECON] MongoDB connect failed. Disabling plugin.");
+                        getServer().getPluginManager().disablePlugin(this);
+                        return;
+                    }
+                    this.database = mgr;
+                }
+                case "postgresql" -> {
+                    PostgreSQLManager mgr = new PostgreSQLManager(this, redis);
+                    boolean ok = mgr.connect(
+                            getConfig().getString("economy.postgresql.url"),
+                            getConfig().getString("economy.postgresql.user"),
+                            getConfig().getString("economy.postgresql.password")
+                    );
+                    if (!ok) {
+                        getLogger().severe("[ECON] PostgreSQL connect failed. Disabling plugin.");
+                        getServer().getPluginManager().disablePlugin(this);
+                        return;
+                    }
+                    this.database = mgr;
+                }
+                case "json" -> {
+                    JsonEconomyDatabase mgr = new JsonEconomyDatabase(this, redis);
+                    boolean ok = mgr.connect("", "", ""); // JSON ignores args
+                    if (!ok) {
+                        getLogger().severe("[ECON] JSON init failed. Disabling plugin.");
+                        getServer().getPluginManager().disablePlugin(this);
+                        return;
+                    }
+                    this.database = mgr;
+                }
+                case "none" -> this.database = null;
+                default -> { /* leave null */ }
+            }
+
+            if (this.database != null) {
+                if (getServer().getPluginManager().getPlugin("Vault") == null) {
+                    getLogger().severe("[ECON] Vault not found but economy.enabled=true. Disabling plugin.");
+                    getServer().getPluginManager().disablePlugin(this);
+                    return;
+                }
+
+                // Register Vault provider wrapper AT HIGHEST PRIORITY so other plugins see it first.
+                // Unregister any previous providers just in case a race happened.
+                try {
+                    getServer().getServicesManager().unregister(net.milkbowl.vault.economy.Economy.class, this);
+                } catch (Throwable ignored) {}
+
+                VaultEconomyProvider vaultProvider = new VaultEconomyProvider(this);
+                getServer().getServicesManager().register(
+                        net.milkbowl.vault.economy.Economy.class,
+                        vaultProvider,
+                        this,
+                        org.bukkit.plugin.ServicePriority.Highest
+                );
+
+                var rsp = getServer().getServicesManager().getRegistration(net.milkbowl.vault.economy.Economy.class);
+                if (rsp == null) {
+                    getLogger().severe("[ECON] Failed to hook Vault Economy.");
+                } else {
+                    this.vaultEconomy = rsp.getProvider();
+                    getLogger().info("[ECON] Vault economy integration enabled at HIGHEST priority.");
+                }
+
+                // Listeners for economy player data + join/quit packets
+                Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
+                Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
+
+                // Offline player cache
+                this.offlinePlayerCache = new OfflinePlayerCache();
+
+                // Preload offline cache & refresh periodically
+                this.database.populateCache(offlinePlayerCache);
+                Bukkit.getScheduler().runTaskTimerAsynchronously(
+                        this,
+                        () -> this.database.populateCache(offlinePlayerCache),
+                        20L * 60,    // 1 minute after start
+                        20L * 300    // every 5 minutes
+                );
+
+                // Economy commands
+                if (getCommand("money") != null) {
+                    getCommand("money").setExecutor(new MoneyCommand(this));
+                    getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
+                }
+
+                if (getCommand("pay") != null) {
+                    var payCmd = new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
+                    getCommand("pay").setExecutor((sender, cmd, label, args) -> payCmd.execute(sender, label, args));
+                    getCommand("pay").setTabCompleter(
+                            new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
+                    );
+                } else {
+                    getLogger().warning("[ECON] Command 'pay' not found in plugin.yml; skipping registration.");
+                }
+
+                if (getCommand("cheque") != null) {
+                    getCommand("cheque").setExecutor(new fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand(this));
+                    getCommand("cheque").setTabCompleter(
+                            new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter()
+                    );
+                } else {
+                    getLogger().warning("[ECON] Command 'cheque' not found in plugin.yml; skipping registration.");
+                }
+            } else {
+                getLogger().warning("[ECON] Enabled but no database selected/connected; economy commands unavailable.");
+            }
+        } else {
+            getLogger().info("[ECON] Disabled. Skipping Vault, DB, and economy commands.");
+        }
+
+        // -------- Discord moderation notifier (separate config)
+        this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
+
+        // Health bar for mobs
+        try {
+            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(this);
+            if (hbl.isEnabled()) {
+                this.healthBarListener = hbl;
+                getServer().getPluginManager().registerEvents(hbl, this);
+                getLogger().info("[MOBS] Health bars enabled.");
+            } else {
+                getLogger().info("[MOBS] Health bars disabled by config.");
+            }
+        } catch (Throwable t) {
+            getLogger().warning("[MOBS] Failed to init health bars: " + t.getMessage());
+        }
+
+        // -------- KILLALL Recorder commands --------
+        var killExec = new KillallRecorderCommand(this, killallLogger);
+        getCommand("killallr").setExecutor(killExec);
+        getCommand("killallr").setTabCompleter(killExec);
+        getCommand("killallrlog").setExecutor(new KillallLogViewCommand(killallLogger));
+
+        // -------- ClearLag Module (manager + command) --------
+        try {
+            // Manager will read clearlag.yml and start auto-removal + TPS meter schedulers (if enabled)
+            this.clearLag = new fr.elias.oreoEssentials.clearlag.ClearLagManager(this);
+            var olaggCmd = getCommand("olagg");
+            if (olaggCmd != null) {
+                var olagg = new fr.elias.oreoEssentials.clearlag.ClearLagCommands(clearLag);
+                olaggCmd.setExecutor(olagg);
+                olaggCmd.setTabCompleter(olagg);
+            } else {
+                getLogger().warning("[OreoLag] Command 'olagg' not found in plugin.yml; skipping registration.");
+            }
+            getLogger().info("[OreoLag] ClearLag manager initialized.");
+        } catch (Throwable t) {
+            getLogger().warning("[OreoLag] Failed to initialize ClearLag manager: " + t.getMessage());
+        }
 
         // -------- Chat system (Afelius merge) --------
         this.chatConfig = new fr.elias.oreoEssentials.chat.CustomConfig(this, "chat-format.yml");
@@ -267,22 +450,6 @@ public final class OreoEssentials extends JavaPlugin {
         // Conversations / auto messages
         getServer().getPluginManager().registerEvents(new ConversationListener(this), this);
         new fr.elias.oreoEssentials.tasks.AutoMessageScheduler(this).start();
-
-        // -------- Core config service & internal economy bootstrap --------
-        this.configService = new ConfigService(this);
-        this.ecoBootstrap  = new EconomyBootstrap(this);
-        this.ecoBootstrap.enable();
-
-        // -------- Feature toggles --------
-        final String essentialsStorage = getConfig().getString("essentials.storage", "yaml").toLowerCase();
-        final String economyType       = getConfig().getString("economy.type", "none").toLowerCase();
-        this.economyEnabled = getConfig().getBoolean("economy.enabled", !economyType.equals("none"));
-        this.redisEnabled   = getConfig().getBoolean("redis.enabled", false);
-        this.rabbitEnabled  = getConfig().getBoolean("rabbitmq.enabled", false);
-        final String localServerName   = configService.serverName(); // unified server id
-        getLogger().info("[BOOT] storage=" + essentialsStorage + " economyType=" + economyType
-                + " redis=" + redisEnabled + " rabbit=" + rabbitEnabled
-                + " server.name=" + localServerName);
 
         // -------- Essentials storage selection (Homes/Warps/Spawn/Back) --------
         // Also sets up cross-server directories when using MongoDB
@@ -349,136 +516,6 @@ public final class OreoEssentials extends JavaPlugin {
             }
         }
 
-        // -------- Redis cache (optional; for economy caches, etc.) --------
-        if (redisEnabled) {
-            this.redis = new RedisManager(
-                    getConfig().getString("redis.host", "localhost"),
-                    getConfig().getInt("redis.port", 6379),
-                    getConfig().getString("redis.password", "")
-            );
-            if (!redis.connect()) {
-                getLogger().warning("[REDIS] Enabled but failed to connect. Continuing without cache.");
-            } else {
-                getLogger().info("[REDIS] Connected.");
-            }
-        } else {
-            // Dummy instance prevents null checks in your economy classes
-            this.redis = new RedisManager("", 6379, "");
-            getLogger().info("[REDIS] Disabled.");
-        }
-
-        // Offline player cache
-        this.offlinePlayerCache = new OfflinePlayerCache();
-
-        // -------- Economy (DB backends) & Vault registration --------
-        if (economyEnabled) {
-            this.database = null;
-            switch (economyType) {
-                case "mongodb" -> {
-                    MongoDBManager mgr = new MongoDBManager(redis);
-                    boolean ok = mgr.connect(
-                            getConfig().getString("economy.mongodb.uri"),
-                            getConfig().getString("economy.mongodb.database"),
-                            getConfig().getString("economy.mongodb.collection")
-                    );
-                    if (!ok) {
-                        getLogger().severe("[ECON] MongoDB connect failed. Disabling plugin.");
-                        getServer().getPluginManager().disablePlugin(this);
-                        return;
-                    }
-                    this.database = mgr;
-                }
-                case "postgresql" -> {
-                    PostgreSQLManager mgr = new PostgreSQLManager(this, redis);
-                    boolean ok = mgr.connect(
-                            getConfig().getString("economy.postgresql.url"),
-                            getConfig().getString("economy.postgresql.user"),
-                            getConfig().getString("economy.postgresql.password")
-                    );
-                    if (!ok) {
-                        getLogger().severe("[ECON] PostgreSQL connect failed. Disabling plugin.");
-                        getServer().getPluginManager().disablePlugin(this);
-                        return;
-                    }
-                    this.database = mgr;
-                }
-                case "json" -> {
-                    JsonEconomyDatabase mgr = new JsonEconomyDatabase(this, redis);
-                    boolean ok = mgr.connect("", "", ""); // JSON ignores args
-                    if (!ok) {
-                        getLogger().severe("[ECON] JSON init failed. Disabling plugin.");
-                        getServer().getPluginManager().disablePlugin(this);
-                        return;
-                    }
-                    this.database = mgr;
-                }
-                case "none" -> this.database = null;
-                default -> { /* leave null */ }
-            }
-
-            if (this.database != null) {
-                if (getServer().getPluginManager().getPlugin("Vault") == null) {
-                    getLogger().severe("[ECON] Vault not found but economy.enabled=true. Disabling plugin.");
-                    getServer().getPluginManager().disablePlugin(this);
-                    return;
-                }
-
-                // Register Vault provider wrapper
-                VaultEconomyProvider vaultProvider = new VaultEconomyProvider(this);
-                getServer().getServicesManager().register(Economy.class, vaultProvider, this, ServicePriority.High);
-
-                RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
-                if (rsp == null) {
-                    getLogger().severe("[ECON] Failed to hook Vault Economy.");
-                } else {
-                    this.vaultEconomy = rsp.getProvider();
-                    getLogger().info("[ECON] Vault economy integration enabled.");
-                }
-
-                // Listeners for economy player data + join/quit packets
-                Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
-                Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
-
-                // Preload offline cache & refresh periodically
-                this.database.populateCache(offlinePlayerCache);
-                Bukkit.getScheduler().runTaskTimerAsynchronously(
-                        this,
-                        () -> this.database.populateCache(offlinePlayerCache),
-                        20L * 60,    // 1 minute after start
-                        20L * 300    // every 5 minutes
-                );
-
-                // Economy commands
-                if (getCommand("money") != null) {
-                    getCommand("money").setExecutor(new MoneyCommand(this));
-                    getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
-                }
-
-                if (getCommand("pay") != null) {
-                    var payCmd = new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
-                    getCommand("pay").setExecutor((sender, cmd, label, args) -> payCmd.execute(sender, label, args));
-                    getCommand("pay").setTabCompleter(
-                            new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
-                    );
-                } else {
-                    getLogger().warning("[ECON] Command 'pay' not found in plugin.yml; skipping registration.");
-                }
-
-                if (getCommand("cheque") != null) {
-                    getCommand("cheque").setExecutor(new fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand(this));
-                    getCommand("cheque").setTabCompleter(
-                            new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter()
-                    );
-                } else {
-                    getLogger().warning("[ECON] Command 'cheque' not found in plugin.yml; skipping registration.");
-                }
-            } else {
-                getLogger().warning("[ECON] Enabled but no database selected/connected; economy commands unavailable.");
-            }
-        } else {
-            getLogger().info("[ECON] Disabled. Skipping Vault, DB, and economy commands.");
-        }
-
         // ---- RTP config
         this.rtpConfig = new fr.elias.oreoEssentials.rtp.RtpConfig(this);
 
@@ -500,7 +537,7 @@ public final class OreoEssentials extends JavaPlugin {
             String dbName = getConfig().getString("storage.mongo.database", "oreo");
             String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
             ecStorage = new fr.elias.oreoEssentials.enderchest.MongoEnderChestStorage(
-                    this.homesMongoClient, dbName, prefix, getLogger()   // <-- add getLogger()
+                    this.homesMongoClient, dbName, prefix, getLogger()
             );
             getLogger().info("[EC] Using MongoDB cross-server ender chest storage.");
         } else {
@@ -518,7 +555,8 @@ public final class OreoEssentials extends JavaPlugin {
                 this,
                 org.bukkit.plugin.ServicePriority.Normal
         );
-    // --- Player Sync bootstrap ---
+
+        // --- Player Sync bootstrap ---
         final boolean invSyncEnabled = getConfig().getBoolean("crossserverinv", false);
 
         fr.elias.oreoEssentials.playersync.PlayerSyncStorage invStorage;
@@ -541,8 +579,8 @@ public final class OreoEssentials extends JavaPlugin {
                 new fr.elias.oreoEssentials.playersync.PlayerSyncListener(playerSyncService, invSyncEnabled),
                 this
         );
-// --- expose InventoryService so /invsee works for offline & cross-server ---
-// This adapter saves/loads using the same PlayerSync storage (Mongo/YAML) you already configured.
+
+        // --- expose InventoryService so /invsee works for offline & cross-server ---
         fr.elias.oreoEssentials.services.InventoryService invSvc =
                 new fr.elias.oreoEssentials.services.InventoryService() {
                     @Override
@@ -567,7 +605,6 @@ public final class OreoEssentials extends JavaPlugin {
                             s.inventory = snapshot.contents;
                             s.armor     = snapshot.armor;
                             s.offhand   = snapshot.offhand;
-                            // other fields left default; we only care about inventory parts here
                             invStorage.save(uuid, s);
                         } catch (Exception e) {
                             getLogger().warning("[INVSEE] save failed: " + e.getMessage());
@@ -626,6 +663,7 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().info("[RABBIT] Disabled.");
         }
+
         // ---- Cross-server InvBridge (only if Rabbit is available) ----
         this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(this, packetManager, configService.serverName());
         getLogger().info("[INV-BRIDGE] Cross-server bridge ready.");
@@ -724,7 +762,6 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- Commands (manager then registrations) --------
         this.commands = new CommandManager(this);
 
-
         // --- BossBar (controlled by config: bossbar.enabled)
         this.bossBarService = new fr.elias.oreoEssentials.bossbar.BossBarService(this);
         this.bossBarService.start();
@@ -734,10 +771,7 @@ public final class OreoEssentials extends JavaPlugin {
         ScoreboardConfig sbCfg = ScoreboardConfig.load(this);
         this.scoreboardService = new ScoreboardService(this, sbCfg);
         this.scoreboardService.start();
-
-// /scoreboard toggle
         this.commands.register(new ScoreboardToggleCommand(this.scoreboardService));
-
 
         var tphere = new fr.elias.oreoEssentials.commands.core.admins.TphereCommand();
         this.commands.register(tphere);
@@ -745,12 +779,14 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("tphere").setTabCompleter(tphere);
         }
 
+
         var muteCmd   = new MuteCommand(muteService, chatSyncManager);
         var unmuteCmd = new UnmuteCommand(muteService, chatSyncManager);
 
         // Nick (has completer)
         var nickCmd = new fr.elias.oreoEssentials.commands.core.playercommands.NickCommand();
         this.commands.register(nickCmd);
+
         // --- AFK service
         var afkService = new fr.elias.oreoEssentials.services.AfkService();
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.AfkListener(afkService), this);
@@ -816,6 +852,8 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand());
 
+
+
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
@@ -833,6 +871,17 @@ public final class OreoEssentials extends JavaPlugin {
                 return java.util.List.of();
             });
         }
+        if (getCommand("otherhomes") != null) {
+            var c = new fr.elias.oreoEssentials.commands.core.admins.OtherHomesListCommand(this, homeService);
+            getCommand("otherhomes").setExecutor(c);
+            getCommand("otherhomes").setTabCompleter(c);
+        }
+
+        if (getCommand("otherhome") != null) {
+            var c = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);
+            getCommand("otherhome").setExecutor(c);
+            getCommand("otherhome").setTabCompleter(c);
+        }
 
         if (getCommand("skin") != null)   getCommand("skin").setTabCompleter(new SkinCommand());
         if (getCommand("clone") != null)  getCommand("clone").setTabCompleter(new CloneCommand());
@@ -845,11 +894,11 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("unban") != null)  getCommand("unban").setTabCompleter(new UnbanCommand());
         if (getCommand("nick") != null)   getCommand("nick").setTabCompleter(nickCmd);
         if (getCommand("unmute") != null) getCommand("unmute").setTabCompleter(unmuteCmd);
-        // tab completers for player-arg commands
         if (getCommand("invsee") != null)
             getCommand("invsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand());
         if (getCommand("ecsee") != null)
             getCommand("ecsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
+
         // -------- PlaceholderAPI hook (optional; reflection) --------
         tryRegisterPlaceholderAPI();
 
