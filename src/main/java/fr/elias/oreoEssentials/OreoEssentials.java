@@ -20,6 +20,7 @@ import fr.elias.oreoEssentials.homes.TeleportBroker;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.services.mongoservices.*;
+import fr.elias.oreoEssentials.util.KillallLogger;
 import fr.elias.oreoEssentials.util.Lang;
 import com.mongodb.client.MongoClient;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardConfig;
@@ -130,6 +131,7 @@ public final class OreoEssentials extends JavaPlugin {
     // Cross-server inventory bridge (invsee/ecsee)
     private fr.elias.oreoEssentials.cross.InvBridge invBridge;
     public fr.elias.oreoEssentials.cross.InvBridge getInvBridge() { return invBridge; }
+    private KillallLogger killallLogger;
 
 
     // Toggles
@@ -169,6 +171,7 @@ public final class OreoEssentials extends JavaPlugin {
         instance = this;
         saveDefaultConfig();
         this.crossServerSettings = fr.elias.oreoEssentials.config.CrossServerSettings.load(this);
+        this.killallLogger = new KillallLogger(this);
 
         getLogger().info("[BOOT] OreoEssentials starting up…");
 
@@ -204,6 +207,12 @@ public final class OreoEssentials extends JavaPlugin {
 
         // Discord moderation notifier (separate config)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
+
+        var killExec = new KillallRecorderCommand(this, killallLogger);
+        getCommand("killallr").setExecutor(killExec);
+        getCommand("killallr").setTabCompleter(killExec);
+
+        getCommand("killallrlog").setExecutor(new KillallLogViewCommand(killallLogger));
 
         // Kits & Tab
         this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);

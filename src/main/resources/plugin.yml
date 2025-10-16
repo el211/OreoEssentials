@@ -355,7 +355,15 @@ commands:
     description: Open the PlayerVaults menu or a specific vault
     usage: "/oevault [id]"
 
+  killallr:
+    description: Kill entities within a radius and record the action
+    usage: /killallr <radius> [--type=ALL|HOSTILE|PASSIVE|NAMED|CUSTOM] [--dry-run] [--reason="text"]
+    permission: oreo.killall.radius
 
+  killallrlog:
+    description: Show recent killall records
+    usage: /killallrlog [limit]
+    permission: oreo.killall.view
 permissions:
   oreo.*:
     description: All OreoEssentials features
