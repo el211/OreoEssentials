@@ -381,6 +381,15 @@ commands:
     permission: oreo.homes.other
     usage: "/otherhome <player> [home]"
     aliases: [ ohome ]
+  uuid:
+    description: Show your UUID (and Floodgate Bedrock UUID if applicable)
+    permission: oreo.uuid
+  gamemode:
+    aliases: [ gm ]
+    description: Change your or another player's gamemode (supports visitor)
+    usage: "/gamemode <survival|creative|spectator|visitor|s|c|sp|v> [player]"
+    permission: oreo.gamemode
+
 
 permissions:
   oreo.*:
@@ -579,4 +588,13 @@ permissions:
     default: op
   oreo.homes.other:
     description: Allow admins to list and teleport to other players' homes
+    default: op
+  oreo.uuid:
+    default: true
+
+  oreo.god.others:
+    default: op
+  oreo.gamemode:
+    default: op
+  oreo.gamemode.others:
     default: op

@@ -36,7 +36,10 @@ public final class InvBridge {
         this.plugin = plugin;
         this.packets = packets;
         this.thisServer = thisServer;
-
+        if (packets == null || !packets.isInitialized()) {
+            plugin.getLogger().info("[INV-BRIDGE] No PacketManager; running no-op.");
+            return; // do not subscribe
+        }
         // ---- subscriptions ----
         packets.subscribe(CrossInvPacket.class, (channel, pkt) -> {
             try {

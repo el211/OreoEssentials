@@ -17,7 +17,7 @@ essentials:
   # yaml | json | mongodb
   # yaml/json = local-only (no cross-server home directory)
   # mongodb   = enables cross-server home ownership + shared data
-  storage: "mongodb"
+  storage: "yaml"
 
 # Mongo used by essentials.storage: mongodb (and can also be reused by economy.mongodb)
 storage:

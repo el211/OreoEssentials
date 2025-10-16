@@ -113,7 +113,7 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.tab.TabListManager tabListManager;
     private WarpDirectory warpDirectory;
     private SpawnDirectory spawnDirectory;
-    private TeleportBroker teleportBroker; // if you unified brokers
+    private TeleportBroker teleportBroker;
     public fr.elias.oreoEssentials.kits.KitsManager getKitsManager() { return kitsManager; }
     public fr.elias.oreoEssentials.tab.TabListManager getTabListManager() { return tabListManager; }
     private fr.elias.oreoEssentials.bossbar.BossBarService bossBarService;
@@ -181,11 +181,10 @@ public final class OreoEssentials extends JavaPlugin {
         try {
             java.io.File f = new java.io.File(getDataFolder(), "clearlag.yml");
             if (!f.exists()) {
-                // copies clearlag.yml from your jar's /resources to plugins/OreoEssentials/
+
                 saveResource("clearlag.yml", false);
             }
         } catch (Throwable ignored) {}
-
 
         fr.elias.oreoEssentials.util.SkinRefresherBootstrap.init(this);
         fr.elias.oreoEssentials.util.SkinDebug.init(this);
@@ -664,12 +663,13 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[RABBIT] Disabled.");
         }
 
-        // ---- Cross-server InvBridge (only if Rabbit is available) ----
-        this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(this, packetManager, configService.serverName());
-        getLogger().info("[INV-BRIDGE] Cross-server bridge ready.");
-        if (this.packetManager == null || !this.packetManager.isInitialized()) {
+        // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
+        if (packetManager != null && packetManager.isInitialized() && invSyncEnabled) {
+            this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(this, packetManager, configService.serverName());
+            getLogger().info("[INV-BRIDGE] Cross-server bridge ready.");
+        } else {
             this.invBridge = null;
-            getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable).");
+            getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable or crossserverinv=false).");
         }
 
         // -------- Cross-server teleport brokers --------
@@ -779,7 +779,6 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("tphere").setTabCompleter(tphere);
         }
 
-
         var muteCmd   = new MuteCommand(muteService, chatSyncManager);
         var unmuteCmd = new UnmuteCommand(muteService, chatSyncManager);
 
@@ -850,9 +849,8 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.ecocommands.BalTopCommand(this))
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand())
                 .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand());
-
-
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand())
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.UuidCommand());
 
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
@@ -883,6 +881,18 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("otherhome").setTabCompleter(otherHome); // TabCompleter is fine to set directly
         }
 
+        // After other services:
+        var visitorService = new fr.elias.oreoEssentials.services.VisitorService();
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.listeners.VisitorGuardListener(visitorService), this
+        );
+
+        // One GamemodeCommand instance for both executor (via your CommandManager) and tab-complete:
+        var gmCmd = new fr.elias.oreoEssentials.commands.core.admins.GamemodeCommand(visitorService);
+        this.getCommands().register(gmCmd);
+        if (getCommand("gamemode") != null) {
+            getCommand("gamemode").setTabCompleter(gmCmd);
+        }
 
         if (getCommand("skin") != null)   getCommand("skin").setTabCompleter(new SkinCommand());
         if (getCommand("clone") != null)  getCommand("clone").setTabCompleter(new CloneCommand());
@@ -905,6 +915,7 @@ public final class OreoEssentials extends JavaPlugin {
 
         getLogger().info("OreoEssentials enabled.");
     }
+
 
 
 
