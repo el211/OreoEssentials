@@ -1,0 +1,12 @@
+aliases:
+  iron:
+    enabled: true
+    run-as: PLAYER         # PLAYER | CONSOLE
+    cooldown-seconds: 0
+    commands:
+      - "give %player% iron_ingot 1"
+  feedme:
+    enabled: true
+    run-as: CONSOLE
+    commands:
+      - "feed %player%"

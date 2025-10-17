@@ -390,6 +390,11 @@ commands:
     usage: "/gamemode <survival|creative|spectator|visitor|s|c|sp|v> [player]"
     permission: oreo.gamemode
 
+  aliaseditor:
+    description: Create/list/edit/remove runtime command aliases
+    permission: oreo.alias.manage
+    usage: "/aliaseditor <list|create|remove|edit|toggle|reload> [...]"
+    aliases: [ alias, aliases ]
 
 permissions:
   oreo.*:
@@ -472,12 +477,7 @@ permissions:
       oreo.bossbar.toggle: true
     oreo.vault.menu:
       default: true
-    oreo.vault.use.*:
-      default: false
-    oreo.vault.use.1:
-      default: false
-    oreo.vault.use.2:
-     default: false
+
   # Basics
   oreo.spawn:               { default: true }
   oreo.setspawn:            { default: op }
@@ -536,7 +536,9 @@ permissions:
   oreo.kits.open:           { default: true }
   oreo.kit.claim:           { default: true }
   oreo.kit.bypasscooldown:  { default: op }
-
+  oreo.vault.use.*:         {default: false}
+  oreo.vault.use.1:         { default: false }
+  oreo.vault.use.2:         { default: false }
 
   # QoL toggles & GUIs
   oreo.sync:                { default: true }
@@ -598,3 +600,10 @@ permissions:
     default: op
   oreo.gamemode.others:
     default: op
+    # Alias Editor
+  oreo.alias.manage:
+    description: Access to /aliaseditor (create/remove/edit/toggle/reload)
+    default: op
+  oreo.alias.use.*:
+    description: Allow using all defined aliases (if you plan to gate them)
+    default: true

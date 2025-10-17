@@ -165,6 +165,8 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.mobs.HealthBarListener healthBarListener;
     private ClearLagManager clearLag;
 
+    private fr.elias.oreoEssentials.aliases.AliasService aliasService;
+    public fr.elias.oreoEssentials.aliases.AliasService getAliasService(){ return aliasService; }
 
 
     @Override
@@ -172,6 +174,11 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- Boot & base singletons --------
         instance = this;
         saveDefaultConfig();
+        // --- Alias editor boot ---
+        this.aliasService = new fr.elias.oreoEssentials.aliases.AliasService(this);
+        this.aliasService.load();
+        this.aliasService.applyRuntimeRegistration();
+
         this.crossServerSettings = fr.elias.oreoEssentials.config.CrossServerSettings.load(this);
         this.killallLogger = new KillallLogger(this);
 
@@ -205,6 +212,7 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- Moderation core needed by chat --------
         muteService = new MuteService(this);
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
+
 
         // -------- Core config service & ECONOMY BOOTSTRAP (EARLY, BEFORE ANYONE QUERIES VAULT!) --------
         // (Moved here to ensure our Vault economy provider is registered ASAP)
@@ -874,6 +882,10 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("otherhomes").setExecutor(c);
             getCommand("otherhomes").setTabCompleter(c);
         }
+        // /aliaseditor registration
+        if (getCommand("aliaseditor") != null) {
+            getCommand("aliaseditor").setExecutor(new fr.elias.oreoEssentials.aliases.AliasEditorCommand(aliasService));
+        }
 
         if (getCommand("otherhome") != null) {
             var otherHome = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);
@@ -944,6 +956,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (this.homesMongoClient != null) this.homesMongoClient.close(); } catch (Exception ignored) {}
         try { if (bossBarService != null) bossBarService.stop(); } catch (Exception ignored) {}
         try { if (playervaultsService != null) playervaultsService.stop(); } catch (Exception ignored) {}
+        try { if (aliasService != null) aliasService.shutdown(); } catch (Exception ignored) {}
+
 
         this.healthBarListener = null; // GC will handle the rest
 
