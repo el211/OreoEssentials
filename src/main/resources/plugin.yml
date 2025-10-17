@@ -395,7 +395,20 @@ commands:
     permission: oreo.alias.manage
     usage: "/aliaseditor <list|create|remove|edit|toggle|reload> [...]"
     aliases: [ alias, aliases ]
+  jail:
+    description: Jail/release players
+    permission: oreo.jail.use
+    usage: "/jail <player> (time) (jailName) (cellId) (-s) (r:reason...) | /jail release <player>"
 
+  jailedit:
+    description: Create and edit jails/cells
+    permission: oreo.jail.edit
+    usage: "/jailedit <pos1|pos2|save <name>|addcell <name> <cellId>>"
+
+  jaillist:
+    description: List jails, cells, or inmates
+    permission: oreo.jail.list
+    usage: "/jaillist [jailName] [cellId|*]"
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -572,6 +585,7 @@ permissions:
   oreo.vault.rows.global.5: { default: false }
   oreo.vault.rows.global.6: { default: false }
 
+
   # per-vault overrides
   oreo.vault.rows.1.5: { default: false }
   oreo.vault.rows.2.6: { default: false }
@@ -607,3 +621,22 @@ permissions:
   oreo.alias.use.*:
     description: Allow using all defined aliases (if you plan to gate them)
     default: true
+  oreo.jail:
+    description: Allows using /jail
+    default: op
+
+  oreo.jail.silent:
+    description: Allows using -s to silently jail
+    default: op
+
+  oreo.jail.manage:
+    description: Allows managing jails (/jailedit)
+    default: op
+
+  oreo.jail.list:
+    description: Allows listing jails (/jaillist)
+    default: true
+
+  oreo.jail.bypass:
+    description: Bypass jail restrictions (movement/blocked commands)
+    default: op

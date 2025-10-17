@@ -167,6 +167,8 @@ public final class OreoEssentials extends JavaPlugin {
 
     private fr.elias.oreoEssentials.aliases.AliasService aliasService;
     public fr.elias.oreoEssentials.aliases.AliasService getAliasService(){ return aliasService; }
+    private fr.elias.oreoEssentials.jail.JailService jailService;
+    public fr.elias.oreoEssentials.jail.JailService getJailService() { return jailService; }
 
 
     @Override
@@ -797,6 +799,12 @@ public final class OreoEssentials extends JavaPlugin {
         // --- AFK service
         var afkService = new fr.elias.oreoEssentials.services.AfkService();
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.AfkListener(afkService), this);
+        // --- Jails ---
+        this.jailService = new fr.elias.oreoEssentials.jail.JailService(this);
+        this.jailService.enable();
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.jail.JailGuardListener(jailService), this
+        );
 
         // Register all remaining commands
         this.commands
@@ -882,6 +890,13 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("otherhomes").setExecutor(c);
             getCommand("otherhomes").setTabCompleter(c);
         }
+        if (getCommand("jail") != null)
+            getCommand("jail").setExecutor(new fr.elias.oreoEssentials.jail.commands.JailCommand(jailService));
+        if (getCommand("jailedit") != null)
+            getCommand("jailedit").setExecutor(new fr.elias.oreoEssentials.jail.commands.JailEditCommand(jailService));
+        if (getCommand("jaillist") != null)
+            getCommand("jaillist").setExecutor(new fr.elias.oreoEssentials.jail.commands.JailListCommand(jailService));
+
         // /aliaseditor registration
         if (getCommand("aliaseditor") != null) {
             getCommand("aliaseditor").setExecutor(new fr.elias.oreoEssentials.aliases.AliasEditorCommand(aliasService));
@@ -957,6 +972,7 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (bossBarService != null) bossBarService.stop(); } catch (Exception ignored) {}
         try { if (playervaultsService != null) playervaultsService.stop(); } catch (Exception ignored) {}
         try { if (aliasService != null) aliasService.shutdown(); } catch (Exception ignored) {}
+        try { if (jailService != null) jailService.disable(); } catch (Exception ignored) {}
 
 
         this.healthBarListener = null; // GC will handle the rest

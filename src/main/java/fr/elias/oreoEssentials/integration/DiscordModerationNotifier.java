@@ -13,7 +13,8 @@ import java.util.UUID;
 
 public class DiscordModerationNotifier {
 
-    public enum EventType { KICK, BAN, UNBAN, MUTE, UNMUTE }
+    // ADDED: JAIL, UNJAIL
+    public enum EventType { KICK, BAN, UNBAN, MUTE, UNMUTE, JAIL, UNJAIL }
 
     private final Plugin plugin;
     private final CustomConfig cfg; // wraps discord-integration.yml
@@ -35,8 +36,7 @@ public class DiscordModerationNotifier {
         this.defaultWebhook    = safe(c.getString("default_webhook", ""));
         this.includeServerName = c.getBoolean("include_server_name", true);
 
-        // Write sensible defaults on first run (no I/O on main thread besides config set)
-        // Only set if absent to avoid overriding user edits.
+        // ---- existing defaults (unchanged) ----
         setDefaultIfMissing("events.kick.enabled", true);
         setDefaultIfMissing("events.kick.username", "Oreo Moderation");
         setDefaultIfMissing("events.kick.prefix", "**[KICK]**");
@@ -66,6 +66,19 @@ public class DiscordModerationNotifier {
         setDefaultIfMissing("events.unmute.prefix", "**[UNMUTE]**");
         setDefaultIfMissing("events.unmute.message",
                 "{server} **{by}** unmuted **{player}** ({uuid})");
+
+        // ---- ADDED: jail/unjail defaults ----
+        setDefaultIfMissing("events.jail.enabled", true);
+        setDefaultIfMissing("events.jail.username", "Oreo Moderation");
+        setDefaultIfMissing("events.jail.prefix", "**[JAIL]**");
+        setDefaultIfMissing("events.jail.message",
+                "{server} **{by}** jailed **{player}** ({uuid}) — Jail: **{jail}** Cell: **{cell}** — Reason: {reason} — {until_desc}");
+
+        setDefaultIfMissing("events.unjail.enabled", true);
+        setDefaultIfMissing("events.unjail.username", "Oreo Moderation");
+        setDefaultIfMissing("events.unjail.prefix", "**[UNJAIL]**");
+        setDefaultIfMissing("events.unjail.message",
+                "{server} **{by}** released **{player}** ({uuid}) from jail");
     }
 
     private void setDefaultIfMissing(String path, Object value) {
@@ -80,7 +93,7 @@ public class DiscordModerationNotifier {
         return enabled && hasAnyWebhook();
     }
 
-    /* ------------------ Public helpers ------------------ */
+    /* ------------------ Public helpers (existing) ------------------ */
 
     public void notifyKick(String targetName, UUID targetId, String reason, String by) {
         Map<String,String> ph = basePlaceholders(targetName, targetId, reason, by, null);
@@ -110,6 +123,30 @@ public class DiscordModerationNotifier {
         Map<String,String> ph = basePlaceholders(targetName, targetId, "", by, null);
         ph.put("until_desc", "");
         send(EventType.UNMUTE, ph);
+    }
+
+    /* ------------------ ADDED: jail helpers ------------------ */
+
+    /** Send a Discord message for a jail sentence (perm or timed). */
+    public void notifyJail(String targetName,
+                           UUID targetId,
+                           String jailName,
+                           String cellId,
+                           String reason,
+                           String by,
+                           Long untilEpochMillis) {
+        Map<String,String> ph = basePlaceholders(targetName, targetId, reason, by, untilEpochMillis);
+        ph.put("until_desc", untilDesc(untilEpochMillis));
+        ph.put("jail", safe(jailName));
+        ph.put("cell", safe(cellId));
+        send(EventType.JAIL, ph);
+    }
+
+    /** Send a Discord message for a release from jail. */
+    public void notifyUnjail(String targetName, UUID targetId, String by) {
+        Map<String,String> ph = basePlaceholders(targetName, targetId, "", by, null);
+        ph.put("until_desc", "");
+        send(EventType.UNJAIL, ph);
     }
 
     /* ------------------ Core sending (ASYNC) ------------------ */
@@ -183,9 +220,9 @@ public class DiscordModerationNotifier {
             ph.put("until_abs", "<t:" + secs + ":F>"); // absolute time
             ph.put("until_rel", "<t:" + secs + ":R>"); // relative time
         }
-        // until_desc is set by caller (mute/ban vs others)
+        // until_desc is set by caller
         ph.putIfAbsent("until_desc", "");
-        // server is set in send() depending on includeServerName
+        // server is set in send()
         ph.putIfAbsent("server", "");
         return ph;
     }
@@ -193,8 +230,7 @@ public class DiscordModerationNotifier {
     private String untilDesc(Long untilMillis) {
         if (untilMillis == null || untilMillis <= 0) return "Permanent";
         long secs = untilMillis / 1000L;
-        return "Until: <t:" + secs + ":F> ( " + "<t:" + secs + ":R>" + " )";
-        // Example -> "Until: Friday, Jan 1, 2026 5:00 PM (in 2 hours)"
+        return "Until: <t:" + secs + ":F> ( <t:" + secs + ":R> )";
     }
 
     /* ------------------ Utils ------------------ */

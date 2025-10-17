@@ -28,3 +28,14 @@ events:
     username: "Oreo Moderation"
     prefix: "**[KICK]**"
     message: "{server} **{by}** kicked **{player}** ({uuid}) — Reason: {reason}"
+  jail:
+    enabled: true
+    username: "Oreo Moderation"
+    prefix: "**[JAIL]**"
+    message: "{server} **{by}** jailed **{player}** ({uuid}) — Jail: **{jail}** Cell: **{cell}** — Reason: {reason} — {until_desc}"
+
+  unjail:
+    enabled: true
+    username: "Oreo Moderation"
+    prefix: "**[UNJAIL]**"
+    message: "{server} **{by}** released **{player}** ({uuid}) from jail"
