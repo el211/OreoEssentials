@@ -136,6 +136,12 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.cross.InvBridge invBridge;
     public fr.elias.oreoEssentials.cross.InvBridge getInvBridge() { return invBridge; }
     private KillallLogger killallLogger;
+    // Interactive Commands
+    private fr.elias.oreoEssentials.ic.ICManager icManager;
+    public fr.elias.oreoEssentials.ic.ICManager getIcManager() { return icManager; }
+    // in OreoEssentials.java (fields with other services)
+    private fr.elias.oreoEssentials.events.EventConfig eventConfig;
+    private fr.elias.oreoEssentials.events.DeathMessageService deathMessages;
 
 
     // Toggles
@@ -965,6 +971,56 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("invsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand());
         if (getCommand("ecsee") != null)
             getCommand("ecsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
+        // In your plugin main class onEnable():
+        getCommand("effectme").setExecutor(new fr.elias.oreoEssentials.effects.EffectCommands());
+        getCommand("effectme").setTabCompleter(new fr.elias.oreoEssentials.effects.EffectCommands());
+        getCommand("effectto").setExecutor(new fr.elias.oreoEssentials.effects.EffectCommands());
+        getCommand("effectto").setTabCompleter(new fr.elias.oreoEssentials.effects.EffectCommands());
+        final fr.elias.oreoEssentials.mobs.SpawnMobCommand spawnCmd = new fr.elias.oreoEssentials.mobs.SpawnMobCommand();
+        getCommand("spawnmob").setExecutor(spawnCmd);
+        getCommand("spawnmob").setTabCompleter(spawnCmd);
+        final fr.elias.oreoEssentials.commands.core.admins.FlySpeedCommand fs = new fr.elias.oreoEssentials.commands.core.admins.FlySpeedCommand();
+        getCommand("flyspeed").setExecutor(fs);
+        getCommand("flyspeed").setTabCompleter(fs);
+        final var worldCmd = new fr.elias.oreoEssentials.commands.core.admins.WorldTeleportCommand();
+        getCommand("world").setExecutor(worldCmd);
+        getCommand("world").setTabCompleter(worldCmd);
+        // In OreoEssentials onEnable():
+        this.icManager = new fr.elias.oreoEssentials.ic.ICManager(getDataFolder());
+
+        fr.elias.oreoEssentials.ic.ICCommand icCmd = new fr.elias.oreoEssentials.ic.ICCommand(icManager);
+        getCommand("ic").setExecutor(icCmd);
+        getCommand("ic").setTabCompleter(icCmd);
+
+        getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.ic.ICListener(icManager), this);
+
+        {
+            final var timeCmd = new fr.elias.oreoEssentials.commands.core.admins.OeTimeCommand();
+            getCommand("oetime").setExecutor(timeCmd);
+            getCommand("oetime").setTabCompleter(timeCmd);
+
+            final var weatherCmd = new fr.elias.oreoEssentials.commands.core.admins.WeatherCommand() ;
+            getCommand("weather").setExecutor(weatherCmd);
+            getCommand("weather").setTabCompleter(weatherCmd);
+            getCommand("sun").setExecutor(weatherCmd);
+            getCommand("sun").setTabCompleter(weatherCmd);
+            getCommand("rain").setExecutor(weatherCmd);
+            getCommand("rain").setTabCompleter(weatherCmd);
+            getCommand("storm").setExecutor(weatherCmd);
+            getCommand("storm").setTabCompleter(weatherCmd);
+        }
+        // --- Event system ---
+        this.eventConfig   = new fr.elias.oreoEssentials.events.EventConfig(getDataFolder());
+        this.deathMessages = new fr.elias.oreoEssentials.events.DeathMessageService(getDataFolder());
+
+        var eventEngine = new fr.elias.oreoEssentials.events.EventEngine(eventConfig, deathMessages);
+        getServer().getPluginManager().registerEvents(eventEngine, this);
+
+        var eventCmd = new fr.elias.oreoEssentials.events.EventCommands(eventConfig, deathMessages);
+        if (getCommand("oevents") != null) {
+            getCommand("oevents").setExecutor(eventCmd);
+            getCommand("oevents").setTabCompleter(eventCmd);
+        }
 
         // -------- PlaceholderAPI hook (optional; reflection) --------
         tryRegisterPlaceholderAPI();
