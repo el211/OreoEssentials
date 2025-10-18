@@ -409,6 +409,13 @@ commands:
     description: List jails, cells, or inmates
     permission: oreo.jail.list
     usage: "/jaillist [jailName] [cellId|*]"
+
+  oecraft:
+    description: Open OreoEssentials custom craft designer
+    usage: /oecraft craft <name> | /oecraft list | /oecraft reload
+    permission: oreo.craft
+
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -639,4 +646,8 @@ permissions:
 
   oreo.jail.bypass:
     description: Bypass jail restrictions (movement/blocked commands)
+    default: op
+
+  oreo.craft:
+    description: Use the custom craft designer
     default: op

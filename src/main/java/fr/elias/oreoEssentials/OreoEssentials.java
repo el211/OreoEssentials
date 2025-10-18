@@ -17,6 +17,7 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpAcceptCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
+import fr.elias.oreoEssentials.customcraft.CustomCraftingService;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
@@ -27,6 +28,8 @@ import com.mongodb.client.MongoClient;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardConfig;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardService;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardToggleCommand;
+import fr.elias.oreoEssentials.customcraft.OeCraftCommand;
+
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
@@ -169,6 +172,8 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.aliases.AliasService getAliasService(){ return aliasService; }
     private fr.elias.oreoEssentials.jail.JailService jailService;
     public fr.elias.oreoEssentials.jail.JailService getJailService() { return jailService; }
+    private CustomCraftingService customCraftingService;
+    public CustomCraftingService getCustomCraftingService() { return customCraftingService; }
 
 
     @Override
@@ -210,6 +215,27 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
         this.invManager.init();
+        // === Custom Crafting (SmartInvs GUI) ===
+        this.customCraftingService = new CustomCraftingService(this);
+        this.customCraftingService.loadAllAndRegister();
+
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.customcraft.CustomCraftingListener(this.customCraftingService),
+                this
+        );
+
+        if (getCommand("oecraft") != null) {
+            getCommand("oecraft").setExecutor(new OeCraftCommand(this, invManager, customCraftingService));
+        } else {
+            getLogger().warning("[CustomCraft] Command 'oecraft' not found in plugin.yml; skipping registration.");
+        }
+
+        // after: this.customCraftingService = new CustomCraftingService(this);
+        // and after loadAllAndRegister();
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.customcraft.CustomCraftingListener(customCraftingService),
+                this
+        );
 
         // -------- Moderation core needed by chat --------
         muteService = new MuteService(this);
