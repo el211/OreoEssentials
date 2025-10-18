@@ -67,6 +67,72 @@ kits:
     smallest-unit: "second"
     max-chunks: 3
 
+
+# =========================================================
+# Custom Crafting (OreoCraft)
+# =========================================================
+customcraft:
+  # Chat / command messages
+  messages:
+    saved: "%prefix%&aRecipe &e%name% &ahas been saved (&f%mode%&a) %perm_note%."
+    invalid: "%prefix%&cInvalid recipe. You need a result item and at least one ingredient."
+    deleted: "%prefix%&aRecipe &e%name% &ahas been deleted."
+    delete-hint: "%prefix%&eTip: Hold &lSHIFT &eand click the barrier to delete &c%name%&e."
+    reloaded: "%prefix%&aCustom recipes reloaded."
+    list: "%prefix%&eRecipes (%count%): &7%names%"
+    no-permission-craft: "%prefix%&cYou lack permission to craft this (&e%permission%&c)."
+
+  # GUI strings
+  gui:
+    title: "&bOreoCraft — %name%"
+    labels:
+      ingredients: "&eIngredients (3×3)"
+      result: "&aResult →"
+
+    delete:
+      name: "&cDelete this recipe"
+      lore:
+        - "&7Click: &fInfo"
+        - "&7SHIFT+Click: &cCONFIRM deletion"
+
+    mode:
+      shaped-name: "&bMode: SHAPED"
+      shapeless-name: "&aMode: SHAPELESS"
+      lore-common: "&7Click to toggle."
+      lore-shaped: "&7Layout matters."
+      lore-shapeless: "&7Order doesn't matter."
+
+    permission:
+      public-name: "&aPublic"
+      public-lore:
+        - "&7No permission required."
+        - "&7Click to require a default node."
+      required-name: "&6Permission required"
+      required-lore:
+        - "&7Node: &e%permission%"
+        - "&7Click to make it &aPublic"
+
+  # Recipe browser (list) menu
+  browse:
+    title: "&bOreoCraft — Recipes"
+    hint: "&eClick a recipe to edit"
+    icon-lore:
+      - "&7Mode: &f%mode%"
+      - "&7Perm: &f%permission_or_none%"
+      - "&aClick to edit"
+    prev: "&ePrevious"
+    next: "&eNext"
+
+  # Formatting helpers
+  format:
+    mode:
+      shaped: "Shaped"
+      shapeless: "Shapeless"
+    permission:
+      none: "&7None"
+      note-public: "&7(public)"
+      note-required: "&6perm &e%permission%"
+
 # =========================================================
 # Economy
 # =========================================================

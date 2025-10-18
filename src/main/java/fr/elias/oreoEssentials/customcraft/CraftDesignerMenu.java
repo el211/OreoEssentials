@@ -1,5 +1,6 @@
 package fr.elias.oreoEssentials.customcraft;
 
+import fr.elias.oreoEssentials.util.Lang;
 import fr.minuskube.inv.ClickableItem;
 import fr.minuskube.inv.InventoryListener;
 import fr.minuskube.inv.InventoryManager;
@@ -7,6 +8,7 @@ import fr.minuskube.inv.SmartInventory;
 import fr.minuskube.inv.content.InventoryContents;
 import fr.minuskube.inv.content.InventoryProvider;
 import fr.minuskube.inv.content.SlotPos;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -15,6 +17,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -23,11 +26,10 @@ public final class CraftDesignerMenu implements InventoryProvider {
     private final CustomCraftingService service;
     private final String recipeName;
 
-    // State
-    private final ItemStack[] grid = new ItemStack[9]; // 3×3
+    private final ItemStack[] grid = new ItemStack[9];
     private ItemStack result = null;
     private boolean shapeless = false;
-    private String permission = null; // null/blank => public
+    private String permission = null;
 
     private CraftDesignerMenu(Plugin plugin, CustomCraftingService service, String recipeName) {
         this.service = service;
@@ -43,7 +45,7 @@ public final class CraftDesignerMenu implements InventoryProvider {
                 .id("oecraft:" + recipeName)
                 .provider(menu)
                 .size(5, 9)
-                .title("§bOreoCraft — " + recipeName)
+                .title(color(Lang.get("customcraft.gui.title", "&bOreoCraft — %name%").replace("%name%", recipeName)))
                 .manager(invMgr)
                 .closeable(true)
                 .listener(new InventoryListener<>(InventoryCloseEvent.class, e -> {
@@ -54,31 +56,31 @@ public final class CraftDesignerMenu implements InventoryProvider {
 
     @Override
     public void init(Player player, InventoryContents contents) {
-        // Frame
         var filler = ui(Material.GRAY_STAINED_GLASS_PANE, " ");
         for (int r = 0; r < 5; r++) for (int c = 0; c < 9; c++) contents.set(r, c, ClickableItem.empty(filler));
 
-        // Delete button (top-left)
+        // Delete button
         drawDeleteButton(contents, player);
 
         // Labels
-        contents.set(0, 2, ClickableItem.empty(ui(Material.BOOK, "§eIngrédients (3×3)")));
-        contents.set(0, 6, ClickableItem.empty(ui(Material.EMERALD, "§aRésultat →")));
+        contents.set(0, 2, ClickableItem.empty(ui(Material.BOOK,
+                color(Lang.get("customcraft.gui.labels.ingredients", "&eIngredients (3×3)")))));
+        contents.set(0, 6, ClickableItem.empty(ui(Material.EMERALD,
+                color(Lang.get("customcraft.gui.labels.result", "&aResult →")))));
 
-        // Load existing (must happen before toggles so they reflect state)
+        // Load existing
         service.get(recipeName).ifPresent(r -> {
             ItemStack[] g = r.getGrid();
             for (int i = 0; i < 9; i++) grid[i] = (g[i] == null || g[i].getType().isAir()) ? null : g[i].clone();
             result     = (r.getResult() == null || r.getResult().getType().isAir()) ? null : r.getResult().clone();
             shapeless  = r.isShapeless();
-            permission = r.getPermission(); // may be null
+            permission = r.getPermission();
         });
 
-        // Toggles (top center + top right)
         drawModeToggle(contents);
         drawPermissionToggle(contents);
 
-        // Grid 3×3 (1..3, 2..4)
+        // Grid 3×3
         for (int rr = 0; rr < 3; rr++) {
             for (int cc = 0; cc < 3; cc++) {
                 int idx = rr * 3 + cc;
@@ -87,7 +89,7 @@ public final class CraftDesignerMenu implements InventoryProvider {
             }
         }
 
-        // Result (2,7)
+        // Result
         redrawResult(contents);
     }
 
@@ -99,21 +101,25 @@ public final class CraftDesignerMenu implements InventoryProvider {
         ItemStack it = new ItemStack(Material.BARRIER);
         ItemMeta m = it.getItemMeta();
         if (m != null) {
-            m.setDisplayName("§cSupprimer cette recette");
-            m.setLore(List.of(
-                    "§7Clique: §finfo",
-                    "§7MAJ+Clique: §cCONFIRMER la suppression"
-            ));
+            m.setDisplayName(color(Lang.get("customcraft.gui.delete.name", "&cDelete this recipe")));
+
+            List<String> lore = langList("customcraft.gui.delete.lore",
+                    List.of("&7Click: &fInfo", "&7SHIFT+Click: &cCONFIRM deletion"));
+            m.setLore(lore.stream().map(CraftDesignerMenu::color).toList());
             it.setItemMeta(m);
         }
         contents.set(0, 0, ClickableItem.of(it, (InventoryClickEvent e) -> {
             if (!e.isShiftClick()) {
-                player.sendMessage("§eAstuce: Maintiens §e§lSHIFT§e et clique pour supprimer §c" + recipeName + "§e.");
+                player.sendMessage(color(
+                        Lang.get("customcraft.messages.delete-hint",
+                                        "%prefix%&eTip: Hold &lSHIFT &eand click the barrier to delete &c%name%&e.")
+                                .replace("%name%", recipeName)
+                ));
                 return;
             }
             boolean ok = service.delete(recipeName);
-            if (ok) player.sendMessage("§a[OreoCraft] Recette §e" + recipeName + "§a supprimée.");
-            else    player.sendMessage("§c[OreoCraft] Échec de la suppression de §e" + recipeName + "§c.");
+            if (ok) player.sendMessage(color(Lang.get("customcraft.messages.deleted", "%prefix%&aRecipe &e%name% &ahas been deleted.").replace("%name%", recipeName)));
+            else    player.sendMessage(color(Lang.get("customcraft.messages.invalid", "%prefix%&cInvalid recipe. You need a result item and at least one ingredient.")));
             player.closeInventory();
         }));
     }
@@ -122,11 +128,16 @@ public final class CraftDesignerMenu implements InventoryProvider {
         ItemStack it = new ItemStack(shapeless ? Material.SLIME_BALL : Material.REDSTONE);
         ItemMeta m = it.getItemMeta();
         if (m != null) {
-            m.setDisplayName(shapeless ? "§aMode: SANS FORME (Shapeless)" : "§bMode: AVEC FORME (Shaped)");
-            m.setLore(List.of(
-                    "§7Clique pour basculer.",
-                    shapeless ? "§7L'ordre n'a pas d'importance." : "§7La disposition compte."
-            ));
+            String nameKey = shapeless ? "customcraft.gui.mode.shapeless-name" : "customcraft.gui.mode.shaped-name";
+            String name = Lang.get(nameKey, shapeless ? "&aMode: SHAPELESS" : "&bMode: SHAPED");
+
+            List<String> lore = new ArrayList<>();
+            lore.add(Lang.get("customcraft.gui.mode.lore-common", "&7Click to toggle."));
+            lore.add(Lang.get(shapeless ? "customcraft.gui.mode.lore-shapeless" : "customcraft.gui.mode.lore-shaped",
+                    shapeless ? "&7Order doesn't matter." : "&7Layout matters."));
+
+            m.setDisplayName(color(name));
+            m.setLore(lore.stream().map(CraftDesignerMenu::color).toList());
             it.setItemMeta(m);
         }
         contents.set(0, 4, ClickableItem.of(it, (InventoryClickEvent e) -> {
@@ -142,17 +153,16 @@ public final class CraftDesignerMenu implements InventoryProvider {
         ItemMeta m = it.getItemMeta();
         if (m != null) {
             if (hasPerm) {
-                m.setDisplayName("§6Permission requise");
-                m.setLore(List.of(
-                        "§7Noeud: §e" + permission,
-                        "§7Clique pour rendre §aPublic"
-                ));
+                m.setDisplayName(color(Lang.get("customcraft.gui.permission.required-name", "&6Permission required")));
+                List<String> lore = langList("customcraft.gui.permission.required-lore",
+                        List.of("&7Node: &e%permission%", "&7Click to make it &aPublic"));
+                final String p = permission;
+                m.setLore(lore.stream().map(s -> color(s.replace("%permission%", p))).toList());
             } else {
-                m.setDisplayName("§aPublic");
-                m.setLore(List.of(
-                        "§7Aucune permission requise.",
-                        "§7Clique pour exiger un noeud par défaut."
-                ));
+                m.setDisplayName(color(Lang.get("customcraft.gui.permission.public-name", "&aPublic")));
+                List<String> lore = langList("customcraft.gui.permission.public-lore",
+                        List.of("&7No permission required.", "&7Click to require a default node."));
+                m.setLore(lore.stream().map(CraftDesignerMenu::color).toList());
             }
             it.setItemMeta(m);
         }
@@ -209,19 +219,27 @@ public final class CraftDesignerMenu implements InventoryProvider {
 
     private void saveOnClose(Player player) {
         CustomRecipe rec = new CustomRecipe(
-                recipeName,
-                snapshotGrid(),
+                recipeName, snapshotGrid(),
                 result == null ? null : result.clone(),
-                shapeless,
-                permission // << save it
+                shapeless, permission
         );
         boolean ok = service.saveAndRegister(rec);
         if (ok) {
-            String mode = shapeless ? "§aShapeless" : "§bShaped";
-            String permMsg = (permission == null || permission.isBlank()) ? "§7(public)" : "§6perm §e" + permission;
-            player.sendMessage("§a[OreoCraft] Recette §e" + recipeName + "§a enregistrée (" + mode + "§a) " + permMsg + ".");
+            String mode = shapeless ? Lang.get("customcraft.format.mode.shapeless", "Shapeless")
+                    : Lang.get("customcraft.format.mode.shaped", "Shaped");
+            String permNote = (permission == null || permission.isBlank())
+                    ? Lang.get("customcraft.format.permission.note-public", "&7(public)")
+                    : Lang.get("customcraft.format.permission.note-required", "&6perm &e%permission%").replace("%permission%", permission);
+
+            String msg = Lang.get("customcraft.messages.saved",
+                    "%prefix%&aRecipe &e%name% &ahas been saved (&f%mode%&a) %perm_note%.");
+            msg = msg.replace("%name%", recipeName)
+                    .replace("%mode%", mode)
+                    .replace("%perm_note%", permNote);
+            player.sendMessage(color(msg));
         } else {
-            player.sendMessage("§c[OreoCraft] Recette invalide (résultat + au moins 1 ingrédient).");
+            player.sendMessage(color(Lang.get("customcraft.messages.invalid",
+                    "%prefix%&cInvalid recipe. You need a result item and at least one ingredient.")));
         }
     }
 
@@ -230,5 +248,23 @@ public final class CraftDesignerMenu implements InventoryProvider {
         ItemMeta meta = it.getItemMeta();
         if (meta != null) { meta.setDisplayName(name); it.setItemMeta(meta); }
         return it;
+    }
+
+    /* ---------------- helpers ---------------- */
+
+    private static String color(String s) {
+        return ChatColor.translateAlternateColorCodes('&', s == null ? "" : s);
+    }
+
+    /** Read list from lang via basePath.0, basePath.1, …; return default if none. */
+    private static List<String> langList(String basePath, List<String> def) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            String v = Lang.get(basePath + "." + i, null);
+            if (v == null) break;
+            out.add(v);
+        }
+        if (out.isEmpty() && def != null) out.addAll(def);
+        return out;
     }
 }

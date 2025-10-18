@@ -1,7 +1,7 @@
 package fr.elias.oreoEssentials.customcraft;
 
+import fr.elias.oreoEssentials.util.Lang;
 import fr.minuskube.inv.InventoryManager;
-import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -12,6 +12,7 @@ import org.bukkit.plugin.Plugin;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
@@ -40,25 +41,27 @@ public final class OeCraftCommand implements CommandExecutor, TabCompleter {
         // ---- Reload (console OK) ----
         if (sub.equals("reload")) {
             if (!sender.hasPermission("oreo.craft")) {
-                sender.sendMessage("§cYou lack permission: oreo.craft");
+                sender.sendMessage(t("economy.errors.no-permission"));
                 return true;
             }
             service.loadAllAndRegister();
-            sender.sendMessage("§a[OreoCraft] Recipes reloaded.");
+            sender.sendMessage(t("customcraft.messages.reloaded"));
             return true;
         }
 
         // ---- List (console OK) ----
         if (sub.equals("list")) {
             var names = new TreeSet<>(service.allNames());
-            sender.sendMessage("§e[OreoCraft] Recipes (" + names.size() + "): §7" + String.join(", ", names));
+            sender.sendMessage(tp("customcraft.messages.list",
+                    Map.of("count", String.valueOf(names.size()),
+                            "names", String.join(", ", names))));
             return true;
         }
 
         // ---- Delete (console OK) ----
         if (sub.equals("delete")) {
             if (!sender.hasPermission("oreo.craft")) {
-                sender.sendMessage("§cYou lack permission: oreo.craft");
+                sender.sendMessage(t("economy.errors.no-permission"));
                 return true;
             }
             if (args.length < 2) {
@@ -68,34 +71,24 @@ public final class OeCraftCommand implements CommandExecutor, TabCompleter {
             String name = sanitize(args[1]);
             boolean ok = service.delete(name);
             sender.sendMessage(ok
-                    ? "§a[OreoCraft] Deleted recipe §e" + name + "§a."
-                    : "§c[OreoCraft] Could not delete recipe §e" + name + "§c (not found?).");
+                    ? tp("customcraft.messages.deleted", Map.of("name", name))
+                    : t("customcraft.messages.invalid"));
             return true;
         }
 
-        // All below require a Player (GUI)
+        // ---- Everything below requires a Player (GUI) ----
         if (!(sender instanceof Player p)) {
             sender.sendMessage("§cThis subcommand requires a player.");
             return true;
         }
         if (!p.hasPermission("oreo.craft")) {
-            p.sendMessage("§cYou lack permission: oreo.craft");
+            p.sendMessage(t("economy.errors.no-permission"));
             return true;
         }
-        if (args[0].equalsIgnoreCase("delete")) {
-            if (args.length < 2) {
-                p.sendMessage("§cUsage: /" + label + " delete <name>");
-                return true;
-            }
-            String name = args[1].toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9_\\-]", "_");
-            boolean ok = service.delete(name);
-            if (ok) p.sendMessage("§a[OreoCraft] Deleted §e" + name + "§a.");
-            else    p.sendMessage("§c[OreoCraft] Could not delete §e" + name + "§c (not found?).");
-            return true;
-        }
+
         // ---- Browse (GUI) ----
         if (sub.equals("browse")) {
-            RecipeListMenu.open(p, plugin, invMgr, service); // <-- add plugin
+            RecipeListMenu.open(p, plugin, invMgr, service);
             return true;
         }
 
@@ -149,4 +142,23 @@ public final class OeCraftCommand implements CommandExecutor, TabCompleter {
 
         return out;
     }
+
+    /* ---------------- Lang helpers (correct signatures) ---------------- */
+
+    /* ---------------- Lang helpers (key, default) ---------------- */
+
+    private static String t(String path) {
+        String s = Lang.get(path, path); // fall back to the key itself
+        return (s == null) ? path : s;
+    }
+
+    private static String tp(String path, Map<String, String> ph) {
+        String s = t(path);
+        if (ph == null || ph.isEmpty()) return s;
+        for (var e : ph.entrySet()) {
+            s = s.replace("%" + e.getKey() + "%", e.getValue());
+        }
+        return s;
+    }
+
 }
