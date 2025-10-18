@@ -925,8 +925,11 @@ public final class OreoEssentials extends JavaPlugin {
 
         // /aliaseditor registration
         if (getCommand("aliaseditor") != null) {
-            getCommand("aliaseditor").setExecutor(new fr.elias.oreoEssentials.aliases.AliasEditorCommand(aliasService));
+            var aliasCmd = new fr.elias.oreoEssentials.aliases.AliasEditorCommand(aliasService, invManager);
+            getCommand("aliaseditor").setExecutor(aliasCmd);
+            getCommand("aliaseditor").setTabCompleter(aliasCmd);
         }
+
 
         if (getCommand("otherhome") != null) {
             var otherHome = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);

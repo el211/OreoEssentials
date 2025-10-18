@@ -3,11 +3,14 @@ package fr.elias.oreoEssentials.aliases;
 
 import me.clip.placeholderapi.PlaceholderAPI;
 import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 final class DynamicAliasExecutor {
@@ -22,6 +25,7 @@ final class DynamicAliasExecutor {
     }
 
     boolean onAlias(CommandSender sender, String label, String[] args) {
+        // Resolve definition
         AliasService.AliasDef def = service.get(alias);
         if (def == null || !def.enabled) {
             sender.sendMessage("§cThat alias is disabled.");
@@ -29,70 +33,120 @@ final class DynamicAliasExecutor {
         }
 
         // Basic permission gates (customize as needed)
-        if (!sender.hasPermission("oreo.alias.use.*") && !sender.hasPermission("oreo.alias.use." + alias)) {
+        if (!sender.hasPermission("oreo.alias.use.*")
+                && !sender.hasPermission("oreo.alias.use." + alias)) {
             sender.sendMessage("§cYou don’t have permission to use /" + alias + ".");
             return true;
         }
 
+        // Run pre-checks (permissions/money/papi comparisons/etc.)
+        if (!service.evaluateAllChecks(sender, def)) {
+            String msg = (def.failMessage != null ? def.failMessage : "§cYou don't meet the requirements for /%alias%.")
+                    .replace("%alias%", alias);
+            try { sender.sendMessage(msg); } catch (Throwable ignored) {}
+            return true;
+        }
+
+        // Cooldown (touch only after checks pass)
         Player player = (sender instanceof Player p) ? p : null;
         if (!service.checkAndTouchCooldown(alias, player == null ? null : player.getUniqueId(), def.cooldownSeconds)) {
             sender.sendMessage("§cYou must wait before using /" + alias + " again.");
             return true;
         }
 
-        // Execute every command line in the alias (split by ';')
+        // Execute commands (each entry can contain ';' to chain multiple)
         for (String raw : def.commands) {
-            String line = raw;
+            if (raw == null || raw.isEmpty()) continue;
+            for (String segment : splitBySemicolon(raw)) {
+                String line = segment.trim();
+                if (line.isEmpty()) continue;
 
-            // Substitute %player% / {player}
-            String playerName = player != null ? player.getName() : (sender.getName() != null ? sender.getName() : "CONSOLE");
-            line = line.replace("%player%", playerName).replace("{player}", playerName);
+                // Basic substitutions
+                String playerName = player != null ? player.getName() :
+                        (sender.getName() != null ? sender.getName() : "CONSOLE");
+                line = line.replace("%alias%", alias)
+                        .replace("%player%", playerName)
+                        .replace("{player}", playerName);
 
-            // Simple argument passthrough: {args} or %args%
-            if (args.length > 0) {
-                String joined = String.join(" ", args);
-                line = line.replace("{args}", joined).replace("%args%", joined);
-            } else {
-                line = line.replace("{args}", "").replace("%args%", "");
-            }
+                // UUID / WORLD (empty if not a player)
+                String uuid = (player != null) ? player.getUniqueId().toString() : "";
+                World w = (player != null) ? player.getWorld() : null;
+                String worldName = (w != null) ? w.getName() : "";
 
-            // PlaceholderAPI (optional)
-            if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
-                try {
-                    line = PlaceholderAPI.setPlaceholders(player, line);
-                } catch (Throwable ignored) {}
-            }
+                line = line.replace("%uuid%", uuid)
+                        .replace("{uuid}", uuid)
+                        .replace("%world%", worldName)
+                        .replace("{world}", worldName);
 
-            // QoL: If user typed a vanilla give with shorthand, expand to the namespaced ID
-            // e.g. "give %player% iron" -> "give %player% minecraft:iron_ingot"
-            // We only touch a minimal set; advise creators to use proper IDs.
-            line = maybeExpandShorthandGive(line);
+                // Args passthroughs
+                String allArgs = String.join(" ", args);
+                line = line.replace("{args}", allArgs)
+                        .replace("%args%", allArgs)
+                        .replace("{allargs}", allArgs)
+                        .replace("%allargs%", allArgs);
 
-            boolean ok;
-            try {
-                switch (def.runAs) {
-                    case PLAYER -> {
-                        if (player == null) {
-                            sender.sendMessage("§cThis alias must be run by a player.");
-                            return true;
-                        }
-                        ok = player.performCommand(line);
-                    }
-                    case CONSOLE -> ok = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), line);
-                    default -> ok = false;
+                for (int i = 0; i < args.length; i++) {
+                    String a = args[i];
+                    line = line.replace("%arg" + (i + 1) + "%", a)
+                            .replace("{arg" + (i + 1) + "}", a);
                 }
-            } catch (Throwable t) {
-                ok = false;
-                plugin.getLogger().warning("[Aliases] Command failed for /" + alias + ": " + line + " -> " + t.getMessage());
-            }
 
-            if (!ok) {
-                sender.sendMessage("§cAlias command failed: §7" + line);
-                // continue to next line; or break if you want fail-fast
+                // PlaceholderAPI (optional)
+                if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
+                    try {
+                        line = PlaceholderAPI.setPlaceholders(player, line);
+                    } catch (Throwable ignored) {}
+                }
+
+                // QoL: shorthand for some give items
+                line = maybeExpandShorthandGive(line);
+
+                boolean ok;
+                try {
+                    switch (def.runAs) {
+                        case PLAYER -> {
+                            if (player == null) {
+                                sender.sendMessage("§cThis alias must be run by a player.");
+                                return true;
+                            }
+                            ok = player.performCommand(line);
+                        }
+                        case CONSOLE -> ok = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), line);
+                        default -> ok = false;
+                    }
+                } catch (Throwable t) {
+                    ok = false;
+                    plugin.getLogger().warning("[Aliases] Command failed for /" + alias + ": " + line + " -> " + t.getMessage());
+                }
+
+                if (!ok) {
+                    sender.sendMessage("§cAlias command failed: §7" + line);
+                    // continue to next chained command
+                }
             }
         }
 
         return true;
+    }
+
+    /** Split on ';' while allowing simple quoted segments. */
+    private List<String> splitBySemicolon(String s) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inSingle = false, inDouble = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\'' && !inDouble) { inSingle = !inSingle; cur.append(c); continue; }
+            if (c == '\"' && !inSingle) { inDouble = !inDouble; cur.append(c); continue; }
+            if (c == ';' && !inSingle && !inDouble) {
+                out.add(cur.toString());
+                cur.setLength(0);
+                continue;
+            }
+            cur.append(c);
+        }
+        if (cur.length() > 0) out.add(cur.toString());
+        return out;
     }
 
     /**
