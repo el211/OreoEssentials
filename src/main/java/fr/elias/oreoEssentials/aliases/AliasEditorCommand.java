@@ -31,6 +31,8 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
 
         String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
+
+            /* ---------------- GUI ---------------- */
             case "gui" -> {
                 if (!(sender instanceof Player p)) {
                     sender.sendMessage("§cOnly players can use the GUI.");
@@ -40,18 +42,22 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
+            /* ---------------- BASIC CRUD ---------------- */
             case "list" -> {
                 var map = service.all();
                 if (map.isEmpty()) { sender.sendMessage("§7No aliases defined."); return true; }
                 sender.sendMessage("§8—— §7Aliases (" + map.size() + ") §8——");
-                map.values().forEach(a ->
-                        sender.sendMessage("§f/" + a.name + " §7→ §8" + a.runAs +
-                                " §7" + (a.enabled ? "§aENABLED" : "§cDISABLED") +
-                                " §8| §7cd:§f" + a.cooldownSeconds + "s" +
-                                " §8| §7checks:§f" + (a.checks == null ? 0 : a.checks.size()) +
-                                " §8(" + (a.logic == null ? "AND" : a.logic.name()) + ")"
-                        )
-                );
+                map.values().stream()
+                        .sorted(Comparator.comparing(a -> a.name))
+                        .forEach(a ->
+                                sender.sendMessage("§f/" + a.name + " §7→ §8" + a.runAs +
+                                        " §7" + (a.enabled ? "§aENABLED" : "§cDISABLED") +
+                                        " §8| §7cd:§f" + a.cooldownSeconds + "s" +
+                                        " §8| §7checks:§f" + (a.checks == null ? 0 : a.checks.size()) +
+                                        " §8(" + (a.logic == null ? "AND" : a.logic.name()) + ")" +
+                                        " §8| §7permGate: " + (a.permGate ? "§aON" : "§cOFF") +
+                                        " §8| §7tabs: " + (a.addTabs ? "§aON" : "§cOFF"))
+                        );
                 return true;
             }
 
@@ -160,6 +166,9 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage("§7Cooldown: §f" + def.cooldownSeconds + "s");
                 sender.sendMessage("§7Logic: §f" + (def.logic == null ? "AND" : def.logic.name()));
                 sender.sendMessage("§7Fail message: §f" + (def.failMessage == null ? "§7(none)" : def.failMessage));
+                sender.sendMessage("§7Perm gate: " + (def.permGate ? "§aON" : "§cOFF"));
+                sender.sendMessage("§7Tab-complete: " + (def.addTabs ? "§aON" : "§cOFF") +
+                        " §8(§7groups:§f " + (def.customTabs == null ? 0 : def.customTabs.size()) + "§8)");
                 int i = 1;
                 int checks = (def.checks == null) ? 0 : def.checks.size();
                 sender.sendMessage("§7Checks: §f" + checks);
@@ -179,6 +188,7 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
+            /* ---------------- CHECKS & LOGIC ---------------- */
             case "addcheck" -> {
                 if (args.length < 3) { sender.sendMessage("§cUsage: /aliaseditor addcheck <name> <expr...>"); return true; }
                 var def = service.get(args[1]); if (def == null) { sender.sendMessage("§cAlias not found."); return true; }
@@ -231,6 +241,72 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
+            /* ---------------- NEW: PERM-GATE & TABS ---------------- */
+            case "permgate" -> { // /aliaseditor permgate <name> <true|false>
+                if (args.length < 3) { sender.sendMessage("§cUsage: /aliaseditor permgate <name> <true|false>"); return true; }
+                var def = service.get(args[1]); if (def == null) { sender.sendMessage("§cAlias not found."); return true; }
+                def.permGate = parseBoolean(args[2], null);
+                service.save();
+                sender.sendMessage("§aPerm gate for /" + def.name + " set to " + (def.permGate ? "§aON" : "§cOFF") + ".");
+                return true;
+            }
+
+            case "tabs" -> { // /aliaseditor tabs <name> <true|false>
+                if (args.length < 3) { sender.sendMessage("§cUsage: /aliaseditor tabs <name> <true|false>"); return true; }
+                var def = service.get(args[1]); if (def == null) { sender.sendMessage("§cAlias not found."); return true; }
+                def.addTabs = parseBoolean(args[2], null);
+                service.save();
+                // re-register to attach/detach tab completer on runtime command
+                service.applyRuntimeRegistration();
+                sender.sendMessage("§aTab-complete for /" + def.name + " set to " + (def.addTabs ? "§aON" : "§cOFF") + ".");
+                return true;
+            }
+
+            case "addtab" -> { // /aliaseditor addtab <name> <index> <value1,value2,...>
+                if (args.length < 4) { sender.sendMessage("§cUsage: /aliaseditor addtab <name> <index> <value1,value2,...>"); return true; }
+                var def = service.get(args[1]); if (def == null) { sender.sendMessage("§cAlias not found."); return true; }
+                int index;
+                try { index = Integer.parseInt(args[2]); } catch (Exception e) { sender.sendMessage("§cIndex must be a number (1..n)."); return true; }
+                if (index <= 0) { sender.sendMessage("§cIndex must be >= 1."); return true; }
+                String joined = String.join(" ", Arrays.copyOfRange(args, 3, args.length)).trim();
+                if (joined.isEmpty()) { sender.sendMessage("§cProvide comma-separated values."); return true; }
+
+                // ensure list size
+                while (def.customTabs.size() < index) def.customTabs.add(new ArrayList<>());
+
+                List<String> vals = Arrays.stream(joined.replace(';', ',').split(","))
+                        .map(String::trim).filter(s -> !s.isEmpty()).distinct().toList();
+
+                def.customTabs.set(index - 1, new ArrayList<>(vals));
+                service.save();
+                service.applyRuntimeRegistration(); // in case tabs just enabled
+                sender.sendMessage("§aSet tab group #" + index + " for /" + def.name + " to: §f" + String.join(", ", vals));
+                return true;
+            }
+
+            case "deltag" -> { // /aliaseditor deltag <name> <index>
+                if (args.length < 3) { sender.sendMessage("§cUsage: /aliaseditor deltag <name> <index>"); return true; }
+                var def = service.get(args[1]); if (def == null) { sender.sendMessage("§cAlias not found."); return true; }
+                int index;
+                try { index = Integer.parseInt(args[2]); } catch (Exception e) { sender.sendMessage("§cIndex must be a number (1..n)."); return true; }
+                if (index <= 0 || index > def.customTabs.size()) { sender.sendMessage("§cInvalid index."); return true; }
+                def.customTabs.remove(index - 1);
+                service.save();
+                service.applyRuntimeRegistration();
+                sender.sendMessage("§aRemoved tab group #" + index + " for /" + def.name + ".");
+                return true;
+            }
+
+            case "cleartabs" -> { // /aliaseditor cleartabs <name>
+                if (args.length < 2) { sender.sendMessage("§cUsage: /aliaseditor cleartabs <name>"); return true; }
+                var def = service.get(args[1]); if (def == null) { sender.sendMessage("§cAlias not found."); return true; }
+                def.customTabs.clear();
+                service.save();
+                service.applyRuntimeRegistration();
+                sender.sendMessage("§aCleared all custom tab groups for /" + def.name + ".");
+                return true;
+            }
+
             default -> {
                 help(sender);
                 return true;
@@ -244,8 +320,12 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (!sender.hasPermission("oreo.alias.editor")) return List.of();
 
-        List<String> subs = List.of("gui","list","create","set","addline","enable","disable","runas","cooldown",
-                "delete","info","reload","addcheck","delcheck","listchecks","setfailmsg","setlogic");
+        List<String> subs = List.of(
+                "gui","list","create","set","addline","enable","disable","runas","cooldown",
+                "delete","info","reload","addcheck","delcheck","listchecks","setfailmsg","setlogic",
+                // new
+                "permgate","tabs","addtab","deltag","cleartabs"
+        );
 
         if (args.length == 1) {
             return prefix(subs, args[0]);
@@ -260,10 +340,17 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
                 return List.of(); // name is free-form
             }
             case "set", "addline", "enable", "disable", "delete", "info",
-                 "addcheck", "listchecks", "setfailmsg", "setlogic", "runas", "cooldown", "delcheck" -> {
+                 "addcheck", "listchecks", "setfailmsg", "setlogic", "runas", "cooldown", "delcheck",
+                 // new:
+                 "permgate","tabs","addtab","deltag","cleartabs" -> {
+
                 if (args.length == 2) return prefix(names, args[1]);
+
                 if (sub.equals("runas") && args.length == 3) return prefix(List.of("PLAYER","CONSOLE"), args[2]);
                 if (sub.equals("setlogic") && args.length == 3) return prefix(List.of("AND","OR"), args[2]);
+                if ((sub.equals("permgate") || sub.equals("tabs")) && args.length == 3)
+                    return prefix(List.of("true","false"), args[2]);
+
                 if (sub.equals("delcheck") && args.length == 3) {
                     var def = service.get(args[1]);
                     if (def != null && def.checks != null && !def.checks.isEmpty()) {
@@ -273,10 +360,48 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
                     }
                 }
                 if (sub.equals("cooldown") && args.length == 3) return prefix(List.of("0","5","30","60"), args[2]);
+
+                // addtab name <index> <values...>
+                if (sub.equals("addtab")) {
+                    if (args.length == 3) { // suggest current+next index
+                        var def = service.get(args[1]);
+                        int next = (def == null ? 1 : Math.max(1, def.customTabs.size() + 1));
+                        List<String> suggestions = new ArrayList<>();
+                        if (def != null) {
+                            for (int i = 1; i <= Math.max(1, def.customTabs.size()); i++) suggestions.add(String.valueOf(i));
+                        }
+                        suggestions.add(String.valueOf(next));
+                        return prefix(suggestions, args[2]);
+                    } else if (args.length == 4) {
+                        return List.of("value1,value2,value3");
+                    }
+                }
+
+                // deltag name <index>
+                if (sub.equals("deltag") && args.length == 3) {
+                    var def = service.get(args[1]);
+                    if (def != null && !def.customTabs.isEmpty()) {
+                        List<String> idx = new ArrayList<>();
+                        for (int i = 1; i <= def.customTabs.size(); i++) idx.add(String.valueOf(i));
+                        return prefix(idx, args[2]);
+                    }
+                }
                 return List.of();
             }
             default -> { return List.of(); }
         }
+    }
+
+    /* ------------------------ Utils ------------------------ */
+
+    private static Boolean parseBoolean(String s, Boolean def) {
+        if (s == null) return def;
+        String v = s.toLowerCase(Locale.ROOT);
+        return switch (v) {
+            case "true","on","yes","1","enable","enabled" -> true;
+            case "false","off","no","0","disable","disabled" -> false;
+            default -> def != null ? def : false;
+        };
     }
 
     private static List<String> prefix(Collection<String> in, String token) {
@@ -303,6 +428,12 @@ public final class AliasEditorCommand implements CommandExecutor, TabCompleter {
         s.sendMessage("§f/aliaseditor listchecks <name>");
         s.sendMessage("§f/aliaseditor setlogic <name> <AND|OR>");
         s.sendMessage("§f/aliaseditor setfailmsg <name> <message...>");
-        s.sendMessage("§7Tips: %player%, %uuid%, %world%, %arg1%, %allargs% — ';' chains commands.");
+        s.sendMessage("§8—— §dPerms & Tabs §8——");
+        s.sendMessage("§f/aliaseditor permgate <name> <true|false> §7(require oreo.alias.custom.<name>)");
+        s.sendMessage("§f/aliaseditor tabs <name> <true|false> §7(enable custom tab-complete)");
+        s.sendMessage("§f/aliaseditor addtab <name> <index> <value1,value2,...>");
+        s.sendMessage("§f/aliaseditor deltag <name> <index>");
+        s.sendMessage("§f/aliaseditor cleartabs <name>");
+        s.sendMessage("§7Tips: %player%, %uuid%, %world%, $1, $2, $* — ';' chains commands.");
     }
 }

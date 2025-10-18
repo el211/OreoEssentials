@@ -27,10 +27,15 @@ public final class AliasService {
         public int cooldownSeconds = 0;
         public List<String> commands = new ArrayList<>();
 
-        // Checks / logic / fail message
+        // Checks / logic / fail message (alias-wide)
         public List<Check> checks = new ArrayList<>();
         public LogicType logic = LogicType.AND; // how to combine checks (AND / OR)
         public String failMessage = "§cYou don't meet the requirements for %alias%.";
+
+        // Per-alias permission + tab completion config
+        public boolean permGate = false;  // requires oreo.alias.custom.<alias>
+        public boolean addTabs  = false;  // enable per-alias tab-complete
+        public List<List<String>> customTabs = new ArrayList<>(); // per-arg suggestions
     }
 
     /* ------------------------------ State ------------------------------ */
@@ -39,10 +44,9 @@ public final class AliasService {
     private final File file;
     private YamlConfiguration cfg;
 
-    // alias name -> definition
     private final Map<String, AliasDef> aliases = new ConcurrentHashMap<>();
-    // cooldown key: alias|playerUUID -> last-used millis
     private final Map<String, Long> cooldowns = new ConcurrentHashMap<>();
+    private final Map<String, Long> lineCooldowns = new ConcurrentHashMap<>();
 
     /* --------------------------- Lifecycle ----------------------------- */
 
@@ -53,7 +57,6 @@ public final class AliasService {
 
     /** Loads aliases from aliases.yml (creates the file from resources if missing). */
     public void load() {
-        // Ensure file exists, then read YAML
         if (!file.exists()) {
             try { plugin.saveResource("aliases.yml", false); } catch (Throwable ignored) {}
         }
@@ -71,7 +74,6 @@ public final class AliasService {
 
         ConfigurationSection root = cfg.getConfigurationSection("aliases");
         if (root == null) {
-            // No aliases section yet -> nothing to load
             plugin.getLogger().info("[Aliases] aliases.yml has no 'aliases' section (yet).");
             return;
         }
@@ -81,23 +83,19 @@ public final class AliasService {
             if (a == null) continue;
 
             AliasDef def = new AliasDef();
-            def.name = key == null ? null : key.toLowerCase(Locale.ROOT);
+            def.name = (key == null ? null : key.toLowerCase(Locale.ROOT));
             if (def.name == null || def.name.isBlank()) {
                 plugin.getLogger().warning("[Aliases] Skipping alias with empty name node.");
                 continue;
             }
 
-            // Core fields
             def.enabled = a.getBoolean("enabled", true);
             def.runAs = parseRunAs(a.getString("run-as", "PLAYER"));
             def.cooldownSeconds = a.getInt("cooldown-seconds", 0);
 
-            // Commands (safe default to empty list)
             List<String> cmds = a.getStringList("commands");
             def.commands = (cmds != null) ? new ArrayList<>(cmds) : new ArrayList<>();
 
-            // ---- checks / logic / fail-message ----
-            // Logic (AND/OR) with safe fallback
             String logicStr = String.valueOf(a.getString("logic", "AND")).toUpperCase(Locale.ROOT);
             try {
                 def.logic = LogicType.valueOf(logicStr);
@@ -106,10 +104,8 @@ public final class AliasService {
                 plugin.getLogger().warning("[Aliases] Alias '" + def.name + "' has invalid logic '" + logicStr + "', defaulting to AND.");
             }
 
-            // Fail message
             def.failMessage = a.getString("fail-message", def.failMessage);
 
-            // Checks list
             List<String> rawChecks = a.getStringList("checks");
             def.checks = new ArrayList<>();
             if (rawChecks != null) {
@@ -123,14 +119,32 @@ public final class AliasService {
                 }
             }
 
-            // Register into memory
+            // NEW: permission gate + tabs (support legacy keys too)
+            def.permGate = a.getBoolean("perm-gate", a.getBoolean("Perm", false));
+            def.addTabs  = a.getBoolean("add-tabs",  a.getBoolean("AddTabs", false));
+
+            List<String> groups = a.getStringList("custom-tabs");
+            if (groups == null || groups.isEmpty()) groups = a.getStringList("CustomTabs");
+            if (groups != null) {
+                for (String g : groups) {
+                    if (g == null) continue;
+                    String[] parts = g.replace(';', ',').split("[,\\s]+");
+                    List<String> one = new ArrayList<>();
+                    for (String p : parts) {
+                        String t = p.trim();
+                        if (!t.isEmpty()) one.add(t);
+                    }
+                    def.customTabs.add(one);
+                }
+            }
+
             aliases.put(def.name, def);
         }
 
         plugin.getLogger().info("[Aliases] Loaded " + aliases.size() + " alias definition(s) from aliases.yml.");
     }
 
-    /** Saves the current in-memory aliases to aliases.yml (including checks/logic/fail-message). */
+    /** Saves the current in-memory aliases to aliases.yml (including checks/logic/fail-message + new fields). */
     public void save() {
         YamlConfiguration out = new YamlConfiguration();
         ConfigurationSection root = out.createSection("aliases");
@@ -143,7 +157,6 @@ public final class AliasService {
             a.set("cooldown-seconds", def.cooldownSeconds);
             a.set("commands", def.commands == null ? Collections.emptyList() : def.commands);
 
-            // checks as simple list of strings
             List<String> exprs = new ArrayList<>();
             if (def.checks != null) {
                 for (Check ch : def.checks) {
@@ -154,12 +167,19 @@ public final class AliasService {
             }
             a.set("checks", exprs);
 
-            // logic + fail-message
             a.set("logic", def.logic == null ? LogicType.AND.name() : def.logic.name());
             if (def.failMessage != null && !def.failMessage.isEmpty()) {
                 a.set("fail-message", def.failMessage);
             } else {
                 a.set("fail-message", "§cYou don't meet the requirements for %alias%.");
+            }
+
+            a.set("perm-gate", def.permGate);
+            a.set("add-tabs", def.addTabs);
+            if (def.customTabs != null && !def.customTabs.isEmpty()) {
+                List<String> groups = new ArrayList<>();
+                for (List<String> g : def.customTabs) groups.add(String.join(",", g));
+                a.set("custom-tabs", groups);
             }
         }
 
@@ -172,27 +192,26 @@ public final class AliasService {
         }
     }
 
-    /** Registers runtime Bukkit commands for all enabled aliases. Safe to call after load()/save(). */
+    /** Registers runtime Bukkit commands for all enabled aliases. */
     public void applyRuntimeRegistration() {
-        // Unregister previous dynamic commands to avoid duplicates
         DynamicAliasRegistry.unregisterAll(plugin);
 
         int count = 0;
         for (AliasDef def : aliases.values()) {
             if (!def.enabled) continue;
-            // bind executor per-alias so it can read & execute live config
+
             DynamicAliasRegistry.register(
                     plugin,
                     def.name,
                     new DynamicAliasExecutor(plugin, this, def.name),
-                    "Oreo alias"
+                    "Oreo alias",
+                    def.addTabs ? new DynamicAliasTabCompleter(this, def.name) : null
             );
             count++;
         }
         plugin.getLogger().info("[Aliases] Registered " + count + " alias command(s).");
     }
 
-    /** Cleanly unregisters all runtime aliases. Call from onDisable(). */
     public void shutdown() {
         try {
             DynamicAliasRegistry.unregisterAll(plugin);
@@ -226,10 +245,7 @@ public final class AliasService {
         aliases.remove(name.toLowerCase(Locale.ROOT));
     }
 
-    /**
-     * Cooldown gate. Returns true if the alias is allowed to run now and records usage;
-     * false if the caller must wait longer.
-     */
+    /** Alias-wide cooldown. */
     public boolean checkAndTouchCooldown(String alias, UUID player, int seconds) {
         if (seconds <= 0 || player == null) return true;
         final String key = alias.toLowerCase(Locale.ROOT) + "|" + player;
@@ -240,12 +256,19 @@ public final class AliasService {
         return true;
     }
 
+    /** Per-line cooldown for inline directives. */
+    public boolean checkAndTouchLineCooldown(String alias, int lineIndex, UUID player, int seconds) {
+        if (seconds <= 0 || player == null) return true;
+        final String key = alias.toLowerCase(Locale.ROOT) + "|" + lineIndex + "|" + player;
+        long now = System.currentTimeMillis();
+        Long last = lineCooldowns.get(key);
+        if (last != null && (now - last) < seconds * 1000L) return false;
+        lineCooldowns.put(key, now);
+        return true;
+    }
+
     /* --------------------------- Checks -------------------------------- */
 
-    /**
-     * Evaluate all checks on the alias according to its logic (AND / OR).
-     * If there are no checks, returns true.
-     */
     public boolean evaluateAllChecks(org.bukkit.command.CommandSender sender, AliasDef def) {
         if (def == null) return true;
         if (def.checks == null || def.checks.isEmpty()) return true;
@@ -254,20 +277,21 @@ public final class AliasService {
             for (Check ch : def.checks) {
                 if (!evaluateSingle(sender, ch == null ? null : ch.expr)) return false;
             }
-            return true; // all passed
+            return true;
         } else { // OR
             for (Check ch : def.checks) {
                 if (evaluateSingle(sender, ch == null ? null : ch.expr)) return true;
             }
-            return false; // none passed
+            return false;
         }
     }
 
-    private boolean evaluateSingle(org.bukkit.command.CommandSender sender, String exprRaw) {
+    /** Public so DynamicAliasExecutor can reuse it for inline `check:` tokens. */
+    public boolean evaluateSingle(org.bukkit.command.CommandSender sender, String exprRaw) {
         if (exprRaw == null || exprRaw.isEmpty()) return true;
         String expr = exprRaw.trim();
 
-        // Permission
+        // Permission check
         if (expr.startsWith("permission:") || expr.startsWith("!permission:")) {
             boolean neg = expr.startsWith("!");
             String node = expr.substring(neg ? "!permission:".length() : "permission:".length()).trim();
@@ -275,33 +299,28 @@ public final class AliasService {
             return neg ? !has : has;
         }
 
-        // Money / Exp / Level shorthands
-        // Format examples: "money>=1000", "exp<500", "level>=20"
+        // Shorthand numeric stats: money / exp / level
         String lower = expr.toLowerCase(Locale.ROOT);
         if (lower.startsWith("money") || lower.startsWith("exp") || lower.startsWith("level")) {
             return evaluateNumericStat(sender, lower);
         }
 
-        // Generic comparator between left (usually placeholder) and right literal
-        // Supported ops (tested in order of length): >=, <=, !=, <-, !<-, |-, !|-, -|, !-|, >, <, =
+        // Generic comparators
         String[] ops = {">=", "<=", "!=", "<-", "!<-", "|-", "!|-", "-|", "!-|", ">", "<", "="};
         String op = null; int idx = -1;
         for (String candidate : ops) {
             idx = indexOfOp(expr, candidate);
             if (idx > -1) { op = candidate; break; }
         }
-        if (op == null) {
-            // No comparator found -> treat as pass (keeps old behavior liberal)
-            return true;
-        }
+        if (op == null) return true;
 
         String left = expr.substring(0, idx).trim();
         String right = expr.substring(idx + op.length()).trim();
 
         String leftResolved = resolve(sender, left);
-        String rightResolved = stripQuotes(resolve(sender, right)); // allow "lobby-1"
+        String rightResolved = stripQuotes(resolve(sender, right));
 
-        // numeric compares if both parse numbers
+        // Numeric comparison
         if (isNumeric(leftResolved) && isNumeric(rightResolved)) {
             double l = Double.parseDouble(leftResolved);
             double r = Double.parseDouble(rightResolved);
@@ -316,7 +335,7 @@ public final class AliasService {
             };
         }
 
-        // string ops (case sensitive)
+        // String comparison (case sensitive)
         return switch (op) {
             case "="   -> Objects.equals(leftResolved, rightResolved);
             case "!="  -> !Objects.equals(leftResolved, rightResolved);
@@ -331,7 +350,6 @@ public final class AliasService {
     }
 
     private int indexOfOp(String s, String op) {
-        // find op that is not inside quotes
         boolean inQ = false;
         char q = 0;
         for (int i = 0; i <= s.length() - op.length(); i++) {
@@ -346,7 +364,6 @@ public final class AliasService {
     }
 
     private boolean evaluateNumericStat(org.bukkit.command.CommandSender sender, String expr) {
-        // supports >=, >, <=, <, =, !=
         String[] nops = {">=", "<=", "!=", ">", "<", "="};
         String op = null; int idx = -1;
         for (String candidate : nops) {
@@ -354,7 +371,8 @@ public final class AliasService {
             if (idx > -1) { op = candidate; break; }
         }
         if (op == null) return true;
-        String leftKey = expr.substring(0, idx).trim();     // money | exp | level
+
+        String leftKey = expr.substring(0, idx).trim(); // money | exp | level
         String rightStr = expr.substring(idx + op.length()).trim();
         double right;
         try { right = Double.parseDouble(rightStr); } catch (Exception e) { return true; }
@@ -383,7 +401,9 @@ public final class AliasService {
         if (vault == null) return -1; // treat as not enough
         try {
             net.milkbowl.vault.economy.Economy econ =
-                    org.bukkit.Bukkit.getServicesManager().getRegistration(net.milkbowl.vault.economy.Economy.class).getProvider();
+                    org.bukkit.Bukkit.getServicesManager()
+                            .getRegistration(net.milkbowl.vault.economy.Economy.class)
+                            .getProvider();
             return econ.getBalance(p);
         } catch (Throwable t) { return -1; }
     }
@@ -399,7 +419,6 @@ public final class AliasService {
     }
 
     private String resolve(org.bukkit.command.CommandSender sender, String token) {
-        // strip surrounding quotes first for PAPI
         String s = stripQuotes(token);
         if (sender instanceof org.bukkit.entity.Player p) {
             org.bukkit.plugin.Plugin papi = org.bukkit.Bukkit.getPluginManager().getPlugin("PlaceholderAPI");

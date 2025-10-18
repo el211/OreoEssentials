@@ -1,12 +1,10 @@
-// File: src/main/java/fr/elias/oreoEssentials/aliases/DynamicAliasRegistry.java
 package fr.elias.oreoEssentials.aliases;
 
 import org.bukkit.Bukkit;
+import org.bukkit.command.*;
 import org.bukkit.command.Command;
-import org.bukkit.command.CommandMap;
 import org.bukkit.command.PluginIdentifiableCommand;
 import org.bukkit.command.SimpleCommandMap;
-import org.bukkit.command.CommandSender;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Field;
@@ -15,29 +13,45 @@ import java.util.*;
 public final class DynamicAliasRegistry {
     private DynamicAliasRegistry() {}
 
-    /** We keep strong refs so we can unregister on reload/disable. */
+    /** Keep strong refs so we can unregister on reload/disable. */
     private static final List<Command> REGISTERED = new ArrayList<>();
 
-    /** Simple concrete command that delegates to our executor and exposes owning plugin. */
-    private static final class DynamicAliasCommand extends Command implements PluginIdentifiableCommand {
+    /* ------------------------------------------------------------------
+     * Internal command capable of delegating to a generic CommandExecutor
+     * and optional TabCompleter.
+     * ------------------------------------------------------------------ */
+    private static final class InternalDynamicCommand extends Command implements PluginIdentifiableCommand {
         private final Plugin plugin;
-        private final DynamicAliasExecutor exec;
 
-        DynamicAliasCommand(Plugin plugin, String name, String desc, DynamicAliasExecutor exec) {
+        @FunctionalInterface
+        interface Runner {
+            boolean run(CommandSender sender, String label, String[] args);
+        }
+
+        private final Runner runner;
+        private final TabCompleter tab;
+
+        InternalDynamicCommand(Plugin plugin, String name, String desc, Runner runner, TabCompleter tab) {
             super(name);
             this.plugin = plugin;
-            this.exec = exec;
+            this.runner = runner;
+            this.tab = tab;
             setDescription(desc != null ? desc : "Oreo alias");
         }
 
         @Override
         public boolean execute(CommandSender sender, String label, String[] args) {
-            return exec.onAlias(sender, label, args);
+            return runner != null && runner.run(sender, label, args);
         }
 
         @Override
         public List<String> tabComplete(CommandSender sender, String alias, String[] args) {
-            // Keep it empty for now; you can wire custom tab later.
+            if (tab != null) {
+                try {
+                    List<String> out = tab.onTabComplete(sender, this, alias, args);
+                    return (out != null) ? out : Collections.emptyList();
+                } catch (Throwable ignored) {}
+            }
             return Collections.emptyList();
         }
 
@@ -47,22 +61,42 @@ public final class DynamicAliasRegistry {
         }
     }
 
+    /* ------------------------------------------------------------------
+     * Public API
+     * ------------------------------------------------------------------ */
+
+    /** Back-compat: register with a DynamicAliasExecutor (no tab completer). */
     public static void register(Plugin plugin, String name, DynamicAliasExecutor exec, String desc) {
+        register(plugin, name, exec, desc, null);
+    }
+
+    /** NEW: register with DynamicAliasExecutor and optional TabCompleter. */
+    public static void register(Plugin plugin, String name, DynamicAliasExecutor exec, String desc, TabCompleter tab) {
+        // DynamicAliasExecutor IS a CommandExecutor, so just delegate to the generic overload.
+        register(plugin, name, (CommandExecutor) exec, desc, tab);
+    }
+
+    /** Generic registration: CommandExecutor + optional TabCompleter. */
+    public static void register(Plugin plugin, String name, CommandExecutor executor, String desc, TabCompleter tab) {
+        if (plugin == null || name == null || executor == null) return;
         CommandMap map = getCommandMap();
         if (map == null) return;
 
-        // avoid collisions with existing commands
-        Command existing = getKnownCommands(map).get(name.toLowerCase(Locale.ROOT));
-        if (existing != null) {
+        Map<String, Command> known = getKnownCommands(map);
+        if (known != null && known.containsKey(name.toLowerCase(Locale.ROOT))) {
             plugin.getLogger().warning("[Aliases] Command '" + name + "' already exists; skipping.");
             return;
         }
 
-        DynamicAliasCommand cmd = new DynamicAliasCommand(plugin, name, desc, exec);
+        InternalDynamicCommand.Runner runner = (sender, label, args) ->
+                executor.onCommand(sender, new PluginCommandShim(name, plugin), label, args);
+
+        InternalDynamicCommand cmd = new InternalDynamicCommand(plugin, name, desc, runner, tab);
         map.register(plugin.getName(), cmd);
         REGISTERED.add(cmd);
     }
 
+    /** Unregister all previously registered dynamic alias commands. */
     public static void unregisterAll(Plugin plugin) {
         CommandMap map = getCommandMap();
         if (map == null) return;
@@ -71,10 +105,8 @@ public final class DynamicAliasRegistry {
 
         for (Command c : REGISTERED) {
             try {
-                // Unregister from map
                 c.unregister(map);
 
-                // Clean up raw and namespaced keys
                 if (known != null) {
                     String base = c.getName().toLowerCase(Locale.ROOT);
                     String ns   = plugin.getName().toLowerCase(Locale.ROOT) + ":" + base;
@@ -89,7 +121,10 @@ public final class DynamicAliasRegistry {
         REGISTERED.clear();
     }
 
-    /** Always use reflection for broad API compatibility (Spigot/Paper). */
+    /* ------------------------------------------------------------------
+     * Reflection helpers
+     * ------------------------------------------------------------------ */
+
     private static CommandMap getCommandMap() {
         try {
             Field f = Bukkit.getServer().getClass().getDeclaredField("commandMap");
@@ -110,6 +145,28 @@ public final class DynamicAliasRegistry {
         } catch (Throwable t) {
             Bukkit.getLogger().warning("[Aliases] Failed to access knownCommands: " + t.getMessage());
             return Collections.emptyMap();
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Tiny shim to satisfy CommandExecutor.onCommand(...) signature.
+     * ------------------------------------------------------------------ */
+    private static final class PluginCommandShim extends Command implements PluginIdentifiableCommand {
+        private final Plugin plugin;
+
+        PluginCommandShim(String name, Plugin owning) {
+            super(name);
+            this.plugin = owning;
+        }
+
+        @Override
+        public boolean execute(CommandSender sender, String commandLabel, String[] args) {
+            return false; // never called (we route via CommandExecutor)
+        }
+
+        @Override
+        public Plugin getPlugin() {
+            return plugin;
         }
     }
 }
