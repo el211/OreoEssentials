@@ -142,6 +142,9 @@ public final class OreoEssentials extends JavaPlugin {
     // in OreoEssentials.java (fields with other services)
     private fr.elias.oreoEssentials.events.EventConfig eventConfig;
     private fr.elias.oreoEssentials.events.DeathMessageService deathMessages;
+    // Playtime Rewards
+    private fr.elias.oreoEssentials.playtime.PlaytimeRewardsService playtimeRewards;
+    public fr.elias.oreoEssentials.playtime.PlaytimeRewardsService getPlaytimeRewards() { return playtimeRewards; }
 
 
     // Toggles
@@ -181,6 +184,8 @@ public final class OreoEssentials extends JavaPlugin {
     private CustomCraftingService customCraftingService;
     public CustomCraftingService getCustomCraftingService() { return customCraftingService; }
 
+    // Playtime
+    private fr.elias.oreoEssentials.playtime.PlaytimeTracker playtimeTracker;
 
     @Override
     public void onEnable() {
@@ -201,7 +206,6 @@ public final class OreoEssentials extends JavaPlugin {
         try {
             java.io.File f = new java.io.File(getDataFolder(), "clearlag.yml");
             if (!f.exists()) {
-
                 saveResource("clearlag.yml", false);
             }
         } catch (Throwable ignored) {}
@@ -221,6 +225,7 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
         this.invManager.init();
+
         // === Custom Crafting (SmartInvs GUI) ===
         this.customCraftingService = new CustomCraftingService(this);
         this.customCraftingService.loadAllAndRegister();
@@ -243,13 +248,30 @@ public final class OreoEssentials extends JavaPlugin {
                 this
         );
 
+        // -------- Daily (Mongo) + rewards.yml loader (NEW) --------
+        var dailyCfg = new fr.elias.oreoEssentials.daily.DailyConfig(this);
+        dailyCfg.load();
+
+        var dailyStore = new fr.elias.oreoEssentials.daily.DailyMongoStore(this, dailyCfg);
+        if (dailyCfg.mongo.enabled) dailyStore.connect();
+
+        var dailyRewardsCfg = new fr.elias.oreoEssentials.daily.RewardsConfig(this);
+        dailyRewardsCfg.load();
+
+        var dailySvc = new fr.elias.oreoEssentials.daily.DailyService(this, dailyCfg, dailyStore, dailyRewardsCfg);
+
+        // Register /daily (claim GUI, claim, top)
+        var dailyCmd = new fr.elias.oreoEssentials.daily.DailyCommand(this, dailyCfg, dailySvc, dailyRewardsCfg);
+        if (getCommand("daily") != null) {
+            getCommand("daily").setExecutor(dailyCmd);
+            getCommand("daily").setTabCompleter(dailyCmd);
+        }
+
         // -------- Moderation core needed by chat --------
         muteService = new MuteService(this);
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.listeners.MuteListener(muteService), this);
 
-
         // -------- Core config service & ECONOMY BOOTSTRAP (EARLY, BEFORE ANYONE QUERIES VAULT!) --------
-        // (Moved here to ensure our Vault economy provider is registered ASAP)
         this.configService = new ConfigService(this);
 
         // Feature toggles (read early so we can stand up Redis/Economy first)
@@ -282,7 +304,6 @@ public final class OreoEssentials extends JavaPlugin {
         }
 
         // -------- INTERNAL ECONOMY + VAULT REGISTRATION (ASAP) --------
-        // Stand up internal bootstrap scaffolding (currencies, services, etc.)
         this.ecoBootstrap = new EconomyBootstrap(this);
         this.ecoBootstrap.enable();
 
@@ -338,8 +359,7 @@ public final class OreoEssentials extends JavaPlugin {
                     return;
                 }
 
-                // Register Vault provider wrapper AT HIGHEST PRIORITY so other plugins see it first.
-                // Unregister any previous providers just in case a race happened.
+                // Register Vault provider wrapper at HIGHEST priority
                 try {
                     getServer().getServicesManager().unregister(net.milkbowl.vault.economy.Economy.class, this);
                 } catch (Throwable ignored) {}
@@ -432,7 +452,6 @@ public final class OreoEssentials extends JavaPlugin {
 
         // -------- ClearLag Module (manager + command) --------
         try {
-            // Manager will read clearlag.yml and start auto-removal + TPS meter schedulers (if enabled)
             this.clearLag = new fr.elias.oreoEssentials.clearlag.ClearLagManager(this);
             var olaggCmd = getCommand("olagg");
             if (olaggCmd != null) {
@@ -936,7 +955,6 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("aliaseditor").setTabCompleter(aliasCmd);
         }
 
-
         if (getCommand("otherhome") != null) {
             var otherHome = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);
             this.commands.register(otherHome);                 // uses your CommandManager (OreoCommand)
@@ -971,6 +989,7 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("invsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand());
         if (getCommand("ecsee") != null)
             getCommand("ecsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
+
         // In your plugin main class onEnable():
         getCommand("effectme").setExecutor(new fr.elias.oreoEssentials.effects.EffectCommands());
         getCommand("effectme").setTabCompleter(new fr.elias.oreoEssentials.effects.EffectCommands());
@@ -985,13 +1004,12 @@ public final class OreoEssentials extends JavaPlugin {
         final var worldCmd = new fr.elias.oreoEssentials.commands.core.admins.WorldTeleportCommand();
         getCommand("world").setExecutor(worldCmd);
         getCommand("world").setTabCompleter(worldCmd);
+
         // In OreoEssentials onEnable():
         this.icManager = new fr.elias.oreoEssentials.ic.ICManager(getDataFolder());
-
         fr.elias.oreoEssentials.ic.ICCommand icCmd = new fr.elias.oreoEssentials.ic.ICCommand(icManager);
         getCommand("ic").setExecutor(icCmd);
         getCommand("ic").setTabCompleter(icCmd);
-
         getServer().getPluginManager().registerEvents(new fr.elias.oreoEssentials.ic.ICListener(icManager), this);
 
         {
@@ -1009,9 +1027,37 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("storm").setExecutor(weatherCmd);
             getCommand("storm").setTabCompleter(weatherCmd);
         }
+
         // --- Event system ---
         this.eventConfig   = new fr.elias.oreoEssentials.events.EventConfig(getDataFolder());
         this.deathMessages = new fr.elias.oreoEssentials.events.DeathMessageService(getDataFolder());
+
+        // --- Playtime (per-server) + Rewards
+        this.playtimeTracker = new fr.elias.oreoEssentials.playtime.PlaytimeTracker(this);
+        // (optional) if your tracker has its own listener/scheduler toggles:
+        // playtimeTracker.enable();
+
+        this.playtimeRewards = new fr.elias.oreoEssentials.playtime.PlaytimeRewardsService(this, playtimeTracker);
+        this.playtimeRewards.init(); // loads config, registers listeners, starts scheduler
+        var prewardsCmd = new fr.elias.oreoEssentials.playtime.PrewardsCommand(this, this.playtimeRewards);
+        if (getCommand("prewards") != null) {
+            getCommand("prewards").setExecutor(prewardsCmd);
+            getCommand("prewards").setTabCompleter(prewardsCmd);
+        } else {
+            getLogger().warning("[Prewards] Command 'prewards' not found in plugin.yml; skipping registration.");
+        }
+
+        // Playtime
+        var playtimeCmd = new fr.elias.oreoEssentials.commands.core.playercommands.PlaytimeCommand();
+        if (getCommand("playtime") != null) {
+            getCommand("playtime").setExecutor(playtimeCmd);
+            getCommand("playtime").setTabCompleter(playtimeCmd);
+        } else {
+            getLogger().warning("[Playtime] Command 'playtime' not found in plugin.yml; skipping registration.");
+        }
+
+        // NOTE: The legacy /daily (playtime) registration is intentionally NOT added to avoid
+        // duplicate variable/command conflicts. /daily now points to the new Mongo-backed system.
 
         var eventEngine = new fr.elias.oreoEssentials.events.EventEngine(eventConfig, deathMessages);
         getServer().getPluginManager().registerEvents(eventEngine, this);
@@ -1027,6 +1073,7 @@ public final class OreoEssentials extends JavaPlugin {
 
         getLogger().info("OreoEssentials enabled.");
     }
+
 
 
 

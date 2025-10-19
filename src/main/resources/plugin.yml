@@ -1,5 +1,5 @@
 name: OreoEssentials
-version: "1.7-SNAPSHOT"
+version: "1.8-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
 api-version: "1.21"
 description: "All-in-one essentials plugin with homes/warps/spawn, RTP, economy (Vault), chat tools, portals/jump pads, cross-server EC & player sync."
@@ -476,6 +476,18 @@ commands:
     permission: oreo.events
     usage: "/oevents reload"
 
+  prewards:
+    description: Open Playtime Rewards GUI, claim rewards, or reload its config
+    aliases: [ preward, ptrewards, prew ]
+    permission: oreo.prewards
+    usage: "/prewards [claim <id> [player]] | /prewards reload"
+
+  daily:
+    description: Daily rewards command
+    usage: /daily [claim|top]
+    aliases: [dr, dailyrewards]
+    permission: oreo.daily
+
 
 permissions:
   oreo.*:
@@ -743,3 +755,32 @@ permissions:
   oreo.events:
     default: op
     description: Manage OreoEssentials event system
+  # Playtime Rewards (Prewards)
+  oreo.prewards:
+    description: Use /prewards (open GUI, claim own rewards)
+    default: true
+
+  oreo.prewards.notify:
+    description: Receive reminders when rewards are ready
+    default: true
+
+  oreo.prewards.admin:
+    description: Reload playtime rewards config (/prewards reload)
+    default: op
+
+  oreo.prewards.claim.others:
+    description: Claim a reward for another player (/prewards claim <id> <player>)
+    default: op
+
+  # Optional per-reward gates (only add the ones you actually use)
+  oreo.prewards.vip_hourly: { default: false }
+  oreo.prewards.mvp_daily:  { default: false }
+    # Example: any other reward ids you define can get a matching perm:
+    # oreo.prewards.hourly1:  { default: true }
+    # oreo.prewards.daily1:   { default: true }
+  oreo.prewards.*:             { default: op }
+  daily:
+    description: Daily rewards command
+    usage: /daily [claim|top]
+    aliases: [dr, dailyrewards]
+    permission: oreo.daily
