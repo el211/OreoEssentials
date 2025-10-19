@@ -298,7 +298,7 @@ public final class OreoEssentials extends JavaPlugin {
                 getLogger().info("[REDIS] Connected.");
             }
         } else {
-            // Dummy instance prevents null checks in your economy classes
+            // Dummy instance prevents null checks in  economy classes
             this.redis = new RedisManager("", 6379, "");
             getLogger().info("[REDIS] Disabled.");
         }
@@ -646,7 +646,7 @@ public final class OreoEssentials extends JavaPlugin {
                     @Override
                     public Snapshot load(java.util.UUID uuid) {
                         try {
-                            var s = invStorage.load(uuid); // uses Mongo or YAML depending on your config
+                            var s = invStorage.load(uuid); // uses Mongo or YAML depending on  config
                             if (s == null) return null;
                             Snapshot snap = new Snapshot();
                             snap.contents = s.inventory;
@@ -742,7 +742,7 @@ public final class OreoEssentials extends JavaPlugin {
 
             // Only bind RabbitMQ channels if at least one cross-server feature is enabled
             if (anyCross) {
-                // Global (if you still broadcast some packets there)
+                // Global
                 packetManager.subscribeChannel(fr.elias.oreoEssentials.rabbitmq.PacketChannels.GLOBAL);
                 // This server’s individual queue (targeted messages)
                 packetManager.subscribeChannel(
@@ -753,7 +753,7 @@ public final class OreoEssentials extends JavaPlugin {
                 getLogger().info("[RABBIT] All cross-server features disabled by config; skipping channel subscriptions.");
             }
 
-            // Spawn/Warp broker (only if either is enabled)
+            // Spawn/Warp broker
             if (cs.spawn() || cs.warps()) {
                 new fr.elias.oreoEssentials.teleport.CrossServerTeleportBroker(
                         this,
@@ -857,7 +857,7 @@ public final class OreoEssentials extends JavaPlugin {
                 new fr.elias.oreoEssentials.jail.JailGuardListener(jailService), this
         );
 
-        // Register all remaining commands
+        // Registeration of  all remaining commands
         this.commands
                 .register(new SpawnCommand(spawnService))
                 .register(new SetSpawnCommand(spawnService))
@@ -957,17 +957,15 @@ public final class OreoEssentials extends JavaPlugin {
 
         if (getCommand("otherhome") != null) {
             var otherHome = new fr.elias.oreoEssentials.commands.core.admins.OtherHomeCommand(this, homeService);
-            this.commands.register(otherHome);                 // uses your CommandManager (OreoCommand)
-            getCommand("otherhome").setTabCompleter(otherHome); // TabCompleter is fine to set directly
+            this.commands.register(otherHome);                 // uses  CommandManager (OreoCommand)
+            getCommand("otherhome").setTabCompleter(otherHome);
         }
 
-        // After other services:
         var visitorService = new fr.elias.oreoEssentials.services.VisitorService();
         getServer().getPluginManager().registerEvents(
                 new fr.elias.oreoEssentials.listeners.VisitorGuardListener(visitorService), this
         );
 
-        // One GamemodeCommand instance for both executor (via your CommandManager) and tab-complete:
         var gmCmd = new fr.elias.oreoEssentials.commands.core.admins.GamemodeCommand(visitorService);
         this.getCommands().register(gmCmd);
         if (getCommand("gamemode") != null) {
@@ -990,7 +988,6 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("ecsee") != null)
             getCommand("ecsee").setTabCompleter(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand());
 
-        // In your plugin main class onEnable():
         getCommand("effectme").setExecutor(new fr.elias.oreoEssentials.effects.EffectCommands());
         getCommand("effectme").setTabCompleter(new fr.elias.oreoEssentials.effects.EffectCommands());
         getCommand("effectto").setExecutor(new fr.elias.oreoEssentials.effects.EffectCommands());
@@ -1005,7 +1002,7 @@ public final class OreoEssentials extends JavaPlugin {
         getCommand("world").setExecutor(worldCmd);
         getCommand("world").setTabCompleter(worldCmd);
 
-        // In OreoEssentials onEnable():
+
         this.icManager = new fr.elias.oreoEssentials.ic.ICManager(getDataFolder());
         fr.elias.oreoEssentials.ic.ICCommand icCmd = new fr.elias.oreoEssentials.ic.ICCommand(icManager);
         getCommand("ic").setExecutor(icCmd);
@@ -1034,8 +1031,6 @@ public final class OreoEssentials extends JavaPlugin {
 
         // --- Playtime (per-server) + Rewards
         this.playtimeTracker = new fr.elias.oreoEssentials.playtime.PlaytimeTracker(this);
-        // (optional) if your tracker has its own listener/scheduler toggles:
-        // playtimeTracker.enable();
 
         this.playtimeRewards = new fr.elias.oreoEssentials.playtime.PlaytimeRewardsService(this, playtimeTracker);
         this.playtimeRewards.init(); // loads config, registers listeners, starts scheduler
@@ -1055,9 +1050,6 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().warning("[Playtime] Command 'playtime' not found in plugin.yml; skipping registration.");
         }
-
-        // NOTE: The legacy /daily (playtime) registration is intentionally NOT added to avoid
-        // duplicate variable/command conflicts. /daily now points to the new Mongo-backed system.
 
         var eventEngine = new fr.elias.oreoEssentials.events.EventEngine(eventConfig, deathMessages);
         getServer().getPluginManager().registerEvents(eventEngine, this);
@@ -1090,7 +1082,6 @@ public final class OreoEssentials extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // SmartInvs: no stop() in your version
         try { if (teleportService != null) teleportService.shutdown(); } catch (Exception ignored) {}
         try { if (storage != null) { storage.flush(); storage.close(); } } catch (Exception ignored) {}
         try { if (database != null) database.close(); } catch (Exception ignored) {}
@@ -1107,7 +1098,7 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (jailService != null) jailService.disable(); } catch (Exception ignored) {}
 
 
-        this.healthBarListener = null; // GC will handle the rest
+        this.healthBarListener = null;
 
 
 
@@ -1124,7 +1115,6 @@ public final class OreoEssentials extends JavaPlugin {
             return;
         }
         try {
-            // NOTE: Using your provided class location:
             Class<?> hookCls = Class.forName("fr.elias.oreoEssentials.PlaceholderAPIHook");
             Object hook = hookCls.getConstructor(OreoEssentials.class).newInstance(this);
             hookCls.getMethod("register").invoke(hook);
