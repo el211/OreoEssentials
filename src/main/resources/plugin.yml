@@ -1,5 +1,5 @@
 name: OreoEssentials
-version: "1.8-SNAPSHOT"
+version: "1.9-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
 api-version: "1.21"
 description: "All-in-one essentials plugin with homes/warps/spawn, RTP, economy (Vault), chat tools, portals/jump pads, cross-server EC & player sync."
@@ -488,6 +488,21 @@ commands:
     aliases: [dr, dailyrewards]
     permission: oreo.daily
 
+  playtime:
+    description: Show your (or another player's) playtime
+    permission: oreo.playtime
+    usage: "/playtime [player]"
+
+  ohologram:
+    description: Manage Oreo holograms
+    permission: OreoHolograms.admin
+    usage: "/ohologram help"
+
+  hologram:
+    description: (Legacy alias) Manage Oreo holograms
+    permission: OreoHolograms.admin
+    usage: "/hologram help"
+    aliases: [ ohologram ]
 
 permissions:
   oreo.*:
@@ -784,3 +799,5 @@ permissions:
     usage: /daily [claim|top]
     aliases: [dr, dailyrewards]
     permission: oreo.daily
+  OreoHolograms.admin:
+    default: op

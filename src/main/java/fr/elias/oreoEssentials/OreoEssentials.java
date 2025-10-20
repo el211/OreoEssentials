@@ -183,6 +183,7 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.jail.JailService getJailService() { return jailService; }
     private CustomCraftingService customCraftingService;
     public CustomCraftingService getCustomCraftingService() { return customCraftingService; }
+    private fr.elias.oreoEssentials.holograms.OreoHolograms oreoHolograms;
 
     // Playtime
     private fr.elias.oreoEssentials.playtime.PlaytimeTracker playtimeTracker;
@@ -1059,6 +1060,52 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("oevents").setExecutor(eventCmd);
             getCommand("oevents").setTabCompleter(eventCmd);
         }
+        // --- OreoHolograms (NEW MODULE) ---
+        try {
+            // Sanity check: Paper/Folia API (Display entities)
+            try {
+                Class.forName("org.bukkit.entity.Display");
+            } catch (ClassNotFoundException x) {
+                getLogger().warning("[OreoHolograms] Display entities are not available on this server implementation.");
+                getLogger().warning("[OreoHolograms] Please run Paper/Folia (or a fork). Holograms will be disabled.");
+                throw x;
+            }
+
+            this.oreoHolograms = new fr.elias.oreoEssentials.holograms.OreoHolograms(this);
+            this.oreoHolograms.load(); // loads & respawns holograms from storage
+
+            // Prefer the new command name: /ohologram
+            fr.elias.oreoEssentials.holograms.OreoHologramCommand holoCmd =
+                    new fr.elias.oreoEssentials.holograms.OreoHologramCommand(this.oreoHolograms);
+
+            boolean registered = false;
+            if (getCommand("ohologram") != null) {
+                getCommand("ohologram").setExecutor(holoCmd);
+                getCommand("ohologram").setTabCompleter(holoCmd);
+                registered = true;
+            }
+            // Keep legacy alias if present in plugin.yml
+            if (getCommand("hologram") != null) {
+                getCommand("hologram").setExecutor(holoCmd);
+                getCommand("hologram").setTabCompleter(holoCmd);
+                registered = true;
+            }
+            if (!registered) {
+                getLogger().warning("[OreoHolograms] Neither 'ohologram' nor 'hologram' command found in plugin.yml; skipping registration.");
+            }
+
+            // Lightweight tick (text placeholders/intervals etc.)
+            Bukkit.getScheduler().runTaskTimer(this, () -> {
+                try { this.oreoHolograms.tickAll(); } catch (Throwable ignore) {}
+            }, 20L, 20L); // every second
+
+            getLogger().info("[OreoHolograms] Module loaded.");
+        } catch (Throwable t) {
+            // If anything failed above, ensure the field stays null so onDisable() won't NPE
+            this.oreoHolograms = null;
+            getLogger().warning("[OreoHolograms] Initialization failed: " + t.getMessage());
+        }
+
 
         // -------- PlaceholderAPI hook (optional; reflection) --------
         tryRegisterPlaceholderAPI();
@@ -1096,6 +1143,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (playervaultsService != null) playervaultsService.stop(); } catch (Exception ignored) {}
         try { if (aliasService != null) aliasService.shutdown(); } catch (Exception ignored) {}
         try { if (jailService != null) jailService.disable(); } catch (Exception ignored) {}
+        try { if (oreoHolograms != null) oreoHolograms.unload(); } catch (Exception ignored) {}
+
 
 
         this.healthBarListener = null;
