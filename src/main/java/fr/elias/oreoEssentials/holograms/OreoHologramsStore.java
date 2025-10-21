@@ -19,22 +19,29 @@ public final class OreoHologramsStore {
         YamlConfiguration y = YamlConfiguration.loadConfiguration(file);
         ConfigurationSection root = y.getConfigurationSection("holograms");
         if (root == null) return List.of();
+
         List<OreoHologramData> out = new ArrayList<>();
         for (String name : root.getKeys(false)) {
             ConfigurationSection c = root.getConfigurationSection(name);
             if (c == null) continue;
+
             OreoHologramData d = new OreoHologramData();
             d.name = name;
             d.type = OreoHologramType.valueOf(c.getString("type", "TEXT").toUpperCase());
+
             OreoHologramLocation loc = new OreoHologramLocation();
             loc.world = c.getString("world");
-            loc.x = c.getDouble("x"); loc.y = c.getDouble("y"); loc.z = c.getDouble("z");
-            loc.yaw = (float) c.getDouble("yaw"); loc.pitch=(float)c.getDouble("pitch");
+            loc.x = c.getDouble("x");
+            loc.y = c.getDouble("y");
+            loc.z = c.getDouble("z");
+            loc.yaw = (float) c.getDouble("yaw");
+            loc.pitch = (float) c.getDouble("pitch");
             d.location = loc;
 
+            // common props
             d.scale = c.getDouble("scale", 1.0);
             d.shadowStrength = c.getInt("shadowStrength", 0);
-            d.shadowRadius = (float)c.getDouble("shadowRadius", 0.0);
+            d.shadowRadius = (float) c.getDouble("shadowRadius", 0.0);
             d.brightnessBlock = c.getInt("brightness.block", -1);
             d.brightnessSky = c.getInt("brightness.sky", -1);
             d.billboard = OreoHologramBillboard.from(c.getString("billboard", "CENTER"));
@@ -43,17 +50,22 @@ public final class OreoHologramsStore {
             d.viewPermission = c.getString("viewPermission", "");
             d.manualViewers = c.getStringList("manualViewers");
 
+            // NEW: load update interval for ALL types (fallback to legacy text key)
+            d.updateIntervalTicks = c.getLong("updateIntervalTicks",
+                    c.getLong("updateTextIntervalTicks", 0L));
+
+            // type-specific
             if (d.type == OreoHologramType.TEXT) {
                 d.lines = c.getStringList("lines");
                 d.backgroundColor = c.getString("background", "TRANSPARENT");
                 d.textShadow = c.getBoolean("textShadow", false);
                 d.textAlign = c.getString("textAlignment", "CENTER");
-                d.updateIntervalTicks = c.getLong("updateTextIntervalTicks", 0L);
             } else if (d.type == OreoHologramType.ITEM) {
                 d.itemStackBase64 = c.getString("item", "");
             } else if (d.type == OreoHologramType.BLOCK) {
                 d.blockType = c.getString("block", "STONE");
             }
+
             out.add(d);
         }
         return out;
@@ -62,13 +74,18 @@ public final class OreoHologramsStore {
     public void saveAll(List<OreoHologramData> list) {
         YamlConfiguration y = new YamlConfiguration();
         ConfigurationSection root = y.createSection("holograms");
+
         for (OreoHologramData d : list) {
             ConfigurationSection c = root.createSection(d.name);
             c.set("type", d.type.name());
             c.set("world", d.location.world);
-            c.set("x", d.location.x); c.set("y", d.location.y); c.set("z", d.location.z);
-            c.set("yaw", d.location.yaw); c.set("pitch", d.location.pitch);
+            c.set("x", d.location.x);
+            c.set("y", d.location.y);
+            c.set("z", d.location.z);
+            c.set("yaw", d.location.yaw);
+            c.set("pitch", d.location.pitch);
 
+            // common props
             c.set("scale", d.scale);
             c.set("shadowStrength", d.shadowStrength);
             c.set("shadowRadius", d.shadowRadius);
@@ -82,18 +99,28 @@ public final class OreoHologramsStore {
             c.set("viewPermission", d.viewPermission);
             c.set("manualViewers", d.manualViewers);
 
+            // NEW: always persist the common update interval
+            c.set("updateIntervalTicks", d.updateIntervalTicks);
+
+            // type-specific
             switch (d.type) {
                 case TEXT -> {
                     c.set("lines", d.lines);
                     c.set("background", d.backgroundColor);
                     c.set("textShadow", d.textShadow);
                     c.set("textAlignment", d.textAlign);
+                    // legacy compatibility for older configs
                     c.set("updateTextIntervalTicks", d.updateIntervalTicks);
                 }
                 case ITEM -> c.set("item", d.itemStackBase64);
                 case BLOCK -> c.set("block", d.blockType);
             }
         }
-        try { y.save(file); } catch (IOException e) { e.printStackTrace(); }
+
+        try {
+            y.save(file);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

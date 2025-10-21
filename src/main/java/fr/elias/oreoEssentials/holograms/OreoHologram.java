@@ -152,12 +152,14 @@ public abstract class OreoHologram {
             d.setBrightness(null);
         }
 
-        if (data.visibilityDistance > 0) {
-            d.setViewRange((float) data.visibilityDistance);
-        }
+        // Always set a view range; default to 64f when unset/<=0 to avoid culling
+        float range = (data.visibilityDistance > 0) ? (float) data.visibilityDistance : 64f;
+        d.setViewRange(range);
+
         // No Display#setScale API — use Transformation scale vector
         applyUniformScale(d, data.scale);
     }
+
 
     /** Uniformly scales a Display using its Transformation. */
     protected static void applyUniformScale(Display d, double scale) {
