@@ -169,23 +169,45 @@ public final class ReloadAllCommand implements OreoCommand {
         // Health bars (mobs)
         try {
             // Re-register the listener based on fresh config
-            var core = OreoEssentials.get(); // <-- rename to avoid shadowing
-            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(core);
+            var core = OreoEssentials.get(); // your plugin instance
+
+            // Soft-hook UltimateChristmas again on reload
+            fr.elias.ultimateChristmas.UltimateChristmas xmasHook = null;
+            try {
+                org.bukkit.plugin.Plugin maybe = core.getServer().getPluginManager().getPlugin("UltimateChristmas");
+                if (maybe instanceof fr.elias.ultimateChristmas.UltimateChristmas uc && maybe.isEnabled()) {
+                    xmasHook = uc;
+                }
+            } catch (Throwable ignored) {
+                // UltimateChristmas not present, that's fine
+            }
+
+            // create new listener with BOTH args
+            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(core, xmasHook);
+
             if (hbl.isEnabled()) {
+                // register events with Bukkit
                 Bukkit.getPluginManager().registerEvents(hbl, core);
+
+                // reflect-set OreoEssentials.healthBarListener = hbl;
                 var f = OreoEssentials.class.getDeclaredField("healthBarListener");
                 f.setAccessible(true);
                 f.set(core, hbl);
+
                 sender.sendMessage(col("&a✔ Reloaded &fmob health bars"));
             } else {
                 sender.sendMessage(col("&e• Mob health bars disabled by config"));
+
+                // reflect-set OreoEssentials.healthBarListener = null;
                 var f = OreoEssentials.class.getDeclaredField("healthBarListener");
                 f.setAccessible(true);
                 f.set(core, null);
             }
+
         } catch (Throwable t) {
             sender.sendMessage(col("&e• Skipped mob health bars: &7" + t.getMessage()));
         }
+
 
         // PlayerVaults
         try {

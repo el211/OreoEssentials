@@ -1,6 +1,7 @@
 package fr.elias.oreoEssentials.mobs;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.ultimateChristmas.UltimateChristmas; // <-- import Santa plugin
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -23,6 +24,7 @@ public final class HealthBarListener implements Listener {
     private static final double DEFAULT_Y_OFFSET = 0.5;
 
     private final OreoEssentials plugin;
+    private final UltimateChristmas xmas; // <-- keep a handle to Santa plugin (can be null if not installed)
     private final boolean enabled;
 
     // config
@@ -48,8 +50,14 @@ public final class HealthBarListener implements Listener {
 
     private BukkitTask sweeper;
 
-    public HealthBarListener(OreoEssentials plugin) {
+    /**
+     * NEW CONSTRUCTOR:
+     * pass UltimateChristmas instance from your main plugin enable logic.
+     * If you pass null here, santa skipping just won't happen (backward compatible).
+     */
+    public HealthBarListener(OreoEssentials plugin, UltimateChristmas xmasPlugin) {
         this.plugin = plugin;
+        this.xmas = xmasPlugin;
 
         var root = plugin.getConfig().getConfigurationSection("mobs");
         this.enabled = root != null && root.getBoolean("show-healthmobs", false);
@@ -117,7 +125,7 @@ public final class HealthBarListener implements Listener {
     public void onSpawn(CreatureSpawnEvent e) {
         if (!enabled) return;
 
-        // HARD STOP: ignore our holograms and any armor stands at all
+        // ignore armor stands and our own holograms
         if (e.getEntity().getType() == EntityType.ARMOR_STAND) return;
         if (e.getEntity().getScoreboardTags().contains(HOLO_TAG)) return;
 
@@ -156,9 +164,7 @@ public final class HealthBarListener implements Listener {
 
     /* ---------------- Sweeper / Scanner ---------------- */
 
-    /** tick task: create for nearby mobs, sync positions, prune & hide without viewers */
     private void sweepTick() {
-        // 1) create/update holograms for nearby entities (so no hit is needed)
         int created = 0;
         for (Player p : Bukkit.getOnlinePlayers()) {
             if (!p.isValid() || p.isDead()) continue;
@@ -181,7 +187,6 @@ public final class HealthBarListener implements Listener {
             if (created >= spawnPerTickCap) break;
         }
 
-        // 2) keep existing holograms synced and prune/hide when no viewer
         proximitySweep(topLine, true);
         proximitySweep(bottomLine, false);
     }
@@ -189,9 +194,31 @@ public final class HealthBarListener implements Listener {
     /* ---------------- Core ---------------- */
 
     private boolean shouldTrack(LivingEntity le) {
+
+        // 1. never track armor stands / holograms
         if (le.getType() == EntityType.ARMOR_STAND) return false;
-        if (le instanceof Player) return includePlayers;
-        if (!includePassive && isPassive(le.getType())) return false;
+        if (le.getScoreboardTags().contains(HOLO_TAG)) return false;
+
+        // 2. NEW: never track Santa NPC from UltimateChristmas
+        if (xmas != null) {
+            try {
+                if (xmas.isSantaEntity(le)) {
+                    return false; // <- IMPORTANT: block health bar for Santa
+                }
+            } catch (Throwable ignored) {
+                // if plugin threw or isn't loaded correctly, fail open instead of crashing
+            }
+        }
+
+        // 3. respect config for players/passives
+        if (le instanceof Player) {
+            return includePlayers;
+        }
+
+        if (!includePassive && isPassive(le.getType())) {
+            return false;
+        }
+
         return true;
     }
 
@@ -208,8 +235,9 @@ public final class HealthBarListener implements Listener {
     }
 
     private void update(LivingEntity le) {
-        // hide if no player around that can see it
-        if (!hasViewer(le)) {
+
+        // hide hologram if nobody nearby OR if Santa (safety double-check)
+        if (!hasViewer(le) || (xmas != null && xmas.isSantaEntity(le))) {
             UUID id = le.getUniqueId();
             removeStand(topLine.remove(id));
             removeStand(bottomLine.remove(id));
@@ -287,7 +315,6 @@ public final class HealthBarListener implements Listener {
         as.teleport(host.getEyeLocation().add(0, relY, 0));
     }
 
-    /** Keep positions synced, prune dead hosts/stands. */
     private void proximitySweep(Map<UUID, ArmorStand> map, boolean top) {
         for (Iterator<Map.Entry<UUID, ArmorStand>> it = map.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<UUID, ArmorStand> e = it.next();
@@ -295,8 +322,14 @@ public final class HealthBarListener implements Listener {
             ArmorStand as = e.getValue();
 
             Entity host = Bukkit.getEntity(id);
-            if (!(host instanceof LivingEntity le) || host.isDead() || !host.isValid()
-                    || as == null || as.isDead() || !as.isValid()) {
+            if (!(host instanceof LivingEntity le)
+                    || host.isDead()
+                    || !host.isValid()
+                    || as == null
+                    || as.isDead()
+                    || !as.isValid()
+                    // NEW safety: if this host is Santa, remove bar
+                    || (xmas != null && xmas.isSantaEntity(le))) {
                 removeStand(as);
                 it.remove();
                 continue;
