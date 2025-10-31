@@ -1,7 +1,8 @@
+// File: src/main/java/fr/elias/oreoEssentials/mobs/HealthBarListener.java
 package fr.elias.oreoEssentials.mobs;
 
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.ultimateChristmas.UltimateChristmas; // <-- import Santa plugin
+import fr.elias.ultimateChristmas.UltimateChristmas; // <-- optional soft hook (may be null)
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -24,7 +25,7 @@ public final class HealthBarListener implements Listener {
     private static final double DEFAULT_Y_OFFSET = 0.5;
 
     private final OreoEssentials plugin;
-    private final UltimateChristmas xmas; // <-- keep a handle to Santa plugin (can be null if not installed)
+    private final UltimateChristmas xmas; // may be null if UltimateChristmas isn't installed
     private final boolean enabled;
 
     // config
@@ -53,7 +54,8 @@ public final class HealthBarListener implements Listener {
     /**
      * NEW CONSTRUCTOR:
      * pass UltimateChristmas instance from your main plugin enable logic.
-     * If you pass null here, santa skipping just won't happen (backward compatible).
+     * If you pass null here, santa/grinch skipping still works via SantaHook/GrinchHook (safe),
+     * and any direct calls to xmas will be skipped.
      */
     public HealthBarListener(OreoEssentials plugin, UltimateChristmas xmasPlugin) {
         this.plugin = plugin;
@@ -199,15 +201,18 @@ public final class HealthBarListener implements Listener {
         if (le.getType() == EntityType.ARMOR_STAND) return false;
         if (le.getScoreboardTags().contains(HOLO_TAG)) return false;
 
-        // 2. NEW: never track Santa NPC from UltimateChristmas
+        // 2. Don't track special NPCs (safe even if UltimateChristmas isn't present)
+        try {
+            if (SantaHook.isSanta(le) || GrinchHook.isGrinch(le)) {
+                return false;
+            }
+        } catch (Throwable ignored) {}
+
+        // 2b. Back-compat safety: if you kept xmas API around, skip Santa via API too
         if (xmas != null) {
             try {
-                if (xmas.isSantaEntity(le)) {
-                    return false; // <- IMPORTANT: block health bar for Santa
-                }
-            } catch (Throwable ignored) {
-                // if plugin threw or isn't loaded correctly, fail open instead of crashing
-            }
+                if (xmas.isSantaEntity(le)) return false;
+            } catch (Throwable ignored) {}
         }
 
         // 3. respect config for players/passives
@@ -236,8 +241,11 @@ public final class HealthBarListener implements Listener {
 
     private void update(LivingEntity le) {
 
-        // hide hologram if nobody nearby OR if Santa (safety double-check)
-        if (!hasViewer(le) || (xmas != null && xmas.isSantaEntity(le))) {
+        // Hide hologram if nobody nearby OR if this is Santa/Grinch (safety double-check)
+        if (!hasViewer(le)
+                || SantaHook.isSanta(le)
+                || GrinchHook.isGrinch(le)
+                || (xmas != null && safeIsSantaViaApi(le))) {
             UUID id = le.getUniqueId();
             removeStand(topLine.remove(id));
             removeStand(bottomLine.remove(id));
@@ -328,8 +336,11 @@ public final class HealthBarListener implements Listener {
                     || as == null
                     || as.isDead()
                     || !as.isValid()
-                    // NEW safety: if this host is Santa, remove bar
-                    || (xmas != null && xmas.isSantaEntity(le))) {
+                    // Hide bars for Santa/Grinch (tool-safe hooks)
+                    || SantaHook.isSanta(le)
+                    || GrinchHook.isGrinch(le)
+                    // Back-compat guard: xmas API if present
+                    || (xmas != null && safeIsSantaViaApi(le))) {
                 removeStand(as);
                 it.remove();
                 continue;
@@ -406,6 +417,15 @@ public final class HealthBarListener implements Listener {
             case BEE: case PARROT:
                 return true;
             default: return false;
+        }
+    }
+
+    /* ---------- Back-compat helper (won't crash if method missing) ---------- */
+    private boolean safeIsSantaViaApi(LivingEntity le) {
+        try {
+            return xmas != null && xmas.isSantaEntity(le);
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 }

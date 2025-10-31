@@ -71,6 +71,7 @@ import fr.elias.oreoEssentials.chat.AsyncChatListener;
 import fr.elias.oreoEssentials.chat.CustomConfig;
 import fr.elias.oreoEssentials.chat.FormatManager;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
+import fr.elias.oreoEssentials.mobs.GrinchHook;
 
 // Vault
 import fr.elias.oreoEssentials.util.ProxyMessenger;
@@ -467,26 +468,24 @@ public final class OreoEssentials extends JavaPlugin {
 
         // -------- Discord moderation notifier (separate config)
         this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
-
-        // Health bar for mobs
+// Health bar for mobs
         try {
-
-            // Try to hook UltimateChristmas so we can hide bars on Santa.
+            // Soft-hook UltimateChristmas (may be null)
             fr.elias.ultimateChristmas.UltimateChristmas xmasHook = null;
             try {
                 org.bukkit.plugin.Plugin maybe = getServer().getPluginManager().getPlugin("UltimateChristmas");
                 if (maybe instanceof fr.elias.ultimateChristmas.UltimateChristmas uc && maybe.isEnabled()) {
                     xmasHook = uc;
-                    getLogger().info("[MOBS] Found UltimateChristmas, Santa will be excluded from health bars.");
+                    getLogger().info("[MOBS] UltimateChristmas detected – Santa & Grinch will be excluded from health bars.");
                 } else {
                     getLogger().info("[MOBS] UltimateChristmas not found or not enabled; showing bars for all mobs.");
                 }
             } catch (Throwable ignored) {
-                // Don't hard-crash if class isn't even on the classpath.
-                getLogger().info("[MOBS] UltimateChristmas not available (no soft hook).");
+                // Don’t hard-crash if class isn’t on the classpath
+                getLogger().info("[MOBS] UltimateChristmas not available (soft hook skipped).");
             }
 
-            // pass BOTH: this plugin, and the santa plugin hook (can be null)
+            // Pass BOTH: this plugin and the Xmas hook (may be null)
             var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(this, xmasHook);
 
             if (hbl.isEnabled()) {
@@ -496,7 +495,6 @@ public final class OreoEssentials extends JavaPlugin {
             } else {
                 getLogger().info("[MOBS] Health bars disabled by config.");
             }
-
         } catch (Throwable t) {
             getLogger().warning("[MOBS] Failed to init health bars: " + t.getMessage());
         }
