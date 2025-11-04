@@ -64,6 +64,9 @@ public final class DailyMenu implements InventoryProvider {
         final int currentStreak = svc.getStreak(p.getUniqueId());
         final int todayIndex    = svc.nextDayIndex(currentStreak);
 
+        // NEW: feature flag snapshot for this render
+        final boolean featureOn = svc.isEnabled();
+
         // Grid buffer (usable area only)
         final ClickableItem[] grid = new ClickableItem[perPage];
         final AtomicInteger flowingIdx = new AtomicInteger(0);
@@ -84,7 +87,12 @@ public final class DailyMenu implements InventoryProvider {
             final List<String> lore = new ArrayList<>(2);
             final boolean isReadyToday = (day == todayIndex) && svc.canClaimToday(p);
 
-            if (day < todayIndex) {
+            if (!featureOn) {
+                // When disabled, gray out + lock messaging
+                title = "&8" + title;
+                lore.clear();
+                lore.add("&7Status: &cDISABLED");
+            } else if (day < todayIndex) {
                 title = "&b" + title;
                 lore.add("&7Status: &fCLAIMED");
             } else if (day == todayIndex) {
@@ -104,10 +112,8 @@ public final class DailyMenu implements InventoryProvider {
                 // Custom Model Data
                 if (def != null && def.customModelData != null && def.customModelData > 0) {
                     try {
-                        // Prefer primitive-arg overload to avoid deprecation warnings
                         meta.setCustomModelData(def.customModelData.intValue());
                     } catch (Throwable ignored) {
-                        // fallback (older APIs)
                         try { meta.setCustomModelData(def.customModelData); } catch (Throwable ignored2) {}
                     }
                 }
@@ -131,6 +137,11 @@ public final class DailyMenu implements InventoryProvider {
             final boolean isReadyFinal = isReadyToday;
 
             final ClickableItem ci = ClickableItem.of(item, e -> {
+                // NEW: short-circuit when disabled
+                if (!svc.isEnabled()) {
+                    p.sendMessage(svc.color("&cDaily Rewards is disabled."));
+                    return;
+                }
                 if (dayNumFinal == todayIndex && isReadyFinal) {
                     final boolean ok = svc.claim(p);
                     if (ok && cfg.closeOnClaim) {
@@ -196,6 +207,29 @@ public final class DailyMenu implements InventoryProvider {
                     stats.setItemMeta(sm);
                 }
                 contents.set(bottom, 4, ClickableItem.empty(stats));
+            }
+
+            // NEW: Admin toggle button at slot 5
+            if (p.hasPermission("oreo.daily.admin")) {
+                final ItemStack lever = new ItemStack(Material.LEVER);
+                final ItemMeta lm = lever.getItemMeta();
+                if (lm != null) {
+                    lm.setDisplayName(svc.color("&3Daily Rewards: " + (featureOn ? "&aENABLED" : "&cDISABLED")));
+                    lm.setLore(java.util.List.of(
+                            svc.color("&7Click to " + (featureOn ? "&cDISABLE" : "&aENABLE")),
+                            svc.color("&8(Admin only)")
+                    ));
+                    if (cfg.hideAttributes) lm.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+                    lever.setItemMeta(lm);
+                }
+                contents.set(bottom, 5, ClickableItem.of(lever, e -> {
+                    boolean now = svc.toggleEnabled();
+                    // reflect in config and persist
+                    cfg.setEnabled(now);
+                    try { cfg.save(); } catch (Throwable ignored) {}
+                    p.sendMessage(svc.color(cfg.prefix + " &7Daily Rewards is now " + (now ? "&aENABLED" : "&cDISABLED")));
+                    new DailyMenu(plugin, cfg, svc, rewards, page).inventory(p).open(p); // refresh view
+                }));
             }
 
             // Next

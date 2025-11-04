@@ -25,7 +25,11 @@
 # Permissions:
 #   oreo.kit.claim — must be granted to claim kits
 #   oreo.kit.bypasscooldown — ignores cooldowns
+
 #
+settings:
+  enable: true
+
 use-itemadder: true
 
 # Optional GUI provider hint for future menus. Current text menu ignores this.
@@ -37,6 +41,13 @@ menu:
   rows: 3
   fill: true
   fill-material: GRAY_STAINED_GLASS_PANE
+
+  # 👇 NEW — preview window config for the “Preview” button
+  preview:
+    enabled: true
+    title: "&6Preview: &e%kit_name%"
+    rows: 6
+    show-commands: true   # show a small “This kit runs:” section
 
 kits:
 

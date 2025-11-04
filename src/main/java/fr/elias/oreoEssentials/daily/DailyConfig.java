@@ -17,6 +17,9 @@ public final class DailyConfig {
 
     public final Mongo mongo = new Mongo();
 
+    // NEW: master toggle
+    public boolean enabled = true;
+
     // General
     public boolean printErrors = true;
     public String prefix = "&8[&3&lDaily&b&lRewards+&8]";
@@ -46,15 +49,16 @@ public final class DailyConfig {
 
     private final OreoEssentials plugin;
     private FileConfiguration cfg;
+    private File file; // for save()
 
     public DailyConfig(OreoEssentials plugin) {
         this.plugin = plugin;
     }
 
     public void load() {
-        File f = new File(plugin.getDataFolder(), "dailyrewards.yml");
-        if (!f.exists()) plugin.saveResource("dailyrewards.yml", false);
-        cfg = YamlConfiguration.loadConfiguration(f);
+        file = new File(plugin.getDataFolder(), "dailyrewards.yml");
+        if (!file.exists()) plugin.saveResource("dailyrewards.yml", false);
+        cfg = YamlConfiguration.loadConfiguration(file);
 
         // Mongo
         mongo.enabled    = cfg.getBoolean("Storage.Mongo.Enabled", true);
@@ -63,10 +67,11 @@ public final class DailyConfig {
         mongo.collection = cfg.getString("Storage.Mongo.Collection", "daily_rewards");
 
         // General
-        printErrors    = cfg.getBoolean("General.PrintErrorsToConsole", true);
-        prefix         = cfg.getString("General.PluginPrefix", "&8[&3&lDaily&b&lRewards+&8]");
-        guiTitle       = cfg.getString("General.PluginGuiTitle", "&3&lDaily&b&lRewards+&8");
-        checkUpdates   = cfg.getBoolean("General.CheckForUpdates", true);
+        enabled       = cfg.getBoolean("General.Enabled", true); // NEW
+        printErrors   = cfg.getBoolean("General.PrintErrorsToConsole", true);
+        prefix        = cfg.getString("General.PluginPrefix", "&8[&3&lDaily&b&lRewards+&8]");
+        guiTitle      = cfg.getString("General.PluginGuiTitle", "&3&lDaily&b&lRewards+&8");
+        checkUpdates  = cfg.getBoolean("General.CheckForUpdates", true);
 
         // Claims
         resetWhenStreakCompleted = cfg.getBoolean("Claiming.ResetWhenStreakCompleted", true);
@@ -75,22 +80,35 @@ public final class DailyConfig {
         skipMissedDays           = cfg.getBoolean("Claiming.SkipMissedDays", false);
 
         // Join event
-        rewardAutoClaim      = cfg.getBoolean("Join.RewardAutoClaim", false);
-        rewardInstantPopup   = cfg.getBoolean("Join.RewardInstantPopup", false);
-        reminderEnabled      = cfg.getBoolean("Join.DailyRewardReminderEnabled", true);
-        reminderSeconds      = cfg.getInt("Join.DailyRewardClaimReminder", 1200);
-        reminderClickable    = cfg.getBoolean("Join.DailyRewardReminderClickable", true);
+        rewardAutoClaim    = cfg.getBoolean("Join.RewardAutoClaim", false);
+        rewardInstantPopup = cfg.getBoolean("Join.RewardInstantPopup", false);
+        reminderEnabled    = cfg.getBoolean("Join.DailyRewardReminderEnabled", true);
+        reminderSeconds    = cfg.getInt("Join.DailyRewardClaimReminder", 1200);
+        reminderClickable  = cfg.getBoolean("Join.DailyRewardReminderClickable", true);
 
         // GUI
-        inventoryRows     = Math.max(1, Math.min(6, cfg.getInt("GUI.InventoryRows", 6)));
-        showDayQuantity   = cfg.getBoolean("GUI.ShowDayQuantity", true);
-        closeOnClaim      = cfg.getBoolean("GUI.CloseOnClaim", false);
-        liveUpdateTimer   = cfg.getBoolean("GUI.LiveUpdateTimer", true);
-        hideAttributes    = cfg.getBoolean("GUI.HideAttributes", true);
-        buttonsDisabled   = cfg.getBoolean("GUI.ButtonsDisabled", false);
+        inventoryRows   = Math.max(1, Math.min(6, cfg.getInt("GUI.InventoryRows", 6)));
+        showDayQuantity = cfg.getBoolean("GUI.ShowDayQuantity", true);
+        closeOnClaim    = cfg.getBoolean("GUI.CloseOnClaim", false);
+        liveUpdateTimer = cfg.getBoolean("GUI.LiveUpdateTimer", true);
+        hideAttributes  = cfg.getBoolean("GUI.HideAttributes", true);
+        buttonsDisabled = cfg.getBoolean("GUI.ButtonsDisabled", false);
     }
 
-    public FileConfiguration raw() {
-        return cfg;
+    /** Persist current settings back to dailyrewards.yml (only fields written here are saved). */
+    public void save() {
+        if (cfg == null || file == null) return;
+        cfg.set("General.Enabled", enabled);
+        cfg.set("General.PrintErrorsToConsole", printErrors);
+        cfg.set("General.PluginPrefix", prefix);
+        cfg.set("General.PluginGuiTitle", guiTitle);
+        cfg.set("General.CheckForUpdates", checkUpdates);
+        try { cfg.save(file); } catch (Exception ignored) {}
     }
+
+    public FileConfiguration raw() { return cfg; }
+
+    // Convenience accessors for the toggle
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean v) { enabled = v; }
 }

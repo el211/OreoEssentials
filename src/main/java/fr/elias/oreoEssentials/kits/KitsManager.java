@@ -2,20 +2,21 @@
 package fr.elias.oreoEssentials.kits;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import fr.elias.oreoEssentials.util.Lang;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 public class KitsManager {
+
     private final OreoEssentials plugin;
 
     private File kitsFile;
@@ -23,11 +24,15 @@ public class KitsManager {
     private File dataFile;
     private FileConfiguration dataCfg;
 
+    // menu settings
     private boolean useItemsAdder;
     private String menuTitle;
     private int menuRows;
     private boolean menuFill;
     private String fillMaterial;
+
+    // runtime toggle
+    private volatile boolean enabled = true;
 
     private final Map<String, Kit> kits = new LinkedHashMap<>();
 
@@ -37,15 +42,27 @@ public class KitsManager {
         reload();
     }
 
+    /* ----------------------------------------------------
+     * Files
+     * ---------------------------------------------------- */
     private void loadFiles() {
         if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
 
+        // Ensure default kits.yml is actually written from JAR root once
         kitsFile = new File(plugin.getDataFolder(), "kits.yml");
-        if (!kitsFile.exists()) plugin.saveResource("kits.yml", false);
+        if (!kitsFile.exists()) {
+            try {
+                plugin.saveResource("kits.yml", false); // requires src/main/resources/kits.yml
+                plugin.getLogger().info("[Kits] Wrote default kits.yml");
+            } catch (IllegalArgumentException iae) {
+                plugin.getLogger().severe("[Kits] kits.yml is missing from the JAR (saveResource failed).");
+                plugin.getLogger().severe("[Kits] Place it at src/main/resources/kits.yml (jar root).");
+            }
+        }
 
         dataFile = new File(plugin.getDataFolder(), "kitsdata.yml");
         if (!dataFile.exists()) {
-            try { dataFile.createNewFile(); } catch (Exception ignored) {}
+            try { dataFile.createNewFile(); } catch (IOException ignored) {}
         }
 
         kitsCfg = YamlConfiguration.loadConfiguration(kitsFile);
@@ -53,51 +70,115 @@ public class KitsManager {
     }
 
     public void reload() {
-        try { kitsCfg.load(kitsFile); } catch (Exception ignored) {}
-        try { dataCfg.load(dataFile); } catch (Exception ignored) {}
+        try { kitsCfg.load(kitsFile); } catch (Exception e) {
+            plugin.getLogger().severe("[Kits] Failed to load kits.yml: " + e.getMessage());
+        }
+        try { dataCfg.load(dataFile); } catch (Exception e) {
+            plugin.getLogger().severe("[Kits] Failed to load kitsdata.yml: " + e.getMessage());
+        }
 
+        // global toggle (default true)
+        enabled = kitsCfg.getBoolean("settings.enable", true);
+
+        // ItemsAdder flag (won't fail if IA missing)
         this.useItemsAdder = kitsCfg.getBoolean("use-itemadder", true) && ItemParser.isItemsAdderPresent();
 
-        var menuSec = kitsCfg.getConfigurationSection("menu");
-        this.menuTitle   = ItemParser.color(menuSec != null ? menuSec.getString("title", "&6Kits") : "&6Kits");
-        this.menuRows    = Math.max(1, Math.min(6, menuSec != null ? menuSec.getInt("rows", 3) : 3));
-        this.menuFill    = menuSec != null && menuSec.getBoolean("fill", true);
+        // menu section
+        ConfigurationSection menuSec = kitsCfg.getConfigurationSection("menu");
+        this.menuTitle    = ItemParser.color(menuSec != null ? menuSec.getString("title", "&6Kits") : "&6Kits");
+        this.menuRows     = Math.max(1, Math.min(6, menuSec != null ? menuSec.getInt("rows", 3) : 3));
+        this.menuFill     = menuSec != null && menuSec.getBoolean("fill", true);
         this.fillMaterial = menuSec != null ? menuSec.getString("fill-material", "GRAY_STAINED_GLASS_PANE") : "GRAY_STAINED_GLASS_PANE";
 
+        // parse kits with robust logging (skip broken ones, continue)
         kits.clear();
         ConfigurationSection sec = kitsCfg.getConfigurationSection("kits");
-        if (sec != null) {
-            for (String id : sec.getKeys(false)) {
-                ConfigurationSection k = sec.getConfigurationSection(id);
-                if (k == null) continue;
-                String name = ItemParser.color(k.getString("display-name", id));
-                String iconDef = k.getString("icon", "STONE");
-                ItemStack icon = ItemParser.parseItem(iconDef.startsWith("ia:") ? iconDef : "type:" + iconDef, useItemsAdder);
-                long cd = k.getLong("cooldown-seconds", 0);
-                Integer slot = k.contains("slot") ? k.getInt("slot") : null;
+        if (sec == null) {
+            plugin.getLogger().warning("[Kits] No 'kits' section found in kits.yml. Is the file empty or mis-indented?");
+            return;
+        }
 
+        int loaded = 0, broken = 0;
+        for (String id : sec.getKeys(false)) {
+            try {
+                ConfigurationSection k = sec.getConfigurationSection(id);
+                if (k == null) { broken++; continue; }
+
+                String display = ItemParser.color(k.getString("display-name", id));
+
+                // icon accepts "CHEST", "type:CHEST;amount:1" or "ia:ns:id"
+                String iconDef = k.getString("icon", "CHEST");
+                ItemStack icon = ItemParser.parseItem(iconDef, useItemsAdder);
+                if (icon == null) {
+                    plugin.getLogger().warning("[Kits] Kit '" + id + "': invalid icon '" + iconDef + "'. Using CHEST.");
+                    icon = new ItemStack(org.bukkit.Material.CHEST);
+                }
+
+                long cooldown = k.getLong("cooldown-seconds", 0L);
+                Integer slot = k.isInt("slot") ? k.getInt("slot") : null;
+
+                // items
                 List<ItemStack> items = new ArrayList<>();
                 for (String line : k.getStringList("items")) {
                     ItemStack it = ItemParser.parseItem(line, useItemsAdder);
-                    if (it != null) items.add(it);
+                    if (it == null) {
+                        plugin.getLogger().warning("[Kits] Kit '" + id + "': invalid item '" + line + "'. Skipping.");
+                        continue;
+                    }
+                    items.add(it);
                 }
 
+                // commands (nullable)
                 List<String> commands = k.getStringList("commands");
                 if (commands != null && commands.isEmpty()) commands = null;
 
                 kits.put(id.toLowerCase(Locale.ROOT),
-                        new Kit(id, name, icon, items, cd, slot, commands));
+                        new Kit(id, display, icon, items, cooldown, slot, commands));
+                loaded++;
+            } catch (Throwable t) {
+                plugin.getLogger().severe("[Kits] Failed to load kit '" + id + "': " + t.getMessage());
+                broken++;
             }
         }
+        plugin.getLogger().info("[Kits] Loaded " + loaded + " kit(s). Broken: " + broken + ".");
     }
 
+    /* ----------------------------------------------------
+     * Accessors
+     * ---------------------------------------------------- */
     public Map<String, Kit> getKits() { return Collections.unmodifiableMap(kits); }
-
     public String getMenuTitle() { return menuTitle; }
     public int getMenuRows() { return menuRows; }
     public boolean isMenuFill() { return menuFill; }
     public String getFillMaterial() { return fillMaterial; }
 
+    /* ----------------------------------------------------
+     * Enable / Disable toggle (persisted to kits.yml)
+     * ---------------------------------------------------- */
+    public boolean isEnabled() { return enabled; }
+
+    public void setEnabled(boolean v) {
+        enabled = v;
+        persistToggle();
+    }
+
+    public boolean toggleEnabled() {
+        setEnabled(!enabled);
+        return enabled;
+    }
+
+    private void persistToggle() {
+        try {
+            kitsCfg.set("settings.enable", enabled);
+            kitsCfg.save(kitsFile);
+        } catch (IOException e) {
+            plugin.getLogger().warning("[Kits] Failed to persist settings.enable: " + e.getMessage());
+        }
+    }
+
+    /* ----------------------------------------------------
+     * Cooldowns & Claims
+     * ---------------------------------------------------- */
     /** Returns seconds left of cooldown; 0 if ready. */
     public long getSecondsLeft(Player p, Kit kit) {
         if (p.hasPermission("oreo.kit.bypasscooldown")) return 0;
@@ -120,14 +201,24 @@ public class KitsManager {
         try { dataCfg.save(dataFile); } catch (Exception ignored) {}
     }
 
-    /** Tries to give the kit to player. Returns true if handled (success or message), false if kit unknown. */
+    /**
+     * Tries to give the kit to player.
+     * @return true if handled (success or messaged), false if kit ID was unknown.
+     */
     public boolean claim(Player p, String kitId) {
         Kit kit = kits.get(kitId.toLowerCase(Locale.ROOT));
         if (kit == null) {
-            Lang.send(p, "kits.unknown-kit",
-                    Map.of("kit_id", kitId),
-                    p);
+            Lang.send(p, "kits.unknown-kit", Map.of("kit_id", kitId), p);
             return false;
+        }
+
+        // Gate when disabled
+        if (!isEnabled()) {
+            Lang.send(p, "kits.disabled", Map.of(), p);
+            if (p.hasPermission("oreo.kits.admin")) {
+                Lang.send(p, "kits.disabled.hint", Map.of("cmd", "/kits toggle"), p);
+            }
+            return true;
         }
 
         if (!p.hasPermission("oreo.kit.claim")) {
@@ -151,25 +242,21 @@ public class KitsManager {
                     p);
         }
 
-        // Give items
+        // Give items with overflow drop
         for (ItemStack it : kit.getItems()) {
             if (it == null) continue;
-            var leftover = p.getInventory().addItem(it.clone());
+            Map<Integer, ItemStack> leftover = p.getInventory().addItem(it.clone());
             leftover.values().forEach(drop -> p.getWorld().dropItemNaturally(p.getLocation(), drop));
         }
 
-        // Run commands
+        // Run commands (console:/player: prefixes)
         if (kit.getCommands() != null) {
-            for (String raw : kit.getCommands()) {
-                runKitCommand(p, raw);
-            }
-            Lang.send(p, "kits.commands-ran",
-                    Map.of("kit_name", kit.getDisplayName()), p);
+            for (String raw : kit.getCommands()) runKitCommand(p, raw);
+            Lang.send(p, "kits.commands-ran", Map.of("kit_name", kit.getDisplayName()), p);
         }
 
         markClaim(p, kit);
-        Lang.send(p, "kits.claimed",
-                Map.of("kit_name", kit.getDisplayName()), p);
+        Lang.send(p, "kits.claimed", Map.of("kit_name", kit.getDisplayName()), p);
         return true;
     }
 
@@ -178,20 +265,23 @@ public class KitsManager {
         if (line.isEmpty()) return;
 
         String withPlayer = line.replace("%player%", p.getName());
+        String lower = withPlayer.toLowerCase(Locale.ROOT);
 
-        // Prefixes: console:, player:
-        if (withPlayer.toLowerCase(Locale.ROOT).startsWith("console:")) {
+        if (lower.startsWith("console:")) {
             String cmd = withPlayer.substring("console:".length()).trim();
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
             return;
         }
-        if (withPlayer.toLowerCase(Locale.ROOT).startsWith("player:")) {
+        if (lower.startsWith("player:")) {
             String cmd = withPlayer.substring("player:".length()).trim();
             Bukkit.dispatchCommand(p, cmd);
             return;
         }
 
-        // default: console
+        // default -> console
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), withPlayer);
     }
+    public org.bukkit.configuration.file.FileConfiguration kitsCfg() { return kitsCfg; }
+    public fr.elias.oreoEssentials.OreoEssentials getPlugin() { return plugin; }
+
 }

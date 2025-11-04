@@ -1,12 +1,13 @@
 # ===================== Daily Rewards (Mongo) =====================
 Storage:
   Mongo:
-    Enabled: true
+    Enabled: false
     Uri: "mongodb://localhost:27017"
     Database: "oreo"
     Collection: "daily_rewards"
 
 General:
+  Enabled: true            # <— NEW: master ON/OFF switch for Daily Rewards
   PrintErrorsToConsole: true
   PluginPrefix: "&8[&b&lOREO&8·&6&lDaily&b&lRewards&8]"
   PluginGuiTitle: "&b&lOREO &6&lDaily &b&lRewards"

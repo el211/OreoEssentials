@@ -13,11 +13,14 @@ import java.util.stream.Collectors;
 
 /**
  * Player Commands:
- *  /daily            -> Opens the reward claim GUI
- *  /daily claim      -> Opens the reward claim GUI
- *  /daily top        -> Presents the Reward Streak Leaderboard
+ *  /daily             -> Opens the reward claim GUI (if enabled)
+ *  /daily claim       -> Opens the reward claim GUI (if enabled)
+ *  /daily top         -> Shows the Reward Streak Leaderboard (works even if disabled)
+ *  /daily toggle      -> Enable/disable Daily Rewards at runtime (admin)
  *
- * Permission: oreo.daily (default: true in plugin.yml)
+ * Permissions:
+ *  - oreo.daily        (players)
+ *  - oreo.daily.admin  (admins; can toggle the feature)
  */
 public final class DailyCommand implements CommandExecutor, TabCompleter {
 
@@ -41,12 +44,29 @@ public final class DailyCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
 
-        // /daily top can run from console; GUI only for players
+        // --- Admin toggle (allowed from console or in-game) ---
+        if (args.length > 0 && args[0].equalsIgnoreCase("toggle")) {
+            if (!sender.hasPermission("oreo.daily.admin")) {
+                sender.sendMessage(svc.color("&cYou don't have permission to toggle this feature."));
+                return true;
+            }
+            boolean now = svc.toggleEnabled();
+            // reflect in config and optionally persist
+            cfg.setEnabled(now);
+            try { cfg.save(); } catch (Throwable ignored) {}
+
+            String msg = svc.color(cfg.prefix + " &7Daily Rewards is now " + (now ? "&aENABLED" : "&cDISABLED"));
+            sender.sendMessage(msg);
+            return true;
+        }
+
+        // --- /daily top works from console too ---
         if (args.length > 0 && args[0].equalsIgnoreCase("top")) {
             showTop(sender);
             return true;
         }
 
+        // --- From here on, we require a player context ---
         if (!(sender instanceof Player p)) {
             sender.sendMessage("This command must be run in-game.");
             return true;
@@ -57,6 +77,15 @@ public final class DailyCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // If feature is disabled, inform player (and hint to admins)
+        if (!svc.isEnabled()) {
+            p.sendMessage(svc.color(cfg.prefix + " &cDaily Rewards is currently disabled."));
+            if (p.hasPermission("oreo.daily.admin")) {
+                p.sendMessage(svc.color("&7Use &f/" + label + " toggle &7to enable it."));
+            }
+            return true;
+        }
+
         // /daily OR /daily claim -> open GUI
         if (args.length == 0 || args[0].equalsIgnoreCase("claim")) {
             open(p);
@@ -64,8 +93,17 @@ public final class DailyCommand implements CommandExecutor, TabCompleter {
         }
 
         // Unknown subcommand -> usage
-        p.sendMessage(svc.color("&7Usage: &f/" + label + " &7or &f/" + label + " claim &7or &f/" + label + " top"));
+        sendUsage(sender, label);
         return true;
+    }
+
+    private void sendUsage(CommandSender sender, String label) {
+        boolean admin = sender.hasPermission("oreo.daily.admin");
+        String base = svc.color("&7Usage: &f/" + label + " &7or &f/" + label + " claim &7or &f/" + label + " top");
+        if (admin) {
+            base += svc.color(" &7or &f/" + label + " toggle");
+        }
+        sender.sendMessage(base);
     }
 
     private void showTop(CommandSender viewer) {
@@ -83,7 +121,7 @@ public final class DailyCommand implements CommandExecutor, TabCompleter {
             UUID id = off.getUniqueId();
             if (id == null) continue;
 
-            String name = off.getName() != null ? off.getName() : id.toString();
+            String name = (off.getName() != null) ? off.getName() : id.toString();
 
             // Skip if already added from online set
             boolean dup = rows.stream().anyMatch(r -> r.name.equalsIgnoreCase(name));
@@ -102,9 +140,9 @@ public final class DailyCommand implements CommandExecutor, TabCompleter {
         int i = 1;
         List<Row> top = rows.stream().limit(10).collect(Collectors.toList());
         for (Row r : top) {
-            viewer.sendMessage(svc.color("&7#&f" + (i++) + " &b" + r.name() +
-                    " &8» &aStreak: &f" + r.streak() +
-                    " &8(&7" + String.format(java.util.Locale.US, "%.1f", r.hours()) + "h&8)"));
+            viewer.sendMessage(svc.color("&7#&f" + (i++) + " &b" + r.name()
+                    + " &8» &aStreak: &f" + r.streak()
+                    + " &8(&7" + String.format(java.util.Locale.US, "%.1f", r.hours()) + "h&8)"));
         }
         if (top.isEmpty()) viewer.sendMessage(svc.color("&7No data yet."));
         viewer.sendMessage(svc.color("&8&m-------------------------"));
@@ -113,10 +151,10 @@ public final class DailyCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
         if (args.length == 1) {
-            String p = args[0].toLowerCase(Locale.ROOT);
-            return Arrays.asList("claim", "top").stream()
-                    .filter(s -> s.startsWith(p))
-                    .collect(Collectors.toList());
+            String pfx = args[0].toLowerCase(Locale.ROOT);
+            List<String> base = new ArrayList<>(Arrays.asList("claim", "top"));
+            if (sender.hasPermission("oreo.daily.admin")) base.add("toggle");
+            return base.stream().filter(s -> s.startsWith(pfx)).collect(Collectors.toList());
         }
         return Collections.emptyList();
     }

@@ -16,6 +16,9 @@ public final class RtpConfig {
     private File file;
     private volatile FileConfiguration cfg;
 
+    // Master toggle (NEW)
+    private volatile boolean enabled = true;
+
     // cached lookups
     private Set<String> allowedWorlds = Collections.emptySet();
     private Set<String> unsafeBlocks  = Collections.emptySet();
@@ -35,6 +38,9 @@ public final class RtpConfig {
             cfg = new YamlConfiguration();
         }
 
+        // NEW: master toggle (defaults to true)
+        enabled = cfg.getBoolean("enabled", true);
+
         // refresh caches
         List<String> aw = cfg.getStringList("allowed-worlds");
         allowedWorlds = new HashSet<>(aw == null ? Collections.emptyList() : aw);
@@ -42,6 +48,23 @@ public final class RtpConfig {
         List<String> ub = cfg.getStringList("unsafe-blocks");
         unsafeBlocks = new HashSet<>(ub == null ? Collections.emptyList() : ub);
     }
+
+    /** Persist ONLY the toggle so we don't rewrite the user's YAML layout. */
+    public void save() {
+        if (cfg == null || file == null) return;
+        try {
+            cfg.set("enabled", enabled);
+            cfg.save(file);
+        } catch (Exception e) {
+            plugin.getLogger().warning("[RTP] Failed to save rtp.yml: " + e.getMessage());
+        }
+    }
+
+    /* ----------------- Basic getters ----------------- */
+
+    public boolean isEnabled() { return enabled; }                         // NEW
+    public void setEnabled(boolean v) { this.enabled = v; }                // NEW
+    public boolean toggleEnabled() { this.enabled = !this.enabled; return this.enabled; } // NEW
 
     public int attempts() { return cfg.getInt("attempts", 30); }
     public int minY()     { return cfg.getInt("min-y", 50); }
@@ -60,8 +83,17 @@ public final class RtpConfig {
      * Falls back to global "default" when no world override applies.
      */
     public int radiusFor(Player p, Collection<String> tierPermissionKeys) {
-        // If you keep tier keys directly in config (e.g. oreo.tier.vip: 500), reuse them here.
-        Predicate<String> hasTier = key -> p.hasPermission(key);
+        Predicate<String> hasTier;
+        if (tierPermissionKeys == null || tierPermissionKeys.isEmpty()) {
+            hasTier = p::hasPermission;
+        } else {
+            // In case you pass pre-known permission keys (e.g. "oreo.tier.vip", "oreo.tier.mvp")
+            Set<String> keys = new HashSet<>(tierPermissionKeys);
+            hasTier = p::hasPermission; // still rely on real permissions
+            // (Keeping behavior consistent—if you wanted to strictly check only those keys, swap to:
+            // hasTier = keys::contains;
+            // But the original code suggests real permission checks.)
+        }
 
         // Check per-world section first
         String worldKey = "worlds." + p.getWorld().getName();
@@ -94,7 +126,8 @@ public final class RtpConfig {
     }
 
     private boolean isNonTierKey(String key) {
-        return "default".equalsIgnoreCase(key)
+        return "enabled".equalsIgnoreCase(key)          // NEW
+                || "default".equalsIgnoreCase(key)
                 || "attempts".equalsIgnoreCase(key)
                 || "unsafe-blocks".equalsIgnoreCase(key)
                 || "allowed-worlds".equalsIgnoreCase(key)

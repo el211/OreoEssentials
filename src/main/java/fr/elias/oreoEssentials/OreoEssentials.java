@@ -112,7 +112,6 @@ public final class OreoEssentials extends JavaPlugin {
     private DeathBackService deathBackService;
     private GodService godService;
     private CommandManager commands;
-    // Kits + Tab
     private fr.elias.oreoEssentials.kits.KitsManager kitsManager;
     private fr.elias.oreoEssentials.tab.TabListManager tabListManager;
     private WarpDirectory warpDirectory;
@@ -403,6 +402,30 @@ public final class OreoEssentials extends JavaPlugin {
 
         // Locales
         Lang.init(this);
+// --- Kits (fully optional) ---
+        boolean kitsFeature   = getConfig().getBoolean("features.kits.enabled", true);
+        boolean kitsRegister  = getConfig().getBoolean("features.kits.register-commands", true);
+
+        if (kitsFeature) {
+            this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);
+
+            if (kitsRegister) {
+                new fr.elias.oreoEssentials.kits.KitCommands(this, this.kitsManager); // registers /kits and /kit
+                getLogger().info("[Kits] Loaded " + this.kitsManager.getKits().size() + " kits from kits.yml");
+            } else {
+                // make absolutely sure the labels are free
+                unregisterCommandHard("kits");
+                unregisterCommandHard("kit");
+                getLogger().info("[Kits] Module loaded, but commands are NOT registered.");
+            }
+        } else {
+            // module fully off: free command labels so other plugins can use them
+            unregisterCommandHard("kits");
+            unregisterCommandHard("kit");
+            this.kitsManager = null;
+            getLogger().info("[Kits] Module disabled by config; commands unregistered.");
+        }
+
 
         // --- Alias editor boot ---
         this.aliasService = new fr.elias.oreoEssentials.aliases.AliasService(this);
@@ -1339,6 +1362,43 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.homes.HomeTeleportBroker getHomeTeleportBroker() {
         return homeTpBroker;
     }
+    @SuppressWarnings("unchecked")
+    private void unregisterCommandHard(String label) {
+        try {
+            // Get the command map
+            org.bukkit.plugin.SimplePluginManager spm =
+                    (org.bukkit.plugin.SimplePluginManager) getServer().getPluginManager();
+            java.lang.reflect.Field f = org.bukkit.plugin.SimplePluginManager.class.getDeclaredField("commandMap");
+            f.setAccessible(true);
+            org.bukkit.command.SimpleCommandMap map = (org.bukkit.command.SimpleCommandMap) f.get(spm);
+
+            // Known commands map
+            java.lang.reflect.Field f2 = org.bukkit.command.SimpleCommandMap.class.getDeclaredField("knownCommands");
+            f2.setAccessible(true);
+            java.util.Map<String, org.bukkit.command.Command> known =
+                    (java.util.Map<String, org.bukkit.command.Command>) f2.get(map);
+
+            // remove plain and namespaced aliases that point to us
+            String lower = label.toLowerCase(java.util.Locale.ROOT);
+            known.entrySet().removeIf(e -> {
+                String k = e.getKey().toLowerCase(java.util.Locale.ROOT);
+                if (!k.equals(lower) && !k.endsWith(":" + lower)) return false;
+                org.bukkit.command.Command cmd = e.getValue();
+                org.bukkit.plugin.Plugin owner = null;
+                try {
+                    java.lang.reflect.Field fc = org.bukkit.command.PluginCommand.class.getDeclaredField("owningPlugin");
+                    fc.setAccessible(true);
+                    if (cmd instanceof org.bukkit.command.PluginCommand pc) {
+                        owner = (org.bukkit.plugin.Plugin) fc.get(pc);
+                    }
+                } catch (Throwable ignored) {}
+                return owner == this;
+            });
+        } catch (Throwable ignored) {
+            // Best effort; if reflection fails we simply don't claim the executors.
+        }
+    }
+
     public EconomyBootstrap getEcoBootstrap() { return ecoBootstrap; }
     public Economy getVaultEconomy() { return vaultEconomy; }
 }

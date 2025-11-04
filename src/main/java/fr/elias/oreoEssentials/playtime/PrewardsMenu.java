@@ -24,17 +24,23 @@ public final class PrewardsMenu implements InventoryProvider {
     }
 
     public SmartInventory inventory(Player p) {
+        final boolean featureOn = svc.isEnabled();
+        String title = svc.skin.title;
+        if (!featureOn) title = "&8" + title; // gray out when disabled
+
         return SmartInventory.builder()
-                .manager(svc.getPlugin().getInvManager()) // SmartInvs manager from your plugin
+                .manager(svc.getPlugin().getInvManager())
                 .id("prewards:" + p.getUniqueId())
                 .provider(this)
-                .title(svc.color(svc.skin.title))
+                .title(svc.color(title))
                 .size(Math.max(1, svc.skin.rows), 9)
                 .build();
     }
 
     @Override
     public void init(Player p, InventoryContents contents) {
+        final boolean featureOn = svc.isEnabled();
+
         // ---- Background ----
         if (svc.skin.fillEmpty) {
             ItemStack fill = new ItemStack(svc.skin.fillerMat);
@@ -57,74 +63,98 @@ public final class PrewardsMenu implements InventoryProvider {
 
             PlaytimeRewardsService.State state = svc.stateOf(p, r);
 
-            // Base icon
             Material baseMat = (r.iconMaterial != null ? r.iconMaterial : Material.PAPER);
             String baseName  = (r.iconName != null ? r.iconName : r.displayName);
 
-            // Build and color lore safely
             List<String> lore = new ArrayList<>();
             if (r.iconLore != null) {
-                for (String line : r.iconLore) {
-                    lore.add(svc.color(line)); // translate '&' codes
-                }
+                for (String line : r.iconLore) lore.add(svc.color(line));
+            }
+
+            // When disabled, tint title and replace lore to indicate status
+            String displayName = baseName;
+            if (!featureOn) {
+                displayName = "&8" + displayName;
+                lore.clear();
+                lore.add(svc.color("&7Status: &cDISABLED"));
             }
 
             ItemStack item = new ItemStack(baseMat);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
                 if (r.customModelData != null) meta.setCustomModelData(r.customModelData);
-                meta.setDisplayName(svc.color(baseName));
+                meta.setDisplayName(svc.color(displayName));
                 meta.addItemFlags(ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_ATTRIBUTES);
 
                 // Apply global skin overrides for the reward's current state
                 PlaytimeRewardsService.SkinState skinState = svc.skin.states.get(state.name());
-                if (skinState != null) {
-                    if (skinState.mat != null) {
-                        item.setType(skinState.mat); // override material if provided
-                    }
+                if (skinState != null && featureOn) { // only decorate states when enabled
+                    if (skinState.mat != null) item.setType(skinState.mat);
                     if (skinState.name != null && !skinState.name.isEmpty()) {
                         meta.setDisplayName(svc.color(skinState.name));
                     }
                     if (skinState.glow) {
-                        meta.addEnchant(Enchantment.UNBREAKING, 1, true); // visual glow
+                        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
                     }
                 }
 
-                // Append state line
-                lore.add(svc.color("&7State: &f" + state.name()));
+                // Append state line (or disabled)
+                if (featureOn) {
+                    lore.add(svc.color("&7State: &f" + state.name()));
+                }
                 meta.setLore(lore);
                 item.setItemMeta(meta);
             }
 
             ClickableItem clickable = ClickableItem.of(item, e -> {
-                // Recompute state on click (in case time passed)
+                if (!svc.isEnabled()) {
+                    p.sendMessage(svc.color("&cPlaytime Rewards is disabled."));
+                    return;
+                }
                 PlaytimeRewardsService.State now = svc.stateOf(p, r);
                 if (now == PlaytimeRewardsService.State.READY) {
                     boolean ok = svc.claim(p, r.id, true);
-                    if (ok) {
-                        // Refresh GUI to reflect new state
-                        inventory(p).open(p);
-                    } else {
-                        p.sendMessage(svc.color("&cNot ready or invalid reward."));
-                    }
+                    if (ok) inventory(p).open(p); else p.sendMessage(svc.color("&cNot ready or invalid reward."));
                 } else {
                     p.sendMessage(svc.color("&cNot ready. Keep playing!"));
                 }
             });
 
-            // Positioning: fixed slot or auto-flow with iterator
             if (r.slot != null) {
-                int row = Math.max(0, Math.min(svc.skin.rows - 1, r.slot / 9));
+                int rows = Math.max(1, svc.skin.rows);
+                int row = Math.max(0, Math.min(rows - 1, r.slot / 9));
                 int col = Math.max(0, Math.min(8, r.slot % 9));
                 contents.set(row, col, clickable);
             } else {
-                it.set(clickable); // advances the iterator automatically
+                it.set(clickable);
             }
         });
+
+        // ---- Admin toggle lever (bottom row, slot 5) ----
+        int rows = Math.max(1, svc.skin.rows);
+        if (rows >= 2 && p.hasPermission("oreo.prewards.admin")) {
+            final int bottom = rows - 1;
+            ItemStack lever = new ItemStack(Material.LEVER);
+            ItemMeta lm = lever.getItemMeta();
+            if (lm != null) {
+                lm.setDisplayName(svc.color("&3Playtime Rewards: " + (featureOn ? "&aENABLED" : "&cDISABLED")));
+                List<String> lore = new ArrayList<>();
+                lore.add(svc.color("&7Click to " + (featureOn ? "&cDISABLE" : "&aENABLE")));
+                lore.add(svc.color("&8(Admin only)"));
+                lm.setLore(lore);
+                lm.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+                lever.setItemMeta(lm);
+            }
+            contents.set(bottom, 5, ClickableItem.of(lever, e -> {
+                boolean now = svc.toggleEnabled();
+                p.sendMessage(svc.color("&7Playtime Rewards is now " + (now ? "&aENABLED" : "&cDISABLED")));
+                inventory(p).open(p); // refresh
+            }));
+        }
     }
 
     @Override
     public void update(Player player, InventoryContents contents) {
-        // No periodic updates; GUI is refreshed after a claim
+        // No periodic updates; GUI is refreshed on click/open.
     }
 }

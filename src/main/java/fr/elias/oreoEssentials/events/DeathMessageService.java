@@ -17,13 +17,35 @@ public final class DeathMessageService {
     private final File file;
     private YamlConfiguration yml;
 
+    // Master toggle (NEW)
+    private volatile boolean enabled = true;
+
     public DeathMessageService(File dataFolder) {
         this.file = new File(dataFolder, "death-messages.yml");
-        if (!file.exists()) writeSkeleton(); // you can paste your full config once and remove this writer
+        if (!file.exists()) writeSkeleton(); // paste your full config later if you want
         reload();
     }
 
-    public void reload() { this.yml = YamlConfiguration.loadConfiguration(file); }
+    public void reload() {
+        this.yml = YamlConfiguration.loadConfiguration(file);
+        this.enabled = yml.getBoolean("Enabled", true); // NEW
+    }
+
+    /** Persist ONLY the toggle to avoid rewriting user formatting. */
+    public void save() {
+        if (yml == null) return;
+        try {
+            yml.set("Enabled", enabled);
+            yml.save(file);
+        } catch (IOException e) {
+            Bukkit.getLogger().warning("[OreoEssentials] Failed to save death-messages.yml: " + e.getMessage());
+        }
+    }
+
+    // Toggle API (NEW)
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean v) { this.enabled = v; }
+    public boolean toggleEnabled() { this.enabled = !this.enabled; return this.enabled; }
 
     public String prefix() { return yml.getString("Prefix", ""); }
 
@@ -41,9 +63,12 @@ public final class DeathMessageService {
             String mythicId,            // e.g., "AncientOverlord"
             String mythicDisplayName    // colored display, may be null
     ) {
+        // Honor master toggle (NEW)
+        if (!enabled) return null;
+
         Map<String, String> vars = new HashMap<>();
-        vars.put("[playerDisplayName]", dead.getDisplayName());
-        vars.put("[playerName]", dead.getName());
+        vars.put("[playerDisplayName]", dead != null ? dead.getDisplayName() : "");
+        vars.put("[playerName]", dead != null ? dead.getName() : "");
         vars.put("[killerName]", killer != null ? killer.getName() : "");
         vars.put("[type]", projectileType != null ? projectileType : "");
         vars.put("[item]", itemUsed != null && itemUsed.getType() != null ? pretty(itemUsed.getType().name()) : "");
@@ -63,6 +88,12 @@ public final class DeathMessageService {
             if (itemUsed != null && itemUsed.getType() != null) line = pick(yml.getStringList("Player.Item"));
             if (line == null && projectileType != null)        line = pick(yml.getStringList("Player.Projectile"));
             if (line == null)                                  line = pick(yml.getStringList("Player.General"));
+
+            // Optional named subgroups for special projectiles (Fireball/Firework/Tnt) under Player.*
+            if (line == null && projectileType != null) {
+                String cat = "Player." + projectileKey(projectileType);
+                line = pick(yml.getStringList(cat));
+            }
         }
         // 2) Mythic mob killer (highest priority over vanilla mob section)
         else if (mythicId != null && !mythicId.isEmpty()) {
@@ -99,7 +130,20 @@ public final class DeathMessageService {
 
     // Keep your old method but make it delegate to the new one
     public String buildMessage(Player dead, Player killer, EntityType mobKiller, EntityDamageEvent.DamageCause cause, ItemStack itemUsed, String projectileType) {
+        // Honor master toggle (NEW)
+        if (!enabled) return null;
         return buildMessage(dead, killer, mobKiller, cause, itemUsed, projectileType, null, null);
+    }
+
+    private String projectileKey(String raw) {
+        if (raw == null) return "";
+        // Normalize to your YAML keys under Player.*
+        String k = raw.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+        // common matches
+        if (k.contains("firework")) return "Firework";
+        if (k.contains("fireball") || k.contains("small_fireball") || k.contains("dragon_fireball")) return "Fireball";
+        if (k.contains("tnt")) return "Tnt";
+        return Character.toUpperCase(k.charAt(0)) + k.substring(1); // fallback
     }
 
     private String pick(List<String> list) {
@@ -123,23 +167,24 @@ public final class DeathMessageService {
     private String causePath(EntityDamageEvent.DamageCause c) {
         return switch (c) {
             case LAVA -> "Block.Lava";
-            case FIRE, FIRE_TICK -> "Custom.Fire";
-            case LIGHTNING -> "Custom.Lightning";
-            case SUFFOCATION -> "Custom.Suffocation";
-            case DROWNING -> "Custom.Drowning";
-            case STARVATION -> "Custom.Starvation";
-            case VOID -> "Custom.Void";
-            case FREEZE -> "Custom.Freeze";
-            case FALL -> "Custom.Fall";
-            case ENTITY_EXPLOSION, BLOCK_EXPLOSION -> "Custom.Block_explosion";
-            case WITHER -> "Custom.Wither";
-            case DRAGON_BREATH -> "Custom.EndCrystal"; // rough mapping
-            default -> "Custom.Custom";
+            case FIRE, FIRE_TICK -> "Fire";
+            case LIGHTNING -> "Lightning";
+            case SUFFOCATION -> "Suffocation";
+            case DROWNING -> "Drowning";
+            case STARVATION -> "Starvation";
+            case VOID -> "Void";
+            case FREEZE -> "Freeze";
+            case FALL -> "Fall";
+            case ENTITY_EXPLOSION, BLOCK_EXPLOSION -> "Block_explosion";
+            case WITHER -> "Wither";
+            case DRAGON_BREATH -> "EndCrystal"; // rough mapping
+            default -> "Custom";
         };
     }
 
     private void writeSkeleton() {
         YamlConfiguration y = new YamlConfiguration();
+        y.set("Enabled", true); // NEW
         y.set("Prefix", "💀");
         y.set("PlayerHover", List.of(""));
         y.set("KillerHover", List.of(""));

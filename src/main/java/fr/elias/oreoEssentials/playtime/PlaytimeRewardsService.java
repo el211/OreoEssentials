@@ -12,6 +12,7 @@ import org.bukkit.event.HandlerList;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -45,12 +46,13 @@ public final class PlaytimeRewardsService {
     final PlaytimeDataStore store;
     private final DirectiveRunner runner;
 
+    private File configFile;
     private FileConfiguration cfg;
     public final Map<String, RewardEntry> rewards = new LinkedHashMap<>();
     public final GuiSkin skin = new GuiSkin();
 
     // Settings
-    private boolean enabled = true;
+    private volatile boolean enabled = true;
     public int notifyEveryMinutes = 10;
     public boolean stackRewards = true;
 
@@ -85,9 +87,9 @@ public final class PlaytimeRewardsService {
 
     /** Reload file, then (re)apply enabled state */
     public void loadConfig() {
-        File file = new File(plugin.getDataFolder(), "playtime_rewards.yml");
-        if (!file.exists()) plugin.saveResource("playtime_rewards.yml", false);
-        cfg = YamlConfiguration.loadConfiguration(file);
+        configFile = new File(plugin.getDataFolder(), "playtime_rewards.yml");
+        if (!configFile.exists()) plugin.saveResource("playtime_rewards.yml", false);
+        cfg = YamlConfiguration.loadConfiguration(configFile);
 
         enabled              = cfg.getBoolean("settings.enable", true);
         notifyEveryMinutes   = cfg.getInt("settings.notify-every-minutes", 10);
@@ -190,9 +192,36 @@ public final class PlaytimeRewardsService {
             HandlerList.unregisterAll(listener);
             listener = null;
         }
+        plugin.getLogger().info("[Prewards] Stopped.");
     }
 
+    /* ------------ Toggle API (NEW) ------------ */
+
     public boolean isEnabled() { return enabled; }
+
+    public void setEnabled(boolean v) {
+        this.enabled = v;
+        // apply live
+        if (v) start(); else stop();
+        saveToggle(); // persist only the flag
+    }
+
+    public boolean toggleEnabled() {
+        setEnabled(!this.enabled);
+        return this.enabled;
+    }
+
+    /** Persist only settings.enable without rewriting the whole YAML formatting. */
+    public void saveToggle() {
+        try {
+            if (cfg == null) return;
+            cfg.set("settings.enable", enabled);
+            if (configFile == null) configFile = new File(plugin.getDataFolder(), "playtime_rewards.yml");
+            cfg.save(configFile);
+        } catch (IOException e) {
+            plugin.getLogger().warning("[Prewards] Failed to save toggle: " + e.getMessage());
+        }
+    }
 
     /* ---------------- Core logic ---------------- */
 
@@ -200,12 +229,10 @@ public final class PlaytimeRewardsService {
     public long getPlaytimeSeconds(Player p) {
         if (source == Source.INTERNAL && tracker != null) {
             if (baselineFromBukkit) {
-                // one-time: initialize internal counter from vanilla on first sighting
                 tracker.baselineFromBukkitIfNeeded(p);
             }
             return tracker.getSeconds(p.getUniqueId());
         }
-        // default: vanilla lifetime (PLAY_ONE_MINUTE is in ticks / 20)
         int ticks = p.getStatistic(Statistic.PLAY_ONE_MINUTE);
         return Math.max(0, ticks / 20L);
     }
@@ -224,18 +251,16 @@ public final class PlaytimeRewardsService {
         if (r.isRepeating()) {
             int done = counts.getOrDefault(r.id, 0);
             int should = (int) (secs / r.payEvery);
-            if (should > done) return State.READY; // claimable (may autoclaim)
-            return State.REPEATING; // between cycles
+            if (should > done) return State.READY;
+            return State.REPEATING;
         }
         return State.LOCKED;
     }
 
     public boolean hasPermission(Player p, RewardEntry r) {
-        // If the reward is rank-gated, require the exact node
         if (r.requiresPermission) {
             return p.hasPermission("oreo.prewards." + r.id);
         }
-        // Otherwise: allow per-id or wildcard (do NOT grant to ops automatically)
         return p.hasPermission("oreo.prewards." + r.id) || p.hasPermission("oreo.prewards.*");
     }
 
@@ -247,7 +272,6 @@ public final class PlaytimeRewardsService {
                 .collect(Collectors.toList());
     }
 
-    // Prevent retroactive mass payouts by baselining repeating rewards once
     private void baselineRepeatingIfFirstSeen(Player p) {
         if (!baselineOnFirstSeen) return;
         UUID id = p.getUniqueId();
@@ -270,7 +294,7 @@ public final class PlaytimeRewardsService {
     public void checkPlayer(Player p, boolean autoClaim) {
         if (!enabled) return;
 
-        baselineRepeatingIfFirstSeen(p); // handle first-seen baseline
+        baselineRepeatingIfFirstSeen(p);
 
         for (RewardEntry r : rewards.values()) {
             if (!hasPermission(p, r)) continue;

@@ -13,15 +13,23 @@ import fr.minuskube.inv.content.SlotPos;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
 
 /**
- * Kits GUI using SmartInvs. All player-facing text and sounds are pulled from lang.yml via Lang helper.
+ * Kits GUI using SmartInvs.
+ * - Left-click: claim
+ * - Right-click: preview (works even when kits feature is disabled)
  */
 public class KitsMenuSI implements InventoryProvider {
+
+    // Simple toggles (no config dependency)
+    private static final boolean PREVIEW_ENABLED  = true;
+    private static final boolean SHOW_CMD_IN_PREVIEW = true;
+    private static final int     PREVIEW_ROWS     = 6;
 
     private final OreoEssentials plugin;
     private final KitsManager manager;
@@ -34,10 +42,11 @@ public class KitsMenuSI implements InventoryProvider {
     /** Open the SmartInvs menu for a player. */
     public static void open(OreoEssentials plugin, KitsManager manager, Player player) {
         int rows = Math.max(1, Math.min(6, manager.getMenuRows()));
+        boolean on = manager.isEnabled();
 
         SmartInventory.builder()
                 .id("oreo_kits_menu")
-                .title(manager.getMenuTitle()) // title comes from kits.yml menu.title
+                .title(on ? manager.getMenuTitle() : "§8" + manager.getMenuTitle())
                 .size(rows, 9)
                 .provider(new KitsMenuSI(plugin, manager))
                 .manager(plugin.getInvManager())
@@ -47,6 +56,8 @@ public class KitsMenuSI implements InventoryProvider {
 
     @Override
     public void init(Player player, InventoryContents contents) {
+        final boolean featureOn = manager.isEnabled();
+
         // Fill background if configured
         if (manager.isMenuFill()) {
             Material m = Material.matchMaterial(manager.getFillMaterial());
@@ -68,35 +79,60 @@ public class KitsMenuSI implements InventoryProvider {
             long left = manager.getSecondsLeft(player, kit);
 
             // Lore text from lang.yml
-            // kits.gui.lore.claimable / kits.gui.lore.on-cooldown
             String loreKey = (left > 0 ? "kits.gui.lore.on-cooldown" : "kits.gui.lore.claimable");
-            String loreStr = Lang.msg(
-                    loreKey,
-                    Map.of(
-                            "kit_name", kit.getDisplayName(),
-                            "cooldown_left", Lang.timeHuman(left),
-                            "cooldown_left_raw", String.valueOf(left)
-                    ),
-                    player
-            );
-
             List<String> loreLines = new ArrayList<>();
-            if (!loreStr.isEmpty()) {
-                for (String line : loreStr.split("\n")) loreLines.add(line);
+
+            if (!featureOn) {
+                loreLines.add("§7Status: §cDISABLED");
+                if (PREVIEW_ENABLED) loreLines.add("§7Right-click: §bPreview");
+            } else {
+                String loreStr = Lang.msg(
+                        loreKey,
+                        Map.of(
+                                "kit_name", kit.getDisplayName(),
+                                "cooldown_left", Lang.timeHuman(left),
+                                "cooldown_left_raw", String.valueOf(left)
+                        ),
+                        player
+                );
+                if (!loreStr.isEmpty()) {
+                    for (String line : loreStr.split("\n")) loreLines.add(line);
+                }
+                loreLines.add(" ");
+                loreLines.add("§7Left-click: §aClaim");
+                if (PREVIEW_ENABLED) loreLines.add("§7Right-click: §bPreview");
             }
 
             if (meta != null) {
-                meta.setDisplayName(kit.getDisplayName());
+                meta.setDisplayName(featureOn ? kit.getDisplayName() : "§8" + kit.getDisplayName());
                 meta.setLore(loreLines);
                 icon.setItemMeta(meta);
             }
 
             buttons.add(ClickableItem.of(icon, e -> {
+                ClickType type = e.getClick();
+
+                // Right-click always opens preview (even when disabled)
+                if (PREVIEW_ENABLED && (type == ClickType.RIGHT || type == ClickType.SHIFT_RIGHT)) {
+                    openPreview(player, kit);
+                    return;
+                }
+
+                // Left-click claim path
+                if (!manager.isEnabled()) {
+                    player.sendMessage("§cKits are disabled.");
+                    if (player.hasPermission("oreo.kits.admin")) {
+                        player.sendMessage("§7Use §f/kits toggle §7to enable it.");
+                    }
+                    // refresh to keep UI responsive
+                    contents.inventory().open(player);
+                    return;
+                }
+
                 long cdLeft = manager.getSecondsLeft(player, kit);
 
                 // Cooldown gate (unless bypass)
                 if (cdLeft > 0 && !player.hasPermission("oreo.kit.bypasscooldown")) {
-                    // denied sound from lang.yml
                     if (Lang.getBool("kits.gui.sounds.denied.enabled", true)) {
                         try {
                             Sound s = Sound.valueOf(Lang.get("kits.gui.sounds.denied.sound", "BLOCK_NOTE_BLOCK_BASS"));
@@ -106,7 +142,6 @@ public class KitsMenuSI implements InventoryProvider {
                         } catch (Throwable ignored) {}
                     }
 
-                    // cooldown message from lang.yml
                     Lang.send(
                             player,
                             "kits.cooldown",
@@ -117,15 +152,12 @@ public class KitsMenuSI implements InventoryProvider {
                             ),
                             player
                     );
-
-                    // refresh to update lore if any changed
                     contents.inventory().open(player);
                     return;
                 }
 
                 boolean handled = manager.claim(player, kit.getId());
 
-                // claim sound from lang.yml
                 if (handled && Lang.getBool("kits.gui.sounds.claim.enabled", true)) {
                     try {
                         Sound s = Sound.valueOf(Lang.get("kits.gui.sounds.claim.sound", "ENTITY_EXPERIENCE_ORB_PICKUP"));
@@ -135,7 +167,6 @@ public class KitsMenuSI implements InventoryProvider {
                     } catch (Throwable ignored) {}
                 }
 
-                // refresh menu to update cooldown lore
                 contents.inventory().open(player);
             }));
         }
@@ -167,7 +198,6 @@ public class KitsMenuSI implements InventoryProvider {
                 for (int c = 0; c < cols; c++) {
                     if (contents.get(SlotPos.of(r, c)).isPresent()) continue;
 
-                    // advance to next non-fixed item
                     while (next < kitList.size()) {
                         Kit k = kitList.get(next);
                         ClickableItem ci = buttons.get(next);
@@ -186,15 +216,92 @@ public class KitsMenuSI implements InventoryProvider {
             pagination.setItems(buttons.toArray(new ClickableItem[0]));
             pagination.setItemsPerPage(rows * cols);
 
-            // Start from top-left; allow override so filler can be replaced
             SlotIterator it = contents.newIterator(SlotIterator.Type.HORIZONTAL, 0, 0);
             it.allowOverride(true);
             pagination.addToIterator(it);
+        }
+
+        // ---------- Admin toggle lever (bottom row, slot 5) ----------
+        if (rows >= 2 && player.hasPermission("oreo.kits.admin")) {
+            final int bottom = rows - 1;
+            ItemStack lever = new ItemStack(Material.LEVER);
+            ItemMeta lm = lever.getItemMeta();
+            boolean on = manager.isEnabled();
+            if (lm != null) {
+                lm.setDisplayName((on ? "§3Kits: §aENABLED" : "§3Kits: §cDISABLED"));
+                lm.setLore(List.of(
+                        on ? "§7Click to §cDISABLE" : "§7Click to §aENABLE",
+                        "§8(Admin only)"
+                ));
+                lever.setItemMeta(lm);
+            }
+            contents.set(bottom, 5, ClickableItem.of(lever, e -> {
+                boolean now = manager.toggleEnabled();
+                player.sendMessage("§7Kits feature is now " + (now ? "§aENABLED" : "§cDISABLED"));
+                // refresh
+                KitsMenuSI.open(plugin, manager, player);
+            }));
         }
     }
 
     @Override
     public void update(Player player, InventoryContents contents) {
         // We reopen on click; nothing needed here per tick.
+    }
+
+    /* ------------------------ Preview GUI ------------------------ */
+
+    private void openPreview(Player p, Kit kit) {
+        if (!PREVIEW_ENABLED) return;
+
+        SmartInventory.builder()
+                .id("oreo_kits_preview_" + kit.getId())
+                .title(("§6Preview: §e" + kit.getDisplayName()))
+                .size(Math.max(1, Math.min(6, PREVIEW_ROWS)), 9)
+                .provider(new PreviewProvider(kit))
+                .manager(plugin.getInvManager())
+                .build()
+                .open(p);
+    }
+
+    private class PreviewProvider implements InventoryProvider {
+        private final Kit kit;
+        PreviewProvider(Kit kit) { this.kit = kit; }
+
+        @Override
+        public void init(Player p, InventoryContents contents) {
+            // Back button
+            ItemStack back = new ItemStack(Material.ARROW);
+            ItemMeta bm = back.getItemMeta();
+            if (bm != null) { bm.setDisplayName("§c← Back"); back.setItemMeta(bm); }
+            contents.set(SlotPos.of(0, 0), ClickableItem.of(back, e -> KitsMenuSI.open(plugin, manager, p)));
+
+            // Optional commands book
+            if (SHOW_CMD_IN_PREVIEW && kit.getCommands() != null && !kit.getCommands().isEmpty()) {
+                ItemStack book = new ItemStack(Material.BOOK);
+                ItemMeta im = book.getItemMeta();
+                if (im != null) {
+                    im.setDisplayName("§bThis kit runs:");
+                    List<String> lore = new ArrayList<>();
+                    for (String c : kit.getCommands()) lore.add("§7• §f" + c);
+                    im.setLore(lore);
+                    book.setItemMeta(im);
+                }
+                contents.set(SlotPos.of(0, 8), ClickableItem.empty(book));
+            }
+
+            // Dump items into the grid (read-only)
+            int rows = contents.inventory().getRows();
+            int cols = contents.inventory().getColumns();
+            int r = 1, c = 0;
+            for (ItemStack it : kit.getItems()) {
+                if (it == null) continue;
+                contents.set(SlotPos.of(r, c), ClickableItem.empty(it.clone()));
+                c++;
+                if (c >= cols) { c = 0; r++; if (r >= rows) break; }
+            }
+        }
+
+        @Override public void update(Player player, InventoryContents contents) {}
     }
 }

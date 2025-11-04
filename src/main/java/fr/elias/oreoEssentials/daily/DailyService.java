@@ -5,9 +5,18 @@ import net.md_5.bungee.api.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.time.*;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 
+/**
+ * Handles Daily Rewards business logic:
+ *  - Eligibility checks
+ *  - Streak computation
+ *  - Reward execution
+ *  - Runtime enable/disable toggle
+ */
 public final class DailyService {
 
     private final OreoEssentials plugin;
@@ -15,74 +24,119 @@ public final class DailyService {
     private final DailyMongoStore store;
     private final RewardsConfig rewards;
 
+    /** Master ON/OFF switch, live-togglable (GUI or command). */
+    private volatile boolean featureEnabled;
+
     public DailyService(OreoEssentials plugin, DailyConfig cfg, DailyMongoStore store, RewardsConfig rewards) {
         this.plugin = plugin;
         this.cfg = cfg;
         this.store = store;
         this.rewards = rewards;
+        this.featureEnabled = cfg.enabled; // respect config at boot
     }
 
-    public String color(String s) { return ChatColor.translateAlternateColorCodes('&', s); }
-    private LocalDate today() { return LocalDate.now(ZoneId.systemDefault()); }
+    /* ----------------------------- Utils ----------------------------- */
 
+    public String color(String s) {
+        return ChatColor.translateAlternateColorCodes('&', s);
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(ZoneId.systemDefault());
+    }
+
+    /* ----------------------------- Queries ----------------------------- */
+
+    /**
+     * Can the player claim today?
+     * - Returns false if the module is disabled.
+     * - Calendar-day cadence (current behavior): claim once per day.
+     */
     public boolean canClaimToday(Player p) {
-        var rec = store.ensure(p.getUniqueId(), p.getName());
-        var last = rec.lastClaimDate();
+        if (!featureEnabled) return false;
+
+        DailyMongoStore.Record rec = store.ensure(p.getUniqueId(), p.getName());
+        LocalDate last = rec.lastClaimDate();
         if (last == null) return true;
-        if (cfg.availableOnNewDay) return !today().isEqual(last);
-        return !today().isEqual(last); // simplified cadence
+
+        // Current implementation: both modes behave as calendar-day gating.
+        // (We only store LocalDate (epochDay), not time-of-day.)
+        return !today().isEqual(last);
     }
 
+    /**
+     * Current streak for a UUID (0 if no record).
+     */
     public int getStreak(UUID u) {
-        var r = store.get(u);
+        DailyMongoStore.Record r = store.get(u);
         return (r == null) ? 0 : r.streak;
     }
 
-    /** The day index in the cycle we should award on this claim (1..maxDay). */
+    /**
+     * The reward "day index" (1..maxDay) that corresponds to the *next* claim,
+     * based on the current streak *before* updating it.
+     */
     public int nextDayIndex(int currentStreak) {
         int max = Math.max(1, rewards.maxDay());
         if (cfg.resetWhenStreakCompleted) {
             // cycle 1..max, then wrap
             int next = currentStreak + 1;
-            int wrapped = ((next - 1) % max) + 1;
-            return wrapped;
+            return ((next - 1) % max) + 1;
         } else {
             // cap at max; keep awarding "Day max"
             return Math.min(currentStreak + 1, max);
         }
     }
 
+    /* ----------------------------- Actions ----------------------------- */
+
+    /**
+     * Attempts to claim today's reward for the player.
+     * Returns true if a reward was awarded.
+     */
     public boolean claim(Player p) {
-        var r = store.ensure(p.getUniqueId(), p.getName());
-        var t = today();
-        var last = r.lastClaimDate();
-
-        if (last != null && t.isEqual(last)) return false;
-
-        int newStreak;
-        if (last == null) newStreak = 1;
-        else {
-            long gap = Duration.between(last.atStartOfDay(), t.atStartOfDay()).toDays();
-            if (gap == 1) newStreak = r.streak + 1;
-            else if (cfg.pauseStreakWhenMissed) newStreak = r.streak;
-            else if (cfg.skipMissedDays) newStreak = r.streak + 1;
-            else newStreak = 1;
+        if (!featureEnabled) {
+            p.sendMessage(color(cfg.prefix + " &cDaily Rewards is currently disabled."));
+            return false;
         }
 
-        // Determine which "day" in rewards to execute
-        int dayToAward = nextDayIndex(r.streak); // based on BEFORE updating streak
+        DailyMongoStore.Record r = store.ensure(p.getUniqueId(), p.getName());
+        LocalDate t = today();
+        LocalDate last = r.lastClaimDate();
+
+        // Already claimed today
+        if (last != null && t.isEqual(last)) return false;
+
+        // Compute new streak based on gap logic
+        int newStreak;
+        if (last == null) {
+            newStreak = 1;
+        } else {
+            long gapDays = Duration.between(last.atStartOfDay(), t.atStartOfDay()).toDays();
+            if (gapDays == 1) {
+                newStreak = r.streak + 1; // consecutive
+            } else if (cfg.pauseStreakWhenMissed) {
+                newStreak = r.streak;     // hold
+            } else if (cfg.skipMissedDays) {
+                newStreak = r.streak + 1; // skip gaps, keep growing
+            } else {
+                newStreak = 1;            // reset
+            }
+        }
+
+        // Determine which reward day to grant (based on streak BEFORE update)
+        int dayToAward = nextDayIndex(r.streak);
         RewardsConfig.DayDef def = rewards.day(dayToAward);
 
-        // Update persistence first
+        // Persist first (upsert)
         store.updateOnClaim(p.getUniqueId(), p.getName(), newStreak, t);
 
-        // Execute reward commands (if any)
+        // Execute reward commands (if configured)
         if (def != null && def.commands != null) {
             for (String raw : def.commands) {
                 String cmd = (raw == null ? "" : raw).trim();
                 if (cmd.isEmpty() || cmd.equalsIgnoreCase("\"\"")) continue;
                 cmd = cmd.replace("<playerName>", p.getName());
-                // run as console by default
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
             }
             if (def.message != null && !def.message.isEmpty()) {
@@ -92,5 +146,26 @@ public final class DailyService {
 
         p.sendMessage(color(cfg.prefix + " &aClaimed &fDay " + dayToAward + " &areward! Streak: &f" + newStreak));
         return true;
+    }
+
+    /* ----------------------------- Toggle API ----------------------------- */
+
+    /** @return current enabled state. */
+    public boolean isEnabled() {
+        return featureEnabled;
+    }
+
+    /** Set enabled state at runtime (does not write to disk). */
+    public void setEnabled(boolean v) {
+        this.featureEnabled = v;
+    }
+
+    /**
+     * Toggle enabled state and return the new value.
+     * (Does not write back to dailyrewards.yml; caller may persist if desired.)
+     */
+    public boolean toggleEnabled() {
+        this.featureEnabled = !this.featureEnabled;
+        return this.featureEnabled;
     }
 }
