@@ -1001,6 +1001,7 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new ReplyCommand(messageService))
                 .register(new BroadcastCommand())
                 .register(new HomesCommand(homeService))
+                .register(new HomesGuiCommand(homeService))
                 .register(new DeathBackCommand(deathBackService))
                 .register(new GodCommand(godService))
                 .register(new AfeliusReloadCommand(this, chatConfig))

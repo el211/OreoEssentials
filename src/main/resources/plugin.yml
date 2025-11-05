@@ -503,7 +503,11 @@ commands:
     permission: OreoHolograms.admin
     usage: "/hologram help"
     aliases: [ ohologram ]
-
+  homesgui:
+    description: Open the Homes GUI
+    usage: /homesgui
+    aliases: [homesmenu, homegui]
+    permission: oreo.homes.gui
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -585,7 +589,9 @@ permissions:
       oreo.bossbar.toggle: true
     oreo.vault.menu:
       default: true
-
+    oreo.homes.gui:
+      description: Allows opening the Homes GUI
+      default: true
   # Basics
   oreo.spawn:               { default: true }
   oreo.setspawn:            { default: op }
