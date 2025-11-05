@@ -79,6 +79,24 @@ public class HomeService {
         // delegate to storage (see next step)
         return storage.listHomes(owner);
     }
+    /** Convenience: all home names across servers. */
+    public java.util.Set<String> allHomeNames(UUID owner) {
+        Map<String, StoredHome> m = listHomes(owner);
+        return (m == null) ? java.util.Collections.emptySet() : m.keySet();
+    }
+
+    /** Convenience: name -> server map (server falls back to local when null). */
+    public java.util.Map<String, String> homeServers(UUID owner) {
+        Map<String, StoredHome> m = listHomes(owner);
+        if (m == null) return java.util.Collections.emptyMap();
+        java.util.Map<String, String> out = new java.util.HashMap<>();
+        for (var e : m.entrySet()) {
+            String srv = (e.getValue() == null || e.getValue().getServer() == null)
+                    ? localServer : e.getValue().getServer();
+            out.put(e.getKey(), srv);
+        }
+        return out;
+    }
 
     public String localServer() { return localServer; }
 }

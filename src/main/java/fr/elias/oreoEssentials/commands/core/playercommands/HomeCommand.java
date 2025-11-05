@@ -36,14 +36,14 @@ public class HomeCommand implements OreoCommand, TabCompleter {
     public boolean execute(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player p)) return true;
 
-        // /home or /home list -> show homes
+        // /home or /home list -> show homes (CROSS-SERVER)
         if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
-            Set<String> set = safeHomes(p.getUniqueId());
-            if (set.isEmpty()) {
+            List<String> names = crossServerNames(p.getUniqueId());
+            if (names.isEmpty()) {
                 p.sendMessage(ChatColor.YELLOW + "You have no homes. Use " + ChatColor.AQUA + "/sethome <name>");
                 return true;
             }
-            String list = set.stream()
+            String list = names.stream()
                     .sorted(String.CASE_INSENSITIVE_ORDER)
                     .collect(Collectors.joining(ChatColor.GRAY + ", " + ChatColor.AQUA));
             p.sendMessage(ChatColor.GOLD + "Homes: " + ChatColor.AQUA + list);
@@ -75,7 +75,6 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         // Respect cross-server toggle for homes
         var cs = OreoEssentials.get().getCrossServerSettings();
         if (!cs.homes()) {
-            // Cross-server homes is OFF: do not publish or server-switch
             p.sendMessage(ChatColor.RED + "Cross-server homes are disabled by server config.");
             p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/home " + key);
             return true;
@@ -92,10 +91,7 @@ public class HomeCommand implements OreoCommand, TabCompleter {
                     + " nameArg='" + key + "' -> targetServer=" + targetServer
                     + " requestId=" + requestId);
 
-            // Build the packet
             HomeTeleportRequestPacket pkt = new HomeTeleportRequestPacket(p.getUniqueId(), key, targetServer, requestId);
-
-            // publish to the target server’s individual channel
             PacketChannel targetChannel = PacketChannel.individual(targetServer);
             pm.sendPacket(targetChannel, pkt);
         } else {
@@ -123,8 +119,8 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         if (!(sender instanceof Player p)) return List.of();
         if (args.length == 1) {
             String partial = args[0].toLowerCase(Locale.ROOT);
-            return safeHomes(p.getUniqueId()).stream()
-                    .filter(n -> n.startsWith(partial))
+            return crossServerNames(p.getUniqueId()).stream()
+                    .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(partial))
                     .sorted(String.CASE_INSENSITIVE_ORDER)
                     .collect(Collectors.toList());
         }
@@ -133,22 +129,29 @@ public class HomeCommand implements OreoCommand, TabCompleter {
 
     /* ---------------- helpers ---------------- */
 
-    private Set<String> safeHomes(UUID id) {
-        try {
-            Set<String> set = homes.homes(id);
-            return set == null ? Collections.emptySet() : set;
-        } catch (Throwable t) {
-            return Collections.emptySet();
-        }
-    }
-
     private static String normalize(String s) {
         return s == null ? "" : s.trim().toLowerCase(Locale.ROOT);
     }
 
+    /** Cross-server names (plain names). Falls back to empty if unavailable. */
+    private List<String> crossServerNames(UUID id) {
+        try {
+            // Preferred: use aggregated list from HomeService
+            Set<String> set = homes.allHomeNames(id);
+            if (set != null) {
+                return set.stream()
+                        .filter(Objects::nonNull)
+                        .sorted(String.CASE_INSENSITIVE_ORDER)
+                        .collect(Collectors.toList());
+            }
+        } catch (Throwable ignored) {}
+        // Very last resort: empty (do not read local-only to avoid inconsistency with /homes)
+        return Collections.emptyList();
+    }
+
     private void suggestClosest(Player p, String key) {
-        List<String> suggestions = safeHomes(p.getUniqueId()).stream()
-                .filter(n -> n.contains(key))
+        List<String> suggestions = crossServerNames(p.getUniqueId()).stream()
+                .filter(n -> n.toLowerCase(Locale.ROOT).contains(key.toLowerCase(Locale.ROOT)))
                 .limit(5)
                 .collect(Collectors.toList());
         if (!suggestions.isEmpty()) {
