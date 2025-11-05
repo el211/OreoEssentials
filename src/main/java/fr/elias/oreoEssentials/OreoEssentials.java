@@ -603,6 +603,12 @@ public final class OreoEssentials extends JavaPlugin {
                 this.playerDirectory = new fr.elias.oreoEssentials.playerdirectory.PlayerDirectory(
                         this.homesMongoClient, dbName, prefix
                 );
+                var dirListener = new fr.elias.oreoEssentials.playerdirectory.DirectoryPresenceListener(
+                        this.playerDirectory,
+                        configService.serverName()
+                );
+                getServer().getPluginManager().registerEvents(dirListener, this);
+                dirListener.backfillOnline(); // optional
 
                 // (Optional) migration helper
                 try {
@@ -657,7 +663,15 @@ public final class OreoEssentials extends JavaPlugin {
         }
 
         // ---- RTP config
-        this.rtpConfig = new fr.elias.oreoEssentials.rtp.RtpConfig(this);
+        // Register /rtp only if enabled; otherwise hard-unregister so no other plugin executor remains
+        if (this.rtpConfig.isEnabled()) {
+            this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
+            getLogger().info("[RTP] Enabled — /rtp registered.");
+        } else {
+            unregisterCommandHard("rtp");
+            unregisterCommandHard("wild"); // if you expose an alias
+            getLogger().info("[RTP] Disabled by config — /rtp unregistered.");
+        }
 
         // ---- EnderChest config + storage (respect crossserverec)
         this.ecConfig = new fr.elias.oreoEssentials.enderchest.EnderChestConfig(this);
