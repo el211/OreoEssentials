@@ -776,7 +776,7 @@ public final class OreoEssentials extends JavaPlugin {
 
         // -------- Essentials Services --------
         this.spawnService = new SpawnService(storage);
-        this.warpService  = new WarpService(storage);
+        this.warpService  = new WarpService(storage, this.warpDirectory);
         this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
 
         // -------- RabbitMQ (optional cross-server signaling) --------
@@ -987,7 +987,8 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new BackCommand(backService))
                 .register(new WarpCommand(warpService))
                 .register(new SetWarpCommand(warpService))
-                .register(new DelWarpCommand(warpService))
+                .register(new WarpsCommand(warpService))      // <- Player GUI /warps
+                .register(new WarpsAdminCommand(warpService)) // <- Admin GUI /warpsadmin (was /warpsgui)                .register(new DelWarpCommand(warpService))
                 .register(new HomeCommand(homeService))
                 .register(new SetHomeCommand(homeService, configService))
                 .register(new DelHomeCommand(homeService))

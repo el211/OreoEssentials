@@ -1,42 +1,105 @@
-// src/main/java/fr/elias/oreoEssentials/services/MongoWarpDirectory.java
+// src/main/java/fr/elias/oreoEssentials/services/mongoservices/MongoWarpDirectory.java
 package fr.elias.oreoEssentials.services.mongoservices;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.*;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Indexes;
+import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.Updates;
 import fr.elias.oreoEssentials.services.WarpDirectory;
 import org.bson.Document;
 
 import java.util.Locale;
 
 public class MongoWarpDirectory implements WarpDirectory {
+
+    private static final String F_NAME       = "name";
+    private static final String F_SERVER     = "server";
+    private static final String F_PERMISSION = "permission";
+
     private final MongoCollection<Document> col;
 
-    // collectionName example: prefix + "warp_directory"
+    /**
+     * @param collectionName e.g. prefix + "warp_directory"
+     */
     public MongoWarpDirectory(MongoClient client, String dbName, String collectionName) {
         this.col = client.getDatabase(dbName).getCollection(collectionName);
-        col.createIndex(Indexes.ascending("name"), new IndexOptions().unique(true));
+        // Unique by lower-cased name
+        col.createIndex(Indexes.ascending(F_NAME), new IndexOptions().unique(true));
+        // (Optional) quick lookups by server
+        try {
+            col.createIndex(Indexes.ascending(F_SERVER));
+        } catch (Throwable ignored) {}
     }
 
-    private static String key(String s) { return s == null ? "" : s.trim().toLowerCase(Locale.ROOT); }
+    private static String key(String s) {
+        return s == null ? "" : s.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /* ---------------- server owner ---------------- */
 
     @Override
     public void setWarpServer(String warpName, String server) {
-        String n = key(warpName);
-        var keyDoc = new Document("name", n);
-        var doc = new Document("name", n).append("server", server);
-        col.replaceOne(keyDoc, doc, new ReplaceOptions().upsert(true));
+        final String n = key(warpName);
+        // Do NOT replace the whole document; keep existing permission
+        col.updateOne(
+                Filters.eq(F_NAME, n),
+                Updates.combine(
+                        Updates.set(F_SERVER, server),
+                        Updates.setOnInsert(F_NAME, n)
+                ),
+                new UpdateOptions().upsert(true)
+        );
     }
 
     @Override
     public String getWarpServer(String warpName) {
-        String n = key(warpName);
-        var d = col.find(Filters.eq("name", n)).projection(new Document("server", 1)).first();
-        return d == null ? null : d.getString("server");
+        final String n = key(warpName);
+        final Document d = col.find(Filters.eq(F_NAME, n))
+                .projection(Projections.include(F_SERVER))
+                .first();
+        return d == null ? null : d.getString(F_SERVER);
     }
 
     @Override
     public void deleteWarp(String warpName) {
-        col.deleteOne(Filters.eq("name", key(warpName)));
+        col.deleteOne(Filters.eq(F_NAME, key(warpName)));
+    }
+
+    /* ---------------- per-warp permission ---------------- */
+
+    @Override
+    public String getWarpPermission(String warpName) {
+        final String n = key(warpName);
+        final Document d = col.find(Filters.eq(F_NAME, n))
+                .projection(Projections.include(F_PERMISSION))
+                .first();
+        String perm = (d == null ? null : d.getString(F_PERMISSION));
+        return (perm == null || perm.isBlank()) ? null : perm;
+    }
+
+    @Override
+    public void setWarpPermission(String warpName, String permission) {
+        final String n = key(warpName);
+        if (permission == null || permission.isBlank()) {
+            // Clear permission (public warp)
+            col.updateOne(
+                    Filters.eq(F_NAME, n),
+                    Updates.unset(F_PERMISSION)
+            );
+            return;
+        }
+        // Set/Upsert permission
+        col.updateOne(
+                Filters.eq(F_NAME, n),
+                Updates.combine(
+                        Updates.set(F_PERMISSION, permission),
+                        Updates.setOnInsert(F_NAME, n)
+                ),
+                new UpdateOptions().upsert(true)
+        );
     }
 }

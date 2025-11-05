@@ -49,6 +49,15 @@ public class WarpCommand implements OreoCommand {
         final String raw = args[0];
         final String warpName = raw.trim().toLowerCase(Locale.ROOT);
 
+        // ---- PERMISSION GATE (works with/without directory) ----
+        if (!warps.canUse(p, warpName)) {
+            String rp = warps.requiredPermission(warpName);
+            p.sendMessage(ChatColor.RED + "You don't have permission for this warp."
+                    + ((rp != null && !rp.isBlank()) ? ChatColor.GRAY + " (" + rp + ")" : ""));
+            log.info("[WarpCmd] Denied (perm) player=" + p.getName() + " warp=" + warpName + " reqPerm=" + rp);
+            return true;
+        }
+
         // Resolve server owner for this warp
         final String localServer = plugin.getConfigService().serverName();
         final WarpDirectory warpDir = plugin.getWarpDirectory();

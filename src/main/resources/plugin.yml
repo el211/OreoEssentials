@@ -508,6 +508,17 @@ commands:
     usage: /homesgui
     aliases: [homesmenu, homegui]
     permission: oreo.homes.gui
+  warps:
+    description: Open the Warps GUI (player)
+    usage: /warps
+    aliases: [ warplist ]
+    permission: oreo.warps
+
+  warpsadmin:
+    description: Open the Warps Admin GUI (cross-server aware)
+    usage: /warpsadmin
+    aliases: [ warpsgui, warpguiadmin ]
+    permission: oreo.warps.admin
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -792,7 +803,17 @@ permissions:
   oreo.prewards.claim.others:
     description: Claim a reward for another player (/prewards claim <id> <player>)
     default: op
+  oreo.warps:
+    description: Use the player warps GUI
+    default: true
 
+  oreo.warps.admin:
+    description: Use the admin warps GUI (delete/toggle permission)
+    default: op
+
+  oreo.warp.delete:
+    description: Allows deleting warps from the admin GUI
+    default: op
   # Optional per-reward gates (only add the ones you actually use)
   oreo.prewards.vip_hourly: { default: false }
   oreo.prewards.mvp_daily:  { default: false }
