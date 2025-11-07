@@ -6,6 +6,10 @@
 # - Cross-server homes? Set essentials.storage: mongodb, point all servers to the SAME MongoDB,
 #   give each server a unique server.name, keep RabbitMQ enabled, and make sure your proxy
 #   (Bungee/Velocity) is configured so players can be switched between servers.
+features:
+  tpa:
+    debug: false
+    debug-echo-to-player: false
 
 server:
   # Unique logical name for THIS server (used to tag who "owns" a home)

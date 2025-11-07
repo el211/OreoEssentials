@@ -1,0 +1,94 @@
+# =========================================
+# OreoEssentials — channels.yml
+# =========================================
+
+defaults:
+  # Which channel should /local chat speak to by default (if player has none set)?
+  local_speak_channel: "global"
+  # Name of the global chat channel (if you want global broadcasts)
+  global_channel: "global"
+
+# Autojoin a list of channel names for everyone (if they also have permission to join them)
+default_autojoin:
+  - "global"
+  - "events"
+  - "tips"
+
+messages:
+  prefix: "&8[&bChannels&8]&r "
+  no_permission: "&cYou don't have permission."
+  joined: "&aJoined channel &b%channel%&a."
+  left: "&aLeft channel &b%channel%&a."
+
+channels:
+  local:
+    display: "Local"
+    read_only: false
+    cross_server: false
+    autojoin_default: false
+    permissions:
+      join: "oreoessentials.channel.join.local"
+      leave: "oreoessentials.channel.leave.local"
+      speak: "oreoessentials.channel.local"
+    route:
+      regex: []   # local is for player chat, not system routing
+      format: "&7[&aLocal&7] %message%"
+
+  global:
+    display: "Global"
+    read_only: false
+    cross_server: true
+    autojoin_default: true
+    permissions:
+      join: "oreoessentials.channel.join.global"
+      leave: "oreoessentials.channel.leave.global"
+      speak: "oreoessentials.channel.global"
+    route:
+      regex: []   # routed by speaking, not meta
+      format: "&7[&bGlobal&7] %message%"
+
+  events:
+    display: "Events"
+    read_only: true
+    cross_server: false         # set true if you want join/quit cross-server
+    autojoin_default: true
+    permissions:
+      join: "oreoessentials.channel.join.events"
+      leave: "oreoessentials.channel.leave.events"
+      speak: ""                 # read-only
+    route:
+      # Route standard server events here
+      regex:
+        - "^player_join:"
+        - "^player_leave:"
+        - "^teleport:"
+        - "^broadcast:"
+      format: "&7[&eEvents&7] %message%"
+
+  deathlog:
+    display: "Death Log"
+    read_only: true
+    cross_server: false
+    autojoin_default: false
+    permissions:
+      join: "oreoessentials.channel.join.deathlog"
+      leave: "oreoessentials.channel.leave.deathlog"
+      speak: ""    # read-only
+    route:
+      regex:
+        - "^player_death:"
+      format: "&7[&cDeaths&7] %message%"
+
+  tips:
+    display: "Tips"
+    read_only: true
+    cross_server: false
+    autojoin_default: true
+    permissions:
+      join: "oreoessentials.channel.join.tips"
+      leave: "oreoessentials.channel.leave.tips"
+      speak: ""    # read-only
+    route:
+      regex:
+        - "^auto_message:"
+      format: "&7[&dTips&7] %message%"

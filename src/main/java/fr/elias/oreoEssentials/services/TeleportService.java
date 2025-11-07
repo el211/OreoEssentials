@@ -4,6 +4,7 @@ package fr.elias.oreoEssentials.services;
 import fr.elias.oreoEssentials.OreoEssentials;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.Location;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -65,6 +66,32 @@ public class TeleportService {
     private void cleanup() {
         long now = System.currentTimeMillis();
         pendingToTarget.entrySet().removeIf(e -> e.getValue().expiresAt < now);
+    }
+// paste inside TeleportService (anywhere under other methods)
+
+    /** Teleport without chat messages, but still record /back. */
+    public void teleportSilently(Player who, Location to) {
+        if (who == null || to == null) return;
+        try {
+            // record /back safely
+            if (back != null) back.setLast(who.getUniqueId(), who.getLocation());
+        } catch (Throwable ignored) {}
+
+        // ensure main thread for the actual teleport
+        Runnable tp = () -> {
+            try { who.teleport(to); } catch (Throwable ignored) {}
+        };
+        if (Bukkit.isPrimaryThread()) {
+            tp.run();
+        } else {
+            Bukkit.getScheduler().runTask(plugin, tp);
+        }
+    }
+
+    /** Convenience: teleport 'who' to the current location of 'target' silently. */
+    public void teleportSilently(Player who, Player target) {
+        if (who == null || target == null) return;
+        teleportSilently(who, target.getLocation());
     }
 
     public void shutdown() {

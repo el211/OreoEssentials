@@ -94,6 +94,14 @@ public class ChatSyncManager {
             Bukkit.getLogger().warning("[OreoEssentials] ChatSync MUTE broadcast failed: " + e.getMessage());
         }
     }
+    // in ChatSyncManager (interface/class you own)
+    public void publishChannelMessage(UUID senderId, String server, String senderName, String channel, String message) {
+        // Implement publish → RabbitMQ with channel field.
+    }
+
+    public void publishChannelSystem(String server, String channel, String message) {
+        // Implement publish for system routed events.
+    }
 
     /** Broadcast an unmute to all servers. */
     public void broadcastUnmute(UUID playerId) {

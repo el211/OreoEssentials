@@ -15,6 +15,7 @@ import fr.elias.oreoEssentials.rabbitmq.stream.FriendlyByteOutputStream;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 public class PacketManager implements IncomingPacketListener {
 
@@ -23,7 +24,6 @@ public class PacketManager implements IncomingPacketListener {
 
     private final Map<Class<? extends Packet>, PacketSubscriptionQueue<? extends Packet>> subscriptions;
     private final PacketRegistry packetRegistry;
-
     private volatile boolean initialized;
 
     public PacketManager(OreoEssentials plugin, PacketSender sender) {
@@ -33,16 +33,68 @@ public class PacketManager implements IncomingPacketListener {
         this.packetRegistry = new PacketRegistry();
     }
 
+    /** Initialize the manager & attach the low-level listener. */
     public void init() {
         initialized = true;
         this.sender.registerListener(this);
-        // Optional: debug trace for init
         dbg("[PM/INIT@" + serverName() + "] PacketManager initialized and listener registered.");
     }
 
+    /** Subscribe the underlying transport to a channel (GLOBAL or individual). */
     public void subscribeChannel(PacketChannel channel) {
         this.sender.registerChannel(channel);
         dbg("[PM/CHAN@" + serverName() + "] Subscribed channel " + renderChannel(channel));
+    }
+
+    /* =========================================================
+     * REGISTRATION API
+     * ========================================================= */
+
+    /**
+     * Register a packet type so the bus can (de)serialize it.
+     * Must be called AFTER {@link #init()} and BEFORE publishing/receiving such packets.
+     */
+    public <T extends Packet> void registerPacket(Class<T> packetClass, Supplier<T> constructor) {
+        try {
+            // Preferred native API on PacketRegistry (strongly-typed)
+            packetRegistry.register(packetClass, constructor);
+            var def = packetRegistry.getDefinition(packetClass);
+            long id = (def != null ? def.getRegistryId() : -1L);
+            dbg("[PM/REG@" + serverName() + "] " + packetClass.getName() + " id=" + id);
+        } catch (NoSuchMethodError e) {
+            // Fallback to reflective registration if your PacketRegistry uses a different method name.
+            boolean ok = tryReflectiveRegister(packetClass, constructor);
+            if (!ok) {
+                warn("[PM/REG@" + serverName() + "] Failed to register packet " + packetClass.getName()
+                        + " — PacketRegistry has no compatible register(...) method.");
+            } else {
+                var def = packetRegistry.getDefinition(packetClass);
+                long id = (def != null ? def.getRegistryId() : -1L);
+                dbg("[PM/REG@" + serverName() + "/reflect] " + packetClass.getName() + " id=" + id);
+            }
+        } catch (Throwable t) {
+            warn("[PM/REG@" + serverName() + "] Error registering packet " + packetClass.getName() + ": " + t.getMessage());
+        }
+    }
+
+    /**
+     * Best-effort reflective registration for slightly different PacketRegistry APIs.
+     * Tries common method names: register, define, put.
+     */
+    private <T extends Packet> boolean tryReflectiveRegister(Class<T> packetClass, Supplier<T> constructor) {
+        String[] names = { "register", "define", "put" };
+        for (String m : names) {
+            try {
+                var method = PacketRegistry.class.getMethod(m, Class.class, Supplier.class);
+                method.invoke(packetRegistry, packetClass, constructor);
+                return true;
+            } catch (NoSuchMethodException ignored) {
+                // try next name
+            } catch (Throwable ignored) {
+                // continue trying others
+            }
+        }
+        return false;
     }
 
     /* ====================== SEND ====================== */
@@ -59,7 +111,6 @@ public class PacketManager implements IncomingPacketListener {
         out.writeLong(definition.getRegistryId());
         packet.writeData(out);
 
-        // Debug (not always)
         dbg("[PM/PUBLISH@" + serverName() + "] id=" + definition.getRegistryId()
                 + " type=" + packet.getClass().getSimpleName()
                 + " channel=" + renderChannel(target));
@@ -99,7 +150,6 @@ public class PacketManager implements IncomingPacketListener {
 
         PacketDefinition<?> definition = this.packetRegistry.getDefinition(registryId);
 
-        // Debug (not always)
         dbg("[PM/RECV@" + serverName() + "] registryId=" + registryId
                 + " type=" + (definition != null ? definition.getPacketClass().getSimpleName() : "unknown")
                 + " channel=" + renderChannel(channel));
@@ -167,13 +217,12 @@ public class PacketManager implements IncomingPacketListener {
     }
 
     private void warn(String msg) { plugin.getLogger().warning(msg); }
-    private void info(String msg) { plugin.getLogger().info(msg); } // kept for rare always-on logs if needed
-
-    /* ---- debug helpers ---- */
+    private void dbg(String msg) { if (isDebug()) plugin.getLogger().info(msg); }
     private boolean isDebug() {
         try { return plugin.getConfig().getBoolean("debug", false); } catch (Throwable t) { return false; }
     }
-    private void dbg(String msg) { if (isDebug()) plugin.getLogger().info(msg); }
+
+    public PacketRegistry getPacketRegistry() { return packetRegistry; }
 
     public boolean isInitialized() { return initialized; }
 

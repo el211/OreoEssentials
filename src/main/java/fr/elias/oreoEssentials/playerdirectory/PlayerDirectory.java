@@ -1,13 +1,11 @@
-// File: src/main/java/fr/elias/oreoEssentials/playerdirectory/PlayerDirectory.java
 package fr.elias.oreoEssentials.playerdirectory;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.ReplaceOptions;
-import com.mongodb.client.model.Updates;
+import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
-import org.bson.conversions.Bson;
 
 import java.time.Instant;
 import java.util.Locale;
@@ -25,44 +23,44 @@ public class PlayerDirectory {
     }
 
     private void ensureIndexes() {
-        try {
-            coll.createIndex(new Document("uuid", 1));                       // fast UUID lookup
-            coll.createIndex(new Document("nameLower", 1));                  // case-insensitive name lookup
-        } catch (Throwable ignored) {}
+        try { coll.createIndex(new Document("uuid", 1), new IndexOptions().unique(true)); } catch (Throwable ignored) {}
+        try { coll.createIndex(new Document("nameLower", 1)); } catch (Throwable ignored) {}
+        try { coll.createIndex(new Document("currentServer", 1)); } catch (Throwable ignored) {}
+        try { coll.createIndex(new Document("lastServer", 1)); } catch (Throwable ignored) {}
     }
 
-    /* --------------------------------------------------------
-     * Basic mappings
-     * -------------------------------------------------------- */
+    // ----- legacy helper -----
+    public void saveMapping(String name, UUID uuid) { upsertPresence(uuid, name, null); }
+    public void saveMapping(UUID uuid, String name) { upsertPresence(uuid, name, null); }
 
-    /** Save or update (legacy compatibility). */
-    public void saveMapping(String name, UUID uuid) {
-        upsertPresence(uuid, name, null); // no server provided
-    }
-
-    /** Case-insensitive name → UUID. */
+    // ----- lookups -----
     public UUID lookupUuidByName(String name) {
         if (name == null || name.isBlank()) return null;
-        Document doc = coll.find(eq("nameLower", name.toLowerCase(Locale.ROOT))).first();
-        if (doc == null) return null;
-        try { return UUID.fromString(doc.getString("uuid")); } catch (Exception e) { return null; }
+        Document d = coll.find(eq("nameLower", name.toLowerCase(Locale.ROOT)))
+                .projection(new Document("uuid", 1))
+                .first();
+        if (d == null) return null;
+        try { return UUID.fromString(d.getString("uuid")); } catch (Exception e) { return null; }
     }
 
-    /* --------------------------------------------------------
-     * Presence (server) APIs
-     * -------------------------------------------------------- */
+    public String lookupNameByUuid(UUID uuid) {
+        if (uuid == null) return null;
+        Document d = coll.find(eq("uuid", uuid.toString()))
+                .projection(new Document("name", 1))
+                .first();
+        return d == null ? null : d.getString("name");
+    }
 
-    /**
-     * Called on player join (or when you learn the player's server).
-     * Sets both currentServer and lastServer to 'server' when provided.
-     */
+    // ----- presence writes -----
     public void upsertPresence(UUID uuid, String name, String server) {
         if (uuid == null) return;
-
         final String now = Instant.now().toString();
+        final String nm  = name == null ? "" : name;
+        final String nml = nm.toLowerCase(Locale.ROOT);
+
         Document doc = new Document("uuid", uuid.toString())
-                .append("name", name == null ? "" : name)
-                .append("nameLower", name == null ? "" : name.toLowerCase(Locale.ROOT))
+                .append("name", nm)
+                .append("nameLower", nml)
                 .append("updatedAt", now);
 
         if (server != null && !server.isBlank()) {
@@ -73,48 +71,51 @@ public class PlayerDirectory {
         coll.replaceOne(eq("uuid", uuid.toString()), doc, new ReplaceOptions().upsert(true));
     }
 
-    /** Mark player as being on this server now (updates current & last). */
     public void setCurrentServer(UUID uuid, String server) {
         if (uuid == null || server == null || server.isBlank()) return;
-        Bson filter = eq("uuid", uuid.toString());
-        Bson update = combine(
-                set("currentServer", server),
-                set("lastServer", server),
-                set("updatedAt", Instant.now().toString())
+        coll.updateOne(
+                eq("uuid", uuid.toString()),
+                combine(
+                        set("currentServer", server),
+                        set("lastServer", server),
+                        set("updatedAt", Instant.now().toString())
+                ),
+                new UpdateOptions().upsert(true)
         );
-        coll.updateOne(filter, update, new com.mongodb.client.model.UpdateOptions().upsert(true));
     }
 
-    /** Mark player as offline (move current → last, clear current). */
     public void clearCurrentServer(UUID uuid) {
         if (uuid == null) return;
-        Document doc = coll.find(eq("uuid", uuid.toString())).first();
-        if (doc == null) return;
+        Document d = coll.find(eq("uuid", uuid.toString()))
+                .projection(new Document("currentServer", 1))
+                .first();
+        if (d == null) return;
 
-        String current = doc.getString("currentServer");
-        Bson filter = eq("uuid", uuid.toString());
-        Bson update = (current == null || current.isBlank())
-                ? set("updatedAt", Instant.now().toString())
-                : combine(
-                set("lastServer", current),
-                unset("currentServer"),
-                set("updatedAt", Instant.now().toString())
-        );
-        coll.updateOne(filter, update);
+        String cur = d.getString("currentServer");
+        if (cur == null || cur.isBlank()) {
+            coll.updateOne(eq("uuid", uuid.toString()), set("updatedAt", Instant.now().toString()));
+        } else {
+            coll.updateOne(eq("uuid", uuid.toString()),
+                    combine(
+                            set("lastServer", cur),
+                            unset("currentServer"),
+                            set("updatedAt", Instant.now().toString())
+                    ));
+        }
     }
 
-    /** Returns currentServer if set, otherwise lastServer; may be null. */
     public String getCurrentOrLastServer(UUID uuid) {
         if (uuid == null) return null;
-        Document doc = coll.find(eq("uuid", uuid.toString())).first();
-        if (doc == null) return null;
-        String cur = doc.getString("currentServer");
+        Document d = coll.find(eq("uuid", uuid.toString()))
+                .projection(new Document("currentServer", 1).append("lastServer", 1))
+                .first();
+        if (d == null) return null;
+        String cur = d.getString("currentServer");
         if (cur != null && !cur.isBlank()) return cur;
-        String last = doc.getString("lastServer");
+        String last = d.getString("lastServer");
         return (last == null || last.isBlank()) ? null : last;
     }
 
-    /** Convenience: update name casing if it changed. */
     public void updateName(UUID uuid, String name) {
         if (uuid == null || name == null) return;
         coll.updateOne(
@@ -124,7 +125,7 @@ public class PlayerDirectory {
                         set("nameLower", name.toLowerCase(Locale.ROOT)),
                         set("updatedAt", Instant.now().toString())
                 ),
-                new com.mongodb.client.model.UpdateOptions().upsert(true)
+                new UpdateOptions().upsert(true)
         );
     }
 }

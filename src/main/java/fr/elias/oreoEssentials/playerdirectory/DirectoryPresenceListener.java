@@ -1,4 +1,3 @@
-// File: src/main/java/fr/elias/oreoEssentials/playerdirectory/DirectoryPresenceListener.java
 package fr.elias.oreoEssentials.playerdirectory;
 
 import fr.elias.oreoEssentials.OreoEssentials;
@@ -36,10 +35,13 @@ public class DirectoryPresenceListener implements Listener {
         }
     }
 
-    /** Optional: call once after register to mark already-online players (e.g., /reload). */
+    /** Call once after register to seed already-online players (e.g., after /reload). */
     public void backfillOnline() {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            try { dir.setCurrentServer(p.getUniqueId(), server); } catch (Throwable ignored) {}
+            try {
+                dir.upsertPresence(p.getUniqueId(), p.getName(), server); // <-- MUST be upsertPresence
+            } catch (Throwable ignored) {}
         }
     }
+
 }

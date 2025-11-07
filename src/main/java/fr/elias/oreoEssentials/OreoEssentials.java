@@ -29,7 +29,9 @@ import fr.elias.oreoEssentials.scoreboard.ScoreboardConfig;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardService;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardToggleCommand;
 import fr.elias.oreoEssentials.customcraft.OeCraftCommand;
-
+import fr.elias.oreoEssentials.chat.channel.ChannelManager;
+import fr.elias.oreoEssentials.chat.channel.ChannelsConfig;
+import fr.elias.oreoEssentials.chat.channel.PlayerChannelStore;
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
@@ -38,6 +40,7 @@ import fr.elias.oreoEssentials.commands.completion.WarpTabCompleter;
 // Economy commands
 import fr.elias.oreoEssentials.commands.ecocommands.MoneyCommand;
 import fr.elias.oreoEssentials.commands.ecocommands.completion.MoneyTabCompleter;
+import fr.elias.oreoEssentials.rtp.RtpConfig;
 
 // Databases / Cache
 import fr.elias.oreoEssentials.database.JsonEconomyDatabase;
@@ -66,7 +69,7 @@ import fr.elias.oreoEssentials.rabbitmq.sender.RabbitMQSender;
 // Services
 import fr.minuskube.inv.InventoryManager;
 
-// Chat (Afelius merge)
+// Chat
 import fr.elias.oreoEssentials.chat.AsyncChatListener;
 import fr.elias.oreoEssentials.chat.CustomConfig;
 import fr.elias.oreoEssentials.chat.FormatManager;
@@ -83,6 +86,8 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.Objects;
+
 public final class OreoEssentials extends JavaPlugin {
 
     // Singleton
@@ -91,8 +96,15 @@ public final class OreoEssentials extends JavaPlugin {
     private MuteService muteService;
     public MuteService getMuteService() { return muteService; }
     // Economy bridge (internal) — distinct from Vault Economy
-    private MongoClient homesMongoClient; // <— add this
+    private MongoClient homesMongoClient;
 
+    private fr.elias.oreoEssentials.daily.DailyMongoStore dailyStore;
+    private ChannelsConfig channelsConfig;
+    private PlayerChannelStore playerChannelStore;
+    private ChannelManager channelManager;
+    public ChannelManager getChannelManager() {
+        return channelManager;
+    }
     private EconomyBootstrap ecoBootstrap;
     // add near other services
     private fr.elias.oreoEssentials.integration.DiscordModerationNotifier discordMod;
@@ -112,6 +124,10 @@ public final class OreoEssentials extends JavaPlugin {
     private DeathBackService deathBackService;
     private GodService godService;
     private CommandManager commands;
+    // near your other fields
+    private fr.elias.oreoEssentials.teleport.TpaCrossServerBroker tpaBroker;
+    public fr.elias.oreoEssentials.teleport.TpaCrossServerBroker getTpaBroker() { return tpaBroker; }
+
     private fr.elias.oreoEssentials.kits.KitsManager kitsManager;
     private fr.elias.oreoEssentials.tab.TabListManager tabListManager;
     private WarpDirectory warpDirectory;
@@ -121,6 +137,9 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.tab.TabListManager getTabListManager() { return tabListManager; }
     private fr.elias.oreoEssentials.bossbar.BossBarService bossBarService;
     public fr.elias.oreoEssentials.bossbar.BossBarService getBossBarService() { return bossBarService; }
+    // top-level fields
+    private fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService channelsGuiService;
+    public fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService getChannelsGuiService() { return channelsGuiService; }
 
     // Economy / messaging stack
     private PlayerEconomyDatabase database;
@@ -166,8 +185,8 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.config.CrossServerSettings getCrossServerSettings() { return crossServerSettings; }
 
     // RTP + EnderChest
-    private fr.elias.oreoEssentials.rtp.RtpConfig rtpConfig;
-    public fr.elias.oreoEssentials.rtp.RtpConfig getRtpConfig() { return rtpConfig; }
+    private RtpConfig rtpConfig;
+    public RtpConfig getRtpConfig() { return rtpConfig; }
 
     private fr.elias.oreoEssentials.enderchest.EnderChestConfig ecConfig;
     private fr.elias.oreoEssentials.enderchest.EnderChestService ecService;
@@ -431,7 +450,6 @@ public final class OreoEssentials extends JavaPlugin {
         this.aliasService = new fr.elias.oreoEssentials.aliases.AliasService(this);
         this.aliasService.load();
         this.aliasService.applyRuntimeRegistration();
-
         // -------- Proxy plugin messaging (server switching) --------
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
         getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
@@ -441,6 +459,13 @@ public final class OreoEssentials extends JavaPlugin {
         // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
         this.invManager.init();
+        // --- Server Management GUI (ModGUI) ---
+        try {
+            var modGui = new fr.elias.oreoEssentials.modgui.ModGuiService(this);
+            getLogger().info("[ModGUI] Server management GUI ready (/modgui).");
+        } catch (Throwable t) {
+            getLogger().warning("[ModGUI] Failed to init: " + t.getMessage());
+        }
 
         // === Custom Crafting (SmartInvs GUI) ===
         this.customCraftingService = new CustomCraftingService(this);
@@ -467,13 +492,14 @@ public final class OreoEssentials extends JavaPlugin {
         var dailyCfg = new fr.elias.oreoEssentials.daily.DailyConfig(this);
         dailyCfg.load();
 
-        var dailyStore = new fr.elias.oreoEssentials.daily.DailyMongoStore(this, dailyCfg);
-        if (dailyCfg.mongo.enabled) dailyStore.connect();
+        this.dailyStore = new fr.elias.oreoEssentials.daily.DailyMongoStore(this, dailyCfg);
+        if (dailyCfg.mongo.enabled) this.dailyStore.connect();
 
         var dailyRewardsCfg = new fr.elias.oreoEssentials.daily.RewardsConfig(this);
         dailyRewardsCfg.load();
 
-        var dailySvc = new fr.elias.oreoEssentials.daily.DailyService(this, dailyCfg, dailyStore, dailyRewardsCfg);
+        var dailySvc = new fr.elias.oreoEssentials.daily.DailyService(this, dailyCfg, this.dailyStore, dailyRewardsCfg);
+
 
         // Register /daily (claim GUI, claim, top)
         var dailyCmd = new fr.elias.oreoEssentials.daily.DailyCommand(this, dailyCfg, dailySvc, dailyRewardsCfg);
@@ -572,7 +598,42 @@ public final class OreoEssentials extends JavaPlugin {
         String discordWebhookUrl = (chatRoot != null && chatRoot.getConfigurationSection("discord") != null)
                 ? chatRoot.getConfigurationSection("discord").getString("webhook_url", "")
                 : "";
+        try {
+            this.channelsConfig = new ChannelsConfig(this);
+            this.playerChannelStore = new PlayerChannelStore(this);
+            this.channelManager = new ChannelManager(this, channelsConfig, playerChannelStore);
 
+            getServer().getPluginManager().registerEvents(
+                    new fr.elias.oreoEssentials.chat.channel.ChannelEventListener(
+                            channelManager,
+                            channelsConfig,
+                            this.getChatSyncManager() // now initialized
+                    ),
+                    this
+            );
+
+            var channelCmd = new fr.elias.oreoEssentials.chat.channel.ChannelCommand(channelManager, channelsConfig);
+            if (getCommand("channel") != null) {
+                getCommand("channel").setExecutor(channelCmd);
+                getCommand("channel").setTabCompleter(channelCmd);
+            } else {
+                getLogger().warning("[Channels] Command 'channel' not found in plugin.yml; skipping registration.");
+            }
+            /* ✅ GUI command (/channels) */
+            fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService channelsGuiService =
+                    new fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService(this, channelManager, channelsConfig);
+
+            if (getCommand("channels") != null) {
+                getCommand("channels").setExecutor(channelsGuiService);
+                getCommand("channels").setTabCompleter(channelsGuiService);
+            } else {
+                getLogger().warning("[Channels] Command 'channels' not found in plugin.yml; skipping GUI registration.");
+            }
+            getLogger().info("[Channels] Chat channel system initialized.");
+        } catch (Throwable t) {
+            this.channelManager = null;
+            getLogger().warning("[Channels] Failed to initialize: " + t.getMessage());
+        }
         // Register async chat listener (mute-aware)
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(
@@ -609,6 +670,16 @@ public final class OreoEssentials extends JavaPlugin {
                 );
                 getServer().getPluginManager().registerEvents(dirListener, this);
                 dirListener.backfillOnline(); // optional
+                // after dirListener.backfillOnline();
+                try {
+                    new fr.elias.oreoEssentials.playerdirectory.DirectoryHeartbeat(
+                            this.playerDirectory,
+                            configService.serverName()
+                    ).start();
+                    getLogger().info("[PlayerDirectory] Heartbeat started (every 30s).");
+                } catch (Throwable t) {
+                    getLogger().warning("[PlayerDirectory] Heartbeat failed to start: " + t.getMessage());
+                }
 
                 // (Optional) migration helper
                 try {
@@ -660,17 +731,6 @@ public final class OreoEssentials extends JavaPlugin {
                 this.spawnDirectory = null;
                 getLogger().info("[STORAGE] Using YAML.");
             }
-        }
-
-        // ---- RTP config
-        // Register /rtp only if enabled; otherwise hard-unregister so no other plugin executor remains
-        if (this.rtpConfig.isEnabled()) {
-            this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
-            getLogger().info("[RTP] Enabled — /rtp registered.");
-        } else {
-            unregisterCommandHard("rtp");
-            unregisterCommandHard("wild"); // if you expose an alias
-            getLogger().info("[RTP] Disabled by config — /rtp unregistered.");
         }
 
         // ---- EnderChest config + storage (respect crossserverec)
@@ -794,20 +854,42 @@ public final class OreoEssentials extends JavaPlugin {
         this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
 
         // -------- RabbitMQ (optional cross-server signaling) --------
+// -------- RabbitMQ (optional cross-server signaling) --------
         if (rabbitEnabled) {
             RabbitMQSender rabbit = new RabbitMQSender(getConfig().getString("rabbitmq.uri"));
             this.packetManager = new PacketManager(this, rabbit);
             if (rabbit.connect()) {
                 packetManager.init();
 
-                packetManager.subscribeChannel(PacketChannels.GLOBAL);
+                // ⬇️ Register your dynamic TPA packets here (AFTER init, BEFORE subscribe/send)
+                packetManager.getPacketRegistry().register(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket.class,
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket::new
+                );
 
+                // (keep your existing registrations)
+                packetManager.getPacketRegistry().register(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaRequestPacket.class,
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaRequestPacket::new
+                );
+                packetManager.getPacketRegistry().register(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaSummonPacket.class,
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaSummonPacket::new
+                );
+                packetManager.getPacketRegistry().register(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket.class,
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket::new
+                );
+
+
+                // now you can subscribe channels & handlers safely
+                packetManager.subscribeChannel(PacketChannels.GLOBAL);
                 packetManager.subscribeChannel(
                         fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel.individual(localServerName)
                 );
                 getLogger().info("[RABBIT] Subscribed to individual channel for this server: " + localServerName);
 
-                // Generic packets you already use
+                // your existing generic packet subscriptions...
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
                         new RemoteMessagePacketHandler()
@@ -829,6 +911,7 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().info("[RABBIT] Disabled.");
         }
+
 
         // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
         if (packetManager != null && packetManager.isInitialized() && invSyncEnabled) {
@@ -893,12 +976,28 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().warning("[BROKER] Brokers not started: PacketManager unavailable.");
         }
-
+// -------- Core services --------
         this.backService      = new BackService(storage);
         this.messageService   = new MessageService();
         this.teleportService  = new TeleportService(this, backService, configService);
         this.deathBackService = new DeathBackService();
         this.godService       = new GodService();
+
+// --- TPA cross-server broker (single initialization; no duplicates) ---
+        if (packetManager != null && packetManager.isInitialized()) {
+            this.tpaBroker = new fr.elias.oreoEssentials.teleport.TpaCrossServerBroker(
+                    this,
+                    this.teleportService,
+                    this.packetManager,
+                    proxyMessenger,
+                    configService.serverName()
+            );
+            getLogger().info("[BROKER] TPA cross-server broker ready (server=" + configService.serverName() + ").");
+        } else {
+            this.tpaBroker = null;
+            getLogger().info("[BROKER] TPA cross-server broker disabled (PacketManager unavailable or not initialized).");
+        }
+
 
         // -------- Moderation listeners --------
         FreezeService freezeService = new FreezeService();
@@ -952,7 +1051,18 @@ public final class OreoEssentials extends JavaPlugin {
 
         // -------- Commands (manager then registrations) --------
         this.commands = new CommandManager(this);
+        // ---- RTP config
+        // Initialize RTP config (constructor calls reload())
+        this.rtpConfig = new RtpConfig(this);
 
+        if (this.rtpConfig.isEnabled()) {
+            this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
+            getLogger().info("[RTP] Enabled — /rtp registered.");
+        } else {
+            unregisterCommandHard("rtp");
+            unregisterCommandHard("wild"); // if you expose an alias
+            getLogger().info("[RTP] Disabled by config — /rtp unregistered.");
+        }
         // --- BossBar (controlled by config: bossbar.enabled)
         this.bossBarService = new fr.elias.oreoEssentials.bossbar.BossBarService(this);
         this.bossBarService.start();
@@ -1033,7 +1143,6 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new ServerProxyCommand(proxyMessenger))
                 .register(new SkinCommand())
                 .register(new CloneCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand())
                 .register(new fr.elias.oreoEssentials.playersync.PlayerSyncCommand(this, playerSyncService, invSyncEnabled))
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcCommand(this.ecService, crossServerEc))
                 .register(new HeadCommand())
@@ -1062,6 +1171,10 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
         }
+        if (getCommand("tpa") != null) {
+            getCommand("tpa").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.TpaTabCompleter(this));
+        }
+
         if (getCommand("balance") != null) {
             getCommand("balance").setTabCompleter((sender, cmd, alias, args) -> {
                 if (args.length == 1 && sender.hasPermission("oreo.balance.others")) {
@@ -1300,6 +1413,7 @@ public final class OreoEssentials extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        Bukkit.getScheduler().cancelTasks(this);
         try { if (teleportService != null) teleportService.shutdown(); } catch (Exception ignored) {}
         try { if (storage != null) { storage.flush(); storage.close(); } } catch (Exception ignored) {}
         try { if (database != null) database.close(); } catch (Exception ignored) {}
@@ -1310,11 +1424,14 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (kitsManager != null) kitsManager.saveData(); } catch (Exception ignored) {}
         try { if (scoreboardService != null) scoreboardService.stop(); } catch (Exception ignored) {}
         try { if (this.homesMongoClient != null) this.homesMongoClient.close(); } catch (Exception ignored) {}
+        this.homesMongoClient = null;
         try { if (bossBarService != null) bossBarService.stop(); } catch (Exception ignored) {}
         try { if (playervaultsService != null) playervaultsService.stop(); } catch (Exception ignored) {}
         try { if (aliasService != null) aliasService.shutdown(); } catch (Exception ignored) {}
         try { if (jailService != null) jailService.disable(); } catch (Exception ignored) {}
         try { if (oreoHolograms != null) oreoHolograms.unload(); } catch (Exception ignored) {}
+        try { if (dailyStore != null) dailyStore.close(); } catch (Exception ignored) {}
+        dailyStore = null;
 
 
 

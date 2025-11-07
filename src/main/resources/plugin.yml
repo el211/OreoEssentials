@@ -1,5 +1,5 @@
 name: OreoEssentials
-version: "2.1-SNAPSHOT"
+version: "2.3-SNAPSHOT"
 main: fr.elias.oreoEssentials.OreoEssentials
 api-version: "1.21"
 description: "All-in-one essentials plugin with homes/warps/spawn, RTP, economy (Vault), chat tools, portals/jump pads, cross-server EC & player sync."
@@ -25,6 +25,10 @@ commands:
     description: Return to your last location
     permission: oreo.back
 
+  modgui:
+    description: Open Server Management GUI
+    permission: oreo.modgui.open
+    usage: /modgui
   warp:
     description: Teleport to a warp
     permission: oreo.warp
@@ -519,6 +523,16 @@ commands:
     usage: /warpsadmin
     aliases: [ warpsgui, warpguiadmin ]
     permission: oreo.warps.admin
+  channel:
+    description: Manage chat channels
+    usage: /channel <list|join|leave|speak>
+    permission: oreoessentials.channel.command
+  channels:
+    description: Open the Channels GUI
+    usage: "/channels"
+    aliases: [ ch, chgui ]
+    permission: oreo.channels.gui.open
+
 permissions:
   oreo.*:
     description: All OreoEssentials features
@@ -664,7 +678,11 @@ permissions:
   oreo.vault.use.*:         {default: false}
   oreo.vault.use.1:         { default: false }
   oreo.vault.use.2:         { default: false }
-
+  oreoessentials.channel.command: { default: true }
+  oreoessentials.channel.autojoin.*: { default: false }
+  oreoessentials.channel.join.*: { default: true }
+  oreoessentials.channel.leave.*: { default: true }
+  oreoessentials.channel.*: { default: true }
   # QoL toggles & GUIs
   oreo.sync:                { default: true }
   oreo.afk:                 { default: true }
@@ -741,6 +759,9 @@ permissions:
     description: Allows using -s to silently jail
     default: op
 
+  oreo.modgui.open:
+    default: op
+
   oreo.jail.manage:
     description: Allows managing jails (/jailedit)
     default: op
@@ -790,6 +811,9 @@ permissions:
   # Playtime Rewards (Prewards)
   oreo.prewards:
     description: Use /prewards (open GUI, claim own rewards)
+    default: true
+  oreo.channels.gui.open:
+    description: Allows opening the Channels SmartInvs GUI (/channels)
     default: true
 
   oreo.prewards.notify:

@@ -1,24 +1,41 @@
+// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/TpaCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.rabbitmq.PacketChannels;
+import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket;
 import fr.elias.oreoEssentials.services.TeleportService;
 import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.logging.Level;
 
+/**
+ * /tpa <player>
+ *
+ * Behaviour:
+ *  - If target is on the same server: hand to TeleportService.request(requester, target)
+ *  - If target is on a different server (presence known): send a TpaRequestPacket to that server via broker and ping them
+ *  - If presence unknown: broadcast a GLOBAL TpaRequestPacket and a GLOBAL ping
+ *
+ * Pair this with TpAcceptCommand calling broker.acceptCrossServer(target),
+ * which completes the cross-server handover (server switch + arrival snap handled by broker)
+ */
 public class TpaCommand implements OreoCommand {
-    private final TeleportService tpa;
 
-    public TpaCommand(TeleportService tpa) { this.tpa = tpa; }
+    private final TeleportService teleportService;
+
+    public TpaCommand(TeleportService teleportService) {
+        this.teleportService = teleportService;
+    }
 
     @Override public String name() { return "tpa"; }
     @Override public List<String> aliases() { return List.of(); }
@@ -26,74 +43,260 @@ public class TpaCommand implements OreoCommand {
     @Override public String usage() { return "<player>"; }
     @Override public boolean playerOnly() { return true; }
 
+    // ---------- debug helpers ----------
+    private static String traceId() {
+        return Long.toString(ThreadLocalRandom.current().nextLong(2176782336L), 36).toUpperCase(Locale.ROOT);
+    }
+    private static String ms(long startNanos) {
+        long ms = (System.nanoTime() - startNanos) / 1_000_000L;
+        return ms + "ms";
+    }
+    private boolean dbg() {
+        try {
+            var c = OreoEssentials.get().getConfig();
+            return c.getBoolean("features.tpa.debug", c.getBoolean("debug", false));
+        } catch (Throwable ignored) { return false; }
+    }
+    private boolean echo() {
+        try { return OreoEssentials.get().getConfig().getBoolean("features.tpa.debug-echo-to-player", false); }
+        catch (Throwable ignored) { return false; }
+    }
+    private void D(String id, String msg) { if (dbg()) OreoEssentials.get().getLogger().info("[TPA " + id + "] " + msg); }
+    private void E(String id, String msg, Throwable t) { if (dbg()) OreoEssentials.get().getLogger().log(Level.WARNING, "[TPA " + id + "] " + msg, t); }
+    private void P(Player p, String id, String msg) { if (dbg() && echo()) p.sendMessage("§8[§bTPA§8/§7" + id + "§8] §7" + msg); }
+
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player p)) return true;
-        if (args.length < 1) return false;
+        if (!(sender instanceof Player requester)) return true;
 
-        final String targetNameRaw = args[0];
-        final String targetName = targetNameRaw.trim();
-        if (targetName.isEmpty()) { p.sendMessage("§cUsage: /tpa <player>"); return true; }
-
-        // 1) Try LOCAL first
-        Player local = Bukkit.getPlayerExact(targetName);
-        if (local != null) {
-            if (local.equals(p)) { p.sendMessage("§cYou cannot TPA to yourself."); return true; }
-            tpa.request(p, local);
+        if (args.length < 1) {
+            requester.sendMessage("§cUsage: /tpa <player>");
             return true;
         }
 
-        // 2) Not local: try cross-server hints via PlayerDirectory
-        final var plugin = OreoEssentials.get();
-        final var dir = plugin.getPlayerDirectory(); // created in onEnable() when using Mongo
+        final String id = traceId();
+        final long t0 = System.nanoTime();
+        final String input = args[0].trim();
+        final OreoEssentials plugin = OreoEssentials.get();
         final String localServer = plugin.getConfigService().serverName();
+        final var broker = plugin.getTpaBroker();
 
-        // Resolve UUID (best-effort)
+        D(id, "enter by=" + requester.getName() + " input='" + input + "' server=" + localServer);
+        P(requester, id, "start");
+
+        if (input.isEmpty()) {
+            requester.sendMessage("§cUsage: /tpa <player>");
+            D(id, "empty input");
+            return true;
+        }
+
+        // 1) Try local resolve (exact, UUID, display name)
+        long tLocal = System.nanoTime();
+        Player local = resolveOnline(input);
+        D(id, "localResolve=" + (local == null ? "null" : local.getName()) + " in " + ms(tLocal));
+        if (local != null) {
+            if (local.equals(requester)) {
+                requester.sendMessage("§cYou cannot TPA to yourself.");
+                D(id, "self target");
+                return true;
+            }
+            teleportService.request(requester, local);
+            D(id, "same-server request queued in " + ms(t0));
+            P(requester, id, "same server ✓");
+            return true;
+        }
+
+        // 2) Directory lookup (Mongo, NO OfflinePlayer)
+        long tDir = System.nanoTime();
+        var dir = plugin.getPlayerDirectory();
+        if (dir == null) {
+            D(id, "PlayerDirectory=null (Mongo storage not enabled?)");
+            requester.sendMessage("§cPlayer not found online. §7(They may be offline or on another proxy cluster.)");
+            return true;
+        }
+
         UUID targetUuid = null;
         try {
-            OfflinePlayer off = Bukkit.getOfflinePlayer(targetName);
-            if (off != null && off.hasPlayedBefore()) {
-                targetUuid = off.getUniqueId();
-            }
-        } catch (Throwable ignored) {}
+            targetUuid = dir.lookupUuidByName(input);
+            D(id, "lookupUuidByName -> " + targetUuid + " in " + ms(tDir));
+            P(requester, id, "directory " + (targetUuid != null ? "hit" : "miss"));
+        } catch (Throwable t) {
+            E(id, "directory lookup error", t);
+        }
 
-        if (dir != null && targetUuid != null) {
-            // Ask the directory which server the player was last seen on (or currently on)
-            String where = null;
+        if (targetUuid == null) {
             try {
-                // Prefer a "current/online" lookup if your PlayerDirectory exposes it;
-                // otherwise fall back to "lastServer" semantics.
-                where = dir.getCurrentOrLastServer(targetUuid); // <— implement this or alias to your existing method
-            } catch (Throwable ignored) {}
-
-            if (where != null && !where.isBlank()) {
-                if (!where.equalsIgnoreCase(localServer)) {
-                    // 2a) Target is on ANOTHER server — guide the requester and (optionally) ping target via Rabbit
-                    p.sendMessage("§e" + targetName + " §7is on server §b" + where + "§7.");
-                    p.sendMessage("§7Use §b/server " + where + " §7then run §b/tpa " + targetName + "§7.");
-
-                    // Optional: send a remote chat ping to the target's server if RabbitMQ is online
-                    PacketManager pm = plugin.getPacketManager();
-                    if (pm != null && pm.isInitialized()) {
-                        String msg = "§b" + p.getName() + "§7 requested to teleport to you. Type §a/tpaccept " +
-                                p.getName() + " §7or §c/tpdeny " + p.getName() + "§7.";
-                        try {
-                            pm.sendPacket(
-                                    PacketChannels.GLOBAL, // or PacketChannel.individual(where) if you route per-server
-                                    new SendRemoteMessagePacket(targetUuid, msg)
-                            );
-                            p.sendMessage("§7(They were notified on §b" + where + "§7.)");
-                        } catch (Throwable t) {
-                            // just ignore; hint already shown
-                        }
-                    }
-                    return true;
-                }
+                targetUuid = UUID.fromString(input);
+                D(id, "parsed UUID literal -> " + targetUuid);
+            } catch (Exception ignored) {
+                D(id, "not a UUID literal");
             }
         }
 
-        // 3) We couldn't find them cross-server (no directory, or no UUID record, or same server but offline)
-        p.sendMessage("§cPlayer not found online. §7(They may be offline or on another proxy cluster.)");
+        if (targetUuid == null) {
+            requester.sendMessage("§cPlayer not found online. §7(If they’re on another server, use their exact §fMinecraft§7 name.)");
+            D(id, "no UUID; exit in " + ms(t0));
+            return true;
+        }
+
+        // 3) Presence (current/last server)
+        long tPresence = System.nanoTime();
+        String where = null;
+        try {
+            where = dir.getCurrentOrLastServer(targetUuid);
+            D(id, "presence=" + where + " in " + ms(tPresence));
+            P(requester, id, "presence: " + (where == null ? "unknown" : where));
+        } catch (Throwable t) {
+            E(id, "presence lookup error", t);
+        }
+
+        // sanity re-check: if presence says "same server" try UUID-online again (race)
+        if (where != null && where.equalsIgnoreCase(localServer)) {
+            long tUuid = System.nanoTime();
+            Player byId = Bukkit.getPlayer(targetUuid);
+            D(id, "sameServerPresence -> UUID-online=" + (byId != null) + " in " + ms(tUuid));
+            if (byId != null) {
+                if (byId.equals(requester)) {
+                    requester.sendMessage("§cYou cannot TPA to yourself.");
+                    return true;
+                }
+                teleportService.request(requester, byId);
+                D(id, "same-server via UUID ok in " + ms(t0));
+                P(requester, id, "same server (UUID) ✓");
+                return true;
+            }
+            D(id, "presence said same, but not online now (race?)");
+        }
+
+        // 4) Known other server → send cross-server TPA request and ping that server
+        if (where != null && !where.isBlank() && !where.equalsIgnoreCase(localServer)) {
+            String shownName = safeNameLookup(dir, targetUuid, input);
+
+            if (broker != null) {
+                // PATCH: pass target name to handle cracked/offline UUIDs
+                broker.sendRequestToServer(requester, targetUuid, shownName, where);
+                requester.sendMessage("§7Request sent to §b" + shownName + " §7on §b" + where + "§7. They can §a/tpaccept§7.");
+                D(id, "cross-server -> request sent via broker to " + where + " (name=" + shownName + ")");
+            } else {
+                requester.sendMessage("§cCross-server broker unavailable. §7Ask them to join your server.");
+                D(id, "cross-server -> broker null; cannot send request");
+            }
+
+            tryPerServerPing(plugin, where, targetUuid,
+                    "§b" + requester.getName() + "§7 requested to teleport to you. Type §a/tpaccept§7 or §c/tpdeny§7.", id);
+            D(id, "done in " + ms(t0));
+            return true;
+        }
+
+        // 5) Presence unknown → broadcast GLOBAL request and ping
+        if (where == null || where.isBlank()) {
+            D(id, "presence unknown -> attempting GLOBAL broker request + ping");
+            String shownName = safeNameLookup(dir, targetUuid, input);
+
+            if (broker != null) {
+                // PATCH: pass target name on GLOBAL too
+                broker.sendRequestGlobal(requester, targetUuid, shownName);
+                P(requester, id, "broker global request ✓");
+            } else {
+                D(id, "broker null; cannot send global request");
+            }
+
+            tryGlobalPing(plugin, targetUuid,
+                    "§b" + requester.getName() + "§7 requested to teleport to you. Type §a/tpaccept§7 or §c/tpdeny§7.", id);
+
+            requester.sendMessage("§7We broadcast your request to §f" + shownName + " §7across the network. If they’re online, they can §a/tpaccept§7.");
+            D(id, "presence unknown -> GLOBAL request done in " + ms(t0));
+            return true;
+        }
+
+        // 6) Last-chance UUID-online (rare race)
+        long tUuid = System.nanoTime();
+        Player byId = Bukkit.getPlayer(targetUuid);
+        D(id, "lastChance UUID-online=" + (byId != null) + " in " + ms(tUuid));
+        if (byId != null) {
+            if (byId.equals(requester)) {
+                requester.sendMessage("§cYou cannot TPA to yourself.");
+                return true;
+            }
+            teleportService.request(requester, byId);
+            D(id, "last-chance UUID accepted in " + ms(t0));
+            P(requester, id, "found (late) ✓");
+            return true;
+        }
+
+        requester.sendMessage("§cPlayer not found online. §7(They may be offline or on another proxy cluster.)");
+        D(id, "final not found in " + ms(t0));
         return true;
+    }
+
+    // ---------- helpers ----------
+
+    private Player resolveOnline(String input) {
+        Player p = Bukkit.getPlayerExact(input);
+        if (p != null) return p;
+
+        final String want = input.toLowerCase(Locale.ROOT);
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (online.getName().equalsIgnoreCase(want)) return online;
+        }
+        try {
+            UUID id = UUID.fromString(input);
+            Player byId = Bukkit.getPlayer(id);
+            if (byId != null) return byId;
+        } catch (Exception ignored) {}
+
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            String dn = online.getDisplayName();
+            if (dn != null) {
+                String stripped = org.bukkit.ChatColor.stripColor(dn);
+                if (stripped != null && stripped.equalsIgnoreCase(input)) return online;
+            }
+        }
+        return null;
+    }
+
+    private String safeNameLookup(fr.elias.oreoEssentials.playerdirectory.PlayerDirectory dir,
+                                  UUID uuid, String fallback) {
+        try {
+            String n = dir.lookupNameByUuid(uuid);
+            return (n == null || n.isBlank()) ? fallback : n;
+        } catch (Throwable ignored) {
+            return fallback;
+        }
+    }
+
+    /** Send to a specific server’s individual channel when presence is known. */
+    private boolean tryPerServerPing(OreoEssentials plugin, String serverName, UUID targetUuid, String msg, String id) {
+        long tPing = System.nanoTime();
+        PacketManager pm = plugin.getPacketManager();
+        if (pm == null) { D(id, "PacketManager=null (Rabbit disabled?)"); return false; }
+        if (!pm.isInitialized()) { D(id, "PacketManager !initialized"); return false; }
+        try {
+            var channel = PacketChannel.individual(serverName);
+            D(id, "PUBLISH channel=" + channel + " target=" + targetUuid);
+            pm.sendPacket(channel, new SendRemoteMessagePacket(targetUuid, msg));
+            D(id, "per-server ping -> server=" + serverName + " uuid=" + targetUuid + " in " + ms(tPing));
+            return true;
+        } catch (Throwable t) {
+            E(id, "per-server ping failed", t);
+            return false;
+        }
+    }
+
+    /** GLOBAL fallback when we don't know which server hosts the target. */
+    private boolean tryGlobalPing(OreoEssentials plugin, UUID targetUuid, String msg, String id) {
+        long tPing = System.nanoTime();
+        PacketManager pm = plugin.getPacketManager();
+        if (pm == null) { D(id, "PacketManager=null (Rabbit disabled?)"); return false; }
+        if (!pm.isInitialized()) { D(id, "PacketManager !initialized"); return false; }
+        try {
+            D(id, "PUBLISH channel=[global] target=" + targetUuid);
+            pm.sendPacket(PacketChannels.GLOBAL, new SendRemoteMessagePacket(targetUuid, msg));
+            D(id, "GLOBAL ping -> uuid=" + targetUuid + " in " + ms(tPing));
+            return true;
+        } catch (Throwable t) {
+            E(id, "GLOBAL ping failed", t);
+            return false;
+        }
     }
 }
