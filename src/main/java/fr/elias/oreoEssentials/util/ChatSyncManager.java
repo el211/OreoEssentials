@@ -16,7 +16,11 @@ import java.util.Base64;
 import java.util.UUID;
 
 public class ChatSyncManager {
+
     private static final String EXCHANGE_NAME = "chat_sync";
+    private static final String EX_CHANNEL_MSG = "CHANMSG";
+    private static final String EX_CHANNEL_SYS = "CHANSYS";
+
     private static final UUID SERVER_ID = UUID.randomUUID();
 
     private final MuteService muteService; // may be null
@@ -35,6 +39,7 @@ public class ChatSyncManager {
     public ChatSyncManager(boolean enabled, String rabbitUri, MuteService muteService) {
         this.enabled = enabled;
         this.muteService = muteService;
+
         if (!enabled) return;
 
         try {
@@ -62,12 +67,9 @@ public class ChatSyncManager {
      */
     public void publishMessage(UUID playerId, String serverName, String playerName, String message) {
         if (!enabled) return;
+
         try {
-            String payload =
-                    SERVER_ID + ";;" +
-                            playerId + ";;" +
-                            b64(playerName) + ";;" +
-                            b64(message);
+            String payload = SERVER_ID + ";;" + playerId + ";;" + b64(playerName) + ";;" + b64(message);
             rabbitChannel.basicPublish(EXCHANGE_NAME, "", null, payload.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             Bukkit.getLogger().warning("[OreoEssentials] ChatSync publish failed: " + e.getMessage());
@@ -85,27 +87,59 @@ public class ChatSyncManager {
     /** Broadcast a mute to all servers. */
     public void broadcastMute(UUID playerId, long untilEpochMillis, String reason, String by) {
         if (!enabled) return;
+
         try {
             // CTRL;;MUTE;;serverId;;playerUUID;;untilMillis;;b64(reason);;b64(by)
-            String payload = "CTRL;;MUTE;;" + SERVER_ID + ";;" + playerId + ";;" + untilEpochMillis
-                    + ";;" + b64(nullSafe(reason)) + ";;" + b64(nullSafe(by));
+            String payload = "CTRL;;MUTE;;" + SERVER_ID
+                    + ";;" + playerId
+                    + ";;" + untilEpochMillis
+                    + ";;" + b64(nullSafe(reason))
+                    + ";;" + b64(nullSafe(by));
             rabbitChannel.basicPublish(EXCHANGE_NAME, "", null, payload.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             Bukkit.getLogger().warning("[OreoEssentials] ChatSync MUTE broadcast failed: " + e.getMessage());
         }
     }
+
     // in ChatSyncManager (interface/class you own)
     public void publishChannelMessage(UUID senderId, String server, String senderName, String channel, String message) {
-        // Implement publish → RabbitMQ with channel field.
+        if (!enabled) return;
+
+        try {
+            // CHANMSG;;serverId;;senderUUID;;b64(server);;b64(senderName);;b64(channel);;b64(message)
+            String payload = EX_CHANNEL_MSG
+                    + ";;" + SERVER_ID
+                    + ";;" + senderId
+                    + ";;" + b64(nullSafe(server))
+                    + ";;" + b64(nullSafe(senderName))
+                    + ";;" + b64(nullSafe(channel))
+                    + ";;" + b64(nullSafe(message));
+            rabbitChannel.basicPublish(EXCHANGE_NAME, "", null, payload.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("[OreoEssentials] ChatSync channel message publish failed: " + e.getMessage());
+        }
     }
 
     public void publishChannelSystem(String server, String channel, String message) {
-        // Implement publish for system routed events.
+        if (!enabled) return;
+
+        try {
+            // CHANSYS;;serverId;;b64(server);;b64(channel);;b64(message)
+            String payload = EX_CHANNEL_SYS
+                    + ";;" + SERVER_ID
+                    + ";;" + b64(nullSafe(server))
+                    + ";;" + b64(nullSafe(channel))
+                    + ";;" + b64(nullSafe(message));
+            rabbitChannel.basicPublish(EXCHANGE_NAME, "", null, payload.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("[OreoEssentials] ChatSync channel system publish failed: " + e.getMessage());
+        }
     }
 
     /** Broadcast an unmute to all servers. */
     public void broadcastUnmute(UUID playerId) {
         if (!enabled) return;
+
         try {
             // CTRL;;UNMUTE;;serverId;;playerUUID
             String payload = "CTRL;;UNMUTE;;" + SERVER_ID + ";;" + playerId;
@@ -119,6 +153,7 @@ public class ChatSyncManager {
 
     public void subscribeMessages() {
         if (!enabled) return;
+
         try {
             String q = rabbitChannel.queueDeclare().getQueue();
             rabbitChannel.queueBind(q, EXCHANGE_NAME, "");
@@ -129,12 +164,12 @@ public class ChatSyncManager {
                 // ---- Control messages (mute/unmute) ----
                 if (msg.startsWith("CTRL;;")) {
                     // We expect either:
-                    //   CTRL;;UNMUTE;;serverId;;playerUUID
-                    //   CTRL;;MUTE;;serverId;;playerUUID;;untilMillis;;b64(reason);;b64(by)
+                    // CTRL;;UNMUTE;;serverId;;playerUUID
+                    // CTRL;;MUTE;;serverId;;playerUUID;;untilMillis;;b64(reason);;b64(by)
                     String[] p = msg.split(";;", 7);
                     if (p.length >= 4) {
-                        String action = p[1];           // "MUTE" or "UNMUTE"
-                        String originServer = p[2];     // can be ignored (idempotent)
+                        String action = p[1];     // "MUTE" or "UNMUTE"
+                        String originServer = p[2]; // can be ignored (idempotent)
                         String uuidStr = p[3];
 
                         try {
@@ -146,12 +181,14 @@ public class ChatSyncManager {
                             } else if ("MUTE".equals(action) && p.length >= 7) {
                                 long until = Long.parseLong(p[4]);
                                 String reason = new String(Base64.getDecoder().decode(p[5]), StandardCharsets.UTF_8);
-                                String by     = new String(Base64.getDecoder().decode(p[6]), StandardCharsets.UTF_8);
+                                String by = new String(Base64.getDecoder().decode(p[6]), StandardCharsets.UTF_8);
                                 Bukkit.getScheduler().runTask(OreoEssentials.get(), () -> {
                                     if (muteService != null) muteService.mute(target, until, reason, by);
                                 });
                             }
-                        } catch (Exception ignored) { /* bad payload */ }
+                        } catch (Exception ignored) {
+                            /* bad payload */
+                        }
                     }
                     return; // do not fall through to chat handling
                 }
@@ -161,15 +198,18 @@ public class ChatSyncManager {
                 if (split.length != 4) return;
 
                 String originServerId = split[0];
-                String senderUuidStr  = split[1];
-                String nameB64        = split[2]; // not used currently, kept for future
-                String msgB64         = split[3];
+                String senderUuidStr = split[1];
+                String nameB64 = split[2]; // not used currently, kept for future
+                String msgB64 = split[3];
 
                 // Ignore loopback
                 if (SERVER_ID.toString().equals(originServerId)) return;
 
                 UUID senderUuid = null;
-                try { senderUuid = UUID.fromString(senderUuidStr); } catch (Exception ignored) { }
+                try {
+                    senderUuid = UUID.fromString(senderUuidStr);
+                } catch (Exception ignored) {
+                }
 
                 // If we have muteService and a valid UUID, drop message when that UUID is muted locally
                 if (muteService != null && senderUuid != null && muteService.isMuted(senderUuid)) return;
@@ -199,8 +239,14 @@ public class ChatSyncManager {
     }
 
     private void safeClose() {
-        try { if (rabbitChannel != null && rabbitChannel.isOpen()) rabbitChannel.close(); } catch (Exception ignored) {}
-        try { if (rabbitConnection != null && rabbitConnection.isOpen()) rabbitConnection.close(); } catch (Exception ignored) {}
+        try {
+            if (rabbitChannel != null && rabbitChannel.isOpen()) rabbitChannel.close();
+        } catch (Exception ignored) {
+        }
+        try {
+            if (rabbitConnection != null && rabbitConnection.isOpen()) rabbitConnection.close();
+        } catch (Exception ignored) {
+        }
     }
 
     /* ----------------------------- Helpers ----------------------------- */

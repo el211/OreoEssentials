@@ -29,9 +29,7 @@ import fr.elias.oreoEssentials.scoreboard.ScoreboardConfig;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardService;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardToggleCommand;
 import fr.elias.oreoEssentials.customcraft.OeCraftCommand;
-import fr.elias.oreoEssentials.chat.channel.ChannelManager;
-import fr.elias.oreoEssentials.chat.channel.ChannelsConfig;
-import fr.elias.oreoEssentials.chat.channel.PlayerChannelStore;
+
 
 // Tab completion
 import fr.elias.oreoEssentials.commands.completion.HomeTabCompleter;
@@ -99,12 +97,7 @@ public final class OreoEssentials extends JavaPlugin {
     private MongoClient homesMongoClient;
 
     private fr.elias.oreoEssentials.daily.DailyMongoStore dailyStore;
-    private ChannelsConfig channelsConfig;
-    private PlayerChannelStore playerChannelStore;
-    private ChannelManager channelManager;
-    public ChannelManager getChannelManager() {
-        return channelManager;
-    }
+
     private EconomyBootstrap ecoBootstrap;
     // add near other services
     private fr.elias.oreoEssentials.integration.DiscordModerationNotifier discordMod;
@@ -138,8 +131,7 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.bossbar.BossBarService bossBarService;
     public fr.elias.oreoEssentials.bossbar.BossBarService getBossBarService() { return bossBarService; }
     // top-level fields
-    private fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService channelsGuiService;
-    public fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService getChannelsGuiService() { return channelsGuiService; }
+
 
     // Economy / messaging stack
     private PlayerEconomyDatabase database;
@@ -598,42 +590,7 @@ public final class OreoEssentials extends JavaPlugin {
         String discordWebhookUrl = (chatRoot != null && chatRoot.getConfigurationSection("discord") != null)
                 ? chatRoot.getConfigurationSection("discord").getString("webhook_url", "")
                 : "";
-        try {
-            this.channelsConfig = new ChannelsConfig(this);
-            this.playerChannelStore = new PlayerChannelStore(this);
-            this.channelManager = new ChannelManager(this, channelsConfig, playerChannelStore);
 
-            getServer().getPluginManager().registerEvents(
-                    new fr.elias.oreoEssentials.chat.channel.ChannelEventListener(
-                            channelManager,
-                            channelsConfig,
-                            this.getChatSyncManager() // now initialized
-                    ),
-                    this
-            );
-
-            var channelCmd = new fr.elias.oreoEssentials.chat.channel.ChannelCommand(channelManager, channelsConfig);
-            if (getCommand("channel") != null) {
-                getCommand("channel").setExecutor(channelCmd);
-                getCommand("channel").setTabCompleter(channelCmd);
-            } else {
-                getLogger().warning("[Channels] Command 'channel' not found in plugin.yml; skipping registration.");
-            }
-            /* ✅ GUI command (/channels) */
-            fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService channelsGuiService =
-                    new fr.elias.oreoEssentials.chat.channel.gui.ChannelsGuiService(this, channelManager, channelsConfig);
-
-            if (getCommand("channels") != null) {
-                getCommand("channels").setExecutor(channelsGuiService);
-                getCommand("channels").setTabCompleter(channelsGuiService);
-            } else {
-                getLogger().warning("[Channels] Command 'channels' not found in plugin.yml; skipping GUI registration.");
-            }
-            getLogger().info("[Channels] Chat channel system initialized.");
-        } catch (Throwable t) {
-            this.channelManager = null;
-            getLogger().warning("[Channels] Failed to initialize: " + t.getMessage());
-        }
         // Register async chat listener (mute-aware)
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(
