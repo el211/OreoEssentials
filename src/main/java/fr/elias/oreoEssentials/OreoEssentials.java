@@ -19,6 +19,7 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
 import fr.elias.oreoEssentials.customcraft.CustomCraftingService;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
+import fr.elias.oreoEssentials.kits.KitsManager;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.services.mongoservices.*;
@@ -170,6 +171,10 @@ public final class OreoEssentials extends JavaPlugin {
     private CustomConfig chatConfig;
     private FormatManager chatFormatManager;
     private ChatSyncManager chatSyncManager;
+    // trade
+    private fr.elias.oreoEssentials.trade.TradeConfig tradeConfig;
+    private fr.elias.oreoEssentials.trade.TradeService tradeService;
+    public fr.elias.oreoEssentials.trade.TradeService getTradeService() { return tradeService; }
 
     private fr.elias.oreoEssentials.homes.HomeTeleportBroker homeTpBroker;
     // in OreoEssentials.java fields
@@ -458,6 +463,25 @@ public final class OreoEssentials extends JavaPlugin {
         } catch (Throwable t) {
             getLogger().warning("[ModGUI] Failed to init: " + t.getMessage());
         }
+        // --- Trade (/trade) ---
+        this.tradeConfig  = new fr.elias.oreoEssentials.trade.TradeConfig(this);
+
+        if (tradeConfig.enabled) {
+            this.tradeService = new fr.elias.oreoEssentials.trade.TradeService(this, tradeConfig);
+            if (getCommand("trade") != null) {
+                getCommand("trade").setExecutor(new fr.elias.oreoEssentials.trade.TradeCommand(this, tradeService));
+                // (tab completer optional)
+                getLogger().info("[Trade] Enabled.");
+            } else {
+                getLogger().warning("[Trade] Command 'trade' not found in plugin.yml; skipping.");
+            }
+        } else {
+            this.tradeService = null;
+            // **Completely remove the command from the server's command map**
+            unregisterCommandHard("trade");
+            getLogger().info("[Trade] Disabled by config — command unregistered.");
+        }
+
 
         // === Custom Crafting (SmartInvs GUI) ===
         this.customCraftingService = new CustomCraftingService(this);
@@ -1388,6 +1412,9 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (jailService != null) jailService.disable(); } catch (Exception ignored) {}
         try { if (oreoHolograms != null) oreoHolograms.unload(); } catch (Exception ignored) {}
         try { if (dailyStore != null) dailyStore.close(); } catch (Exception ignored) {}
+        try { if (tradeService != null) tradeService.cancelAll(); } catch (Throwable ignored) {}
+
+
         dailyStore = null;
 
 
@@ -1487,6 +1514,15 @@ public final class OreoEssentials extends JavaPlugin {
         } catch (Throwable ignored) {
             // Best effort; if reflection fails we simply don't claim the executors.
         }
+    }
+    // Playtime Rewards service getter (name expected by PlaceholderAPIHook)
+    public fr.elias.oreoEssentials.playtime.PlaytimeRewardsService getPlaytimeRewardsService() {
+        return this.playtimeRewards;
+    }
+
+    // Playtime tracker getter (name expected by PlaceholderAPIHook)
+    public fr.elias.oreoEssentials.playtime.PlaytimeTracker getPlaytimeTracker() {
+        return this.playtimeTracker;
     }
 
     public EconomyBootstrap getEcoBootstrap() { return ecoBootstrap; }

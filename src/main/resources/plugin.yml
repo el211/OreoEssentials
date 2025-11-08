@@ -17,6 +17,11 @@ commands:
     description: Teleport to spawn
     permission: oreo.spawn
 
+  trade:
+    description: Open a trade with another player
+    usage: /trade <player>
+    permission: oreo.trade
+
   setspawn:
     description: Set the server spawn
     permission: oreo.setspawn
@@ -829,6 +834,9 @@ permissions:
     default: op
   oreo.warps:
     description: Use the player warps GUI
+    default: true
+
+  oreo.trade:
     default: true
 
   oreo.warps.admin:
