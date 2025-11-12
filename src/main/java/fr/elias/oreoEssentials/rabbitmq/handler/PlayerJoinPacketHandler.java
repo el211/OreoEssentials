@@ -1,7 +1,8 @@
+// File: src/main/java/fr/elias/oreoEssentials/rabbitmq/handler/PlayerJoinPacketHandler.java
 package fr.elias.oreoEssentials.rabbitmq.handler;
 
-
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
 import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.packet.event.PacketSubscriber;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerJoinPacket;
@@ -18,14 +19,28 @@ public class PlayerJoinPacketHandler implements PacketSubscriber<PlayerJoinPacke
 
     @Override
     public void onReceive(PacketChannel channel, PlayerJoinPacket packet) {
+        // Defensive null checks in case upstream sent malformed data
+        if (packet == null) return;
+
         UUID uuid = packet.getPlayerId();
         String name = packet.getPlayerName();
 
-        // 🧠 Log join packets for Bedrock/Java sync
-        plugin.getLogger().info("📨 Received PlayerJoinPacket from channel '" + channel + "'");
-        plugin.getLogger().info("👤 Player: " + name + " (UUID: " + uuid + ")");
+        // Optional: small sanity check to avoid polluting cache
+        if (uuid == null || name == null || name.isEmpty()) {
+            plugin.getLogger().warning("[Rabbit] PlayerJoinPacket missing data (uuid=" + uuid + ", name=" + name + ")");
+            return;
+        }
 
-        // ✅ Add to shared offline player cache
-        plugin.getOfflinePlayerCache().add(name, uuid);
+        plugin.getLogger().fine("[Rabbit] Join @" + channel + " -> " + name + " (" + uuid + ")");
+
+        // ✅ Guarded cache access (getter is null-safe but we still guard)
+        OfflinePlayerCache cache = plugin.getOfflinePlayerCache();
+        if (cache != null) {
+            try {
+                cache.add(name, uuid);
+            } catch (Throwable t) {
+                plugin.getLogger().warning("[Rabbit] Failed to add player to OfflinePlayerCache: " + t.getMessage());
+            }
+        }
     }
 }

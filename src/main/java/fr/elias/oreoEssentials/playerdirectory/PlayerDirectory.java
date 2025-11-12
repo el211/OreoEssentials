@@ -50,6 +50,23 @@ public class PlayerDirectory {
                 .first();
         return d == null ? null : d.getString("name");
     }
+    // PlayerDirectory.java
+    public @org.jetbrains.annotations.Nullable String lookupCurrentServer(UUID uuid) {
+        if (uuid == null) return null;
+        try {
+            var doc = coll.find(eq("uuid", uuid.toString())).first();
+            if (doc == null) return null;
+            // Adjust the field path to whatever your presence writer uses.
+            // Common patterns: "currentServer", or nested "presence.currentServer".
+            String s = doc.getString("currentServer");
+            if (s == null && doc.get("presence") instanceof org.bson.Document pres) {
+                s = pres.getString("currentServer");
+            }
+            return (s != null && !s.isBlank()) ? s : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
 
     // ----- presence writes -----
     public void upsertPresence(UUID uuid, String name, String server) {

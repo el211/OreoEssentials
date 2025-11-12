@@ -20,6 +20,7 @@ import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
 import fr.elias.oreoEssentials.customcraft.CustomCraftingService;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
 import fr.elias.oreoEssentials.kits.KitsManager;
+import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.services.mongoservices.*;
@@ -30,6 +31,7 @@ import fr.elias.oreoEssentials.scoreboard.ScoreboardConfig;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardService;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardToggleCommand;
 import fr.elias.oreoEssentials.customcraft.OeCraftCommand;
+import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 
 
 // Tab completion
@@ -62,7 +64,6 @@ import fr.elias.oreoEssentials.rabbitmq.PacketChannels;
 import fr.elias.oreoEssentials.rabbitmq.handler.PlayerJoinPacketHandler;
 import fr.elias.oreoEssentials.rabbitmq.handler.PlayerQuitPacketHandler;
 import fr.elias.oreoEssentials.rabbitmq.handler.RemoteMessagePacketHandler;
-import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 import fr.elias.oreoEssentials.rabbitmq.sender.RabbitMQSender;
 
 // Services
@@ -163,6 +164,9 @@ public final class OreoEssentials extends JavaPlugin {
     private boolean economyEnabled;
     private boolean redisEnabled;
     private boolean rabbitEnabled;
+    // with other fields
+    private fr.elias.oreoEssentials.trade.TradeCrossServerBroker tradeBroker;
+    public fr.elias.oreoEssentials.trade.TradeCrossServerBroker getTradeBroker() { return tradeBroker; }
 
     // RabbitMQ packet manager (optional)
     private PacketManager packetManager;
@@ -418,7 +422,7 @@ public final class OreoEssentials extends JavaPlugin {
 
         // Locales
         Lang.init(this);
-// --- Kits (fully optional) ---
+        // --- Kits (fully optional) ---
         boolean kitsFeature   = getConfig().getBoolean("features.kits.enabled", true);
         boolean kitsRegister  = getConfig().getBoolean("features.kits.register-commands", true);
 
@@ -464,20 +468,30 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().warning("[ModGUI] Failed to init: " + t.getMessage());
         }
         // --- Trade (/trade) ---
-        this.tradeConfig  = new fr.elias.oreoEssentials.trade.TradeConfig(this);
+        this.tradeConfig = new fr.elias.oreoEssentials.trade.TradeConfig(this);
 
-        if (tradeConfig.enabled) {
-            this.tradeService = new fr.elias.oreoEssentials.trade.TradeService(this, tradeConfig);
+        if (this.tradeConfig.enabled) {
+            // service
+            this.tradeService = new fr.elias.oreoEssentials.trade.TradeService(this, this.tradeConfig);
+
+            // command
             if (getCommand("trade") != null) {
-                getCommand("trade").setExecutor(new fr.elias.oreoEssentials.trade.TradeCommand(this, tradeService));
-                // (tab completer optional)
+                getCommand("trade").setExecutor(
+                        new fr.elias.oreoEssentials.trade.TradeCommand(this, this.tradeService)
+                );
                 getLogger().info("[Trade] Enabled.");
             } else {
                 getLogger().warning("[Trade] Command 'trade' not found in plugin.yml; skipping.");
             }
+
+            // 🔒 anti-steal guard for the trade GUI
+            org.bukkit.Bukkit.getPluginManager().registerEvents(
+                    new fr.elias.oreoEssentials.trade.ui.TradeGuiGuardListener(this),
+                    this
+            );
+
         } else {
             this.tradeService = null;
-            // **Completely remove the command from the server's command map**
             unregisterCommandHard("trade");
             getLogger().info("[Trade] Disabled by config — command unregistered.");
         }
@@ -497,6 +511,9 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().warning("[CustomCraft] Command 'oecraft' not found in plugin.yml; skipping registration.");
         }
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.trade.ui.TradeInventoryCloseListener(this), this);
+
 
         // (you had this listener registration twice; keeping it once is enough, but we won't delete it)
         getServer().getPluginManager().registerEvents(
@@ -835,32 +852,21 @@ public final class OreoEssentials extends JavaPlugin {
         this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
 
         // -------- RabbitMQ (optional cross-server signaling) --------
-// -------- RabbitMQ (optional cross-server signaling) --------
         if (rabbitEnabled) {
             RabbitMQSender rabbit = new RabbitMQSender(getConfig().getString("rabbitmq.uri"));
+            // Make sure OfflinePlayerCache exists before any packet handlers / consumers start
+            if (this.offlinePlayerCache == null) {
+                this.offlinePlayerCache = new OfflinePlayerCache();
+            }
+
             this.packetManager = new PacketManager(this, rabbit);
             if (rabbit.connect()) {
                 packetManager.init();
-
-                // ⬇️ Register your dynamic TPA packets here (AFTER init, BEFORE subscribe/send)
-                packetManager.getPacketRegistry().register(
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket.class,
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket::new
-                );
-
-                // (keep your existing registrations)
-                packetManager.getPacketRegistry().register(
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaRequestPacket.class,
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaRequestPacket::new
-                );
-                packetManager.getPacketRegistry().register(
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaSummonPacket.class,
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaSummonPacket::new
-                );
-                packetManager.getPacketRegistry().register(
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket.class,
-                        fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket::new
-                );
+                registerAllPacketsDeterministically(packetManager);
+                try {
+                    // If PacketManager exposes registryChecksum(), log it; otherwise no-op
+                    getLogger().info("[RABBIT] Packet registry checksum=" + packetManager.registryChecksum());
+                } catch (Throwable ignored) {}
 
 
                 // now you can subscribe channels & handlers safely
@@ -875,6 +881,14 @@ public final class OreoEssentials extends JavaPlugin {
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
                         new RemoteMessagePacketHandler()
                 );
+                // Subscription (add near your other trade subscriptions)
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket.class,
+                        (fr.elias.oreoEssentials.rabbitmq.packet.event.PacketSubscriber<
+                                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket>
+                                ) new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeStartPacketHandler(this)
+                );
+
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerJoinPacket.class,
                         new PlayerJoinPacketHandler(this)
@@ -882,6 +896,31 @@ public final class OreoEssentials extends JavaPlugin {
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerQuitPacket.class,
                         new PlayerQuitPacketHandler(this)
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeInvitePacket.class,
+                        new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeInvitePacketHandler(this)
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStatePacket.class,
+                        new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeStatePacketHandler(this)
+                );
+
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeConfirmPacket.class,
+                        new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeConfirmPacketHandler(this)
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeCancelPacket.class,
+                        new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeCancelPacketHandler(this)
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeGrantPacket.class,
+                        new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeGrantPacketHandler(this)
+                );
+                packetManager.subscribe(
+                        fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeClosePacket.class,
+                        new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeClosePacketHandler(this)
                 );
 
                 getLogger().info("[RABBIT] Connected and subscriptions active.");
@@ -906,6 +945,17 @@ public final class OreoEssentials extends JavaPlugin {
             this.invBridge = null;
             getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable or crossserverinv=false).");
         }
+        if (packetManager != null && packetManager.isInitialized()) {
+            this.tradeBroker = new fr.elias.oreoEssentials.trade.TradeCrossServerBroker(
+                    this,
+                    packetManager,
+                    configService.serverName(),
+                    this.tradeService // 👈 required: broker needs to drop incoming invites into TradeService
+            );
+        } else {
+            this.tradeBroker = null;
+        }
+
 
         // -------- Cross-server teleport brokers --------
         if (packetManager != null && packetManager.isInitialized()) {
@@ -1386,6 +1436,72 @@ public final class OreoEssentials extends JavaPlugin {
         return playervaultsService;
     }
 
+    private void registerAllPacketsDeterministically(PacketManager pm) {
+        // Keep this exact order on all nodes – never branch on config
+
+        // --- Core/Generic packets (you subscribe handlers for these) ---
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerJoinPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerJoinPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerQuitPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerQuitPacket::new
+        );
+
+        // --- Trade packets (grouped and ordered) ---
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeInvitePacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeInvitePacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStatePacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStatePacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeConfirmPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeConfirmPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeCancelPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeCancelPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeGrantPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeGrantPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeClosePacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeClosePacket::new
+        );
+
+        // --- TPA packets (always register, even if feature disabled) ---
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaRequestPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaRequestPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaSummonPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaSummonPacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket::new
+        );
+    }
+
 
 
     public boolean isMessagingAvailable() {
@@ -1472,7 +1588,10 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.playerdirectory.PlayerDirectory getPlayerDirectory() { return playerDirectory; }
     public TeleportBroker getTeleportBroker() { return teleportBroker; }
     public RedisManager getRedis() { return redis; }
-    public OfflinePlayerCache getOfflinePlayerCache() { return offlinePlayerCache; }
+    public OfflinePlayerCache getOfflinePlayerCache() {
+        if (offlinePlayerCache == null) offlinePlayerCache = new OfflinePlayerCache();
+        return offlinePlayerCache;
+    }
     public PlayerEconomyDatabase getDatabase() { return database; }
     public PacketManager getPacketManager() { return packetManager; }
     public ScoreboardService getScoreboardService() { return scoreboardService; }

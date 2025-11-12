@@ -17,6 +17,7 @@ public final class TradeConfig {
 
     public final Material dividerMaterial;
     public final String dividerName;
+    public final boolean debugDeep;
 
     public final Material confirmMaterial;
     public final Material confirmedMaterial;
@@ -58,6 +59,7 @@ public final class TradeConfig {
         this.confirmedMaterial = safeMat(trade.getString("buttons.confirmed.material", "LIME_CONCRETE"), Material.LIME_CONCRETE);
         this.confirmText       = trade.getString("buttons.confirm.text", "&aConfirm");
         this.confirmedText     = trade.getString("buttons.confirmed.text", "&aReady ✔");
+        this.debugDeep = plugin.getConfig().getBoolean("tradedebug", false);
 
         this.cancelMaterial    = safeMat(trade.getString("buttons.cancel.material", "BARRIER"), Material.BARRIER);
         this.cancelText        = trade.getString("buttons.cancel.text", "&cCancel");

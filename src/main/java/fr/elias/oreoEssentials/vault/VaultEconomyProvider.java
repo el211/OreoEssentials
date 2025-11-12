@@ -1,6 +1,5 @@
 package fr.elias.oreoEssentials.vault;
 
-
 import fr.elias.oreoEssentials.OreoEssentials;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -11,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.ArrayList;
 
+@SuppressWarnings("deprecation")
 public class VaultEconomyProvider implements Economy {
     private final OreoEssentials plugin;
     private final String databaseType;
@@ -25,7 +25,22 @@ public class VaultEconomyProvider implements Economy {
     }
 
     private void setBalanceInDatabase(UUID playerUUID, String name, double amount) {
-        plugin.getDatabase().setBalance(playerUUID, name, amount);
+        plugin.getDatabase().setBalance(playerUUID, safeName(name, playerUUID), sanitize(amount));
+    }
+
+    private static boolean invalidAmount(double amount) {
+        return Double.isNaN(amount) || Double.isInfinite(amount) || amount < 0.0;
+    }
+
+    private static double sanitize(double v) {
+        // keep two decimals like most economies; adjust if your DB already rounds
+        return Math.round(v * 100.0) / 100.0;
+    }
+
+    private String safeName(String name, UUID uuid) {
+        if (name != null && !name.isEmpty()) return name;
+        String b = Bukkit.getOfflinePlayer(uuid).getName();
+        return (b != null && !b.isEmpty()) ? b : uuid.toString();
     }
 
     @Override
@@ -65,12 +80,14 @@ public class VaultEconomyProvider implements Economy {
 
     @Override
     public boolean hasAccount(OfflinePlayer player) {
+        // Oreo economy does not require pre-created accounts
         return true;
     }
 
     @Override
     public boolean hasAccount(String playerName) {
-        return Bukkit.getOfflinePlayer(playerName).hasPlayedBefore();
+        // Keep consistent with OfflinePlayer-based version: always manageable
+        return true;
     }
 
     @Override
@@ -90,14 +107,18 @@ public class VaultEconomyProvider implements Economy {
 
     @Override
     public double getBalance(String playerName) {
-        UUID playerId = plugin.getOfflinePlayerCache().getId(playerName);
-
-        if (playerId != null) {
-            return getBalanceFromDatabase(playerId);
+        UUID id = plugin.getOfflinePlayerCache().getId(playerName);
+        if (id == null) {
+            var online = Bukkit.getPlayerExact(playerName);
+            if (online != null) id = online.getUniqueId();
         }
+        if (id != null) return getBalanceFromDatabase(id);
 
-        return getBalance(Bukkit.getOfflinePlayer(playerName)); // Fallback to Bukkit, no guarantees that this will work
+        OfflinePlayer op = Bukkit.getOfflinePlayer(playerName);
+        if (op.getName() == null && !op.hasPlayedBefore()) return 0.0;
+        return getBalance(op);
     }
+
 
     @Override
     public double getBalance(String playerName, String worldName) {
@@ -111,12 +132,14 @@ public class VaultEconomyProvider implements Economy {
 
     @Override
     public boolean has(String playerName, double amount) {
-        return getBalance(playerName) >= amount;
+        if (invalidAmount(amount)) return false;
+        return getBalance(playerName) + 1e-9 >= amount;
     }
 
     @Override
     public boolean has(OfflinePlayer player, double amount) {
-        return getBalance(player) >= amount;
+        if (invalidAmount(amount)) return false;
+        return getBalance(player) + 1e-9 >= amount;
     }
 
     @Override
@@ -149,12 +172,16 @@ public class VaultEconomyProvider implements Economy {
         UUID playerUUID = player.getUniqueId();
         double balance = getBalanceFromDatabase(playerUUID);
 
-        if (balance < amount) {
+        if (invalidAmount(amount)) {
+            return new EconomyResponse(0, balance, EconomyResponse.ResponseType.FAILURE, "Invalid amount");
+        }
+        if (balance + 1e-9 < amount) {
             return new EconomyResponse(0, balance, EconomyResponse.ResponseType.FAILURE, "Insufficient funds");
         }
 
         setBalanceInDatabase(playerUUID, player.getName(), balance - amount);
-        return new EconomyResponse(amount, balance - amount, EconomyResponse.ResponseType.SUCCESS, "");
+        double newBal = balance - amount;
+        return new EconomyResponse(amount, newBal, EconomyResponse.ResponseType.SUCCESS, "");
     }
 
     @Override
@@ -162,8 +189,13 @@ public class VaultEconomyProvider implements Economy {
         UUID playerUUID = player.getUniqueId();
         double balance = getBalanceFromDatabase(playerUUID);
 
+        if (invalidAmount(amount)) {
+            return new EconomyResponse(0, balance, EconomyResponse.ResponseType.FAILURE, "Invalid amount");
+        }
+
         setBalanceInDatabase(playerUUID, player.getName(), balance + amount);
-        return new EconomyResponse(amount, balance + amount, EconomyResponse.ResponseType.SUCCESS, "");
+        double newBal = balance + amount;
+        return new EconomyResponse(amount, newBal, EconomyResponse.ResponseType.SUCCESS, "");
     }
 
     @Override
@@ -172,6 +204,9 @@ public class VaultEconomyProvider implements Economy {
 
         if (playerId != null) {
             double balance = getBalanceFromDatabase(playerId);
+            if (invalidAmount(amount)) {
+                return new EconomyResponse(0, balance, EconomyResponse.ResponseType.FAILURE, "Invalid amount");
+            }
             setBalanceInDatabase(playerId, playerName, balance + amount);
             return new EconomyResponse(amount, balance + amount, EconomyResponse.ResponseType.SUCCESS, "");
         }
@@ -191,6 +226,7 @@ public class VaultEconomyProvider implements Economy {
 
     @Override
     public boolean createPlayerAccount(OfflinePlayer player) {
+        // No-op; accounts are virtual. Ensure balance row exists by touching DB if needed.
         return true;
     }
 
@@ -269,4 +305,3 @@ public class VaultEconomyProvider implements Economy {
         return new EconomyResponse(0, 0, EconomyResponse.ResponseType.NOT_IMPLEMENTED, "");
     }
 }
-

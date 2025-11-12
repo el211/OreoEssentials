@@ -1,111 +1,474 @@
+// File: src/main/java/fr/elias/oreoEssentials/trade/TradeSession.java
 package fr.elias.oreoEssentials.trade;
 
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.minuskube.inv.SmartInventory;
+import fr.elias.oreoEssentials.trade.ui.TradeMenu;
 import org.bukkit.Bukkit;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+/**
+ * Represents a single cross-server trade session.
+ * This class is purely session state + UI wiring for the *local* server.
+ * Networking/publishing is driven by TradeService via the callbacks.
+ */
 public final class TradeSession {
 
-    final Player a, b;
+    /* ----------------------------------------------------------------------
+     * Identity & participants
+     * ---------------------------------------------------------------------- */
+    /** Canonical session id (SID) chosen by the acceptor/publisher and shared across servers. */
+    private final UUID sid;
+
+    /** Participant A (left side / title "Trade: A ⇒ <name>") */
+    private final UUID aId;
+    private final String aName;
+
+    /** Participant B (right side) */
+    private final UUID bId;
+    private final String bName;
+    // --- Side helpers (ownership) ---
+    private boolean isA(UUID uid) { return uid != null && uid.equals(aId); }
+    private boolean isB(UUID uid) { return uid != null && uid.equals(bId); }
+
+    /* ----------------------------------------------------------------------
+     * Lifecycle flags
+     * ---------------------------------------------------------------------- */
+    /** True once we start closing (granting/cancelling). */
+    private volatile boolean closing = false;
+    /** True once fully closed. */
+    private volatile boolean closed  = false;
+
+    public boolean isClosingOrClosed() { return closing || closed; }
+    public void beginClosing() { this.closing = true; }
+    public void markClosed()   { this.closed = true; this.closing = true; }
+
+    /* ----------------------------------------------------------------------
+     * Runtime / wiring
+     * ---------------------------------------------------------------------- */
     private final OreoEssentials plugin;
-    private final TradeConfig cfg;
+    private final TradeConfig   cfg;
 
+    /** Called by the menu/session when both sides are confirmed and we must perform the exchange. */
     private final Consumer<TradeSession> onFinish;
-    private final java.util.function.BiConsumer<TradeSession,String> onCancel;
 
-    private boolean aConfirmed = false;
-    private boolean bConfirmed = false;
+    /** Called when trade cancels with a reason ("cancelled", "left", "timeout"). */
+    private final BiConsumer<TradeSession, String> onCancel;
 
-    private ItemStack[] offerA = new ItemStack[0];
-    private ItemStack[] offerB = new ItemStack[0];
+    /** Called every time the local state changes; TradeService uses it to publish to the peer. */
+    private final BiConsumer<TradeSession, Long> onStateChanged;
 
-    private SmartInventory invA;
-    private SmartInventory invB;
+    /** Active local menu (if any) for UI locking/refresh/closing. */
+    private volatile TradeMenu menu;
 
-    public TradeSession(OreoEssentials plugin, TradeConfig cfg, Player a, Player b,
-                        Consumer<TradeSession> onFinish,
-                        java.util.function.BiConsumer<TradeSession,String> onCancel) {
-        this.plugin = plugin;
-        this.cfg = cfg;
-        this.a = a;
-        this.b = b;
-        this.onFinish = onFinish;
-        this.onCancel = onCancel;
+    /* ----------------------------------------------------------------------
+     * Mirrored trade state
+     * ---------------------------------------------------------------------- */
+    private long version = 0L;         // monotonic session version (local + remote edits)
+    private boolean aReady = false;     // A confirmed?
+    private boolean bReady = false;     // B confirmed?
+
+    /** Fixed 18-slot offer areas per side (display model). */
+    private final ItemStack[] offerA = new ItemStack[18];
+    private final ItemStack[] offerB = new ItemStack[18];
+
+    /** If true, block any edits/clicks; used during confirm→grant race. */
+    private volatile boolean uiLocked = false;
+
+    /** Set once items have been granted; ignore any further edits/packets. */
+    private volatile boolean completed = false;
+
+    private volatile boolean grantedOnce = false;
+    /** Called by TradeService (or right before it) to guard the grant. */
+    public boolean tryMarkGrantingOnce() {
+        synchronized (this) {
+            if (grantedOnce) return false;
+            grantedOnce = true;
+            return true;
+        }
+    }
+    /* ----------------------------------------------------------------------
+     * Constructor
+     * ---------------------------------------------------------------------- */
+    public TradeSession(
+            UUID sid,
+            OreoEssentials plugin,
+            TradeConfig cfg,
+            UUID aId, String aName,
+            UUID bId, String bName,
+            Consumer<TradeSession> onFinish,
+            BiConsumer<TradeSession, String> onCancel,
+            BiConsumer<TradeSession, Long> onStateChanged
+    ) {
+        this.sid  = Objects.requireNonNull(sid, "sid");
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.cfg  = Objects.requireNonNull(cfg, "cfg");
+        this.aId  = Objects.requireNonNull(aId, "aId");
+        this.bId  = Objects.requireNonNull(bId, "bId");
+        this.aName = (aName != null ? aName : "PlayerA");
+        this.bName = (bName != null ? bName : "PlayerB");
+        this.onFinish = Objects.requireNonNull(onFinish, "onFinish");
+        this.onCancel = Objects.requireNonNull(onCancel, "onCancel");
+        this.onStateChanged = Objects.requireNonNull(onStateChanged, "onStateChanged");
     }
 
+    /* ======================================================================
+     * UI lifecycle
+     * ====================================================================== */
+
+    /** Opens the trade menu for whichever participants are currently online on this server. */
     public void open() {
-        invA = TradeView.build(plugin, cfg, this, true);
-        invB = TradeView.build(plugin, cfg, this, false);
-        invA.open(a);
-        invB.open(b);
-        a.playSound(a.getLocation(), cfg.openSound, 1, 1);
-        b.playSound(b.getLocation(), cfg.openSound, 1, 1);
+        final Player pa = Bukkit.getPlayer(aId);
+        final Player pb = Bukkit.getPlayer(bId);
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                TradeMenu m = new TradeMenu(plugin, cfg, pa, pb);
+                this.menu = m; // store reference for lock/refresh/close
+                m.openForBoth(); // menu will only open for locally-present players
+
+                if (pa != null && pa.isOnline()) safePlay(pa, cfg.openSound, 1f, 1f);
+                if (pb != null && pb.isOnline()) safePlay(pb, cfg.openSound, 1f, 1f);
+            } catch (Throwable t) {
+                plugin.getLogger().warning("[TRADE] open() failed: " + t.getMessage());
+            }
+        });
     }
 
-    /* called by view */
+    /** Close inventories for local viewers (safe even if not open). */
+    public void closeLocalViewers() {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            Player a = Bukkit.getPlayer(aId);
+            Player b = Bukkit.getPlayer(bId);
+            if (a != null) a.closeInventory();
+            if (b != null) b.closeInventory();
+        });
+    }
+    public boolean tryClose() {
+        if (closed) return false;
+        synchronized (this) {
+            if (closed) return false;
+            closed = true;
+            return true;
+        }
+    }
+    public boolean isClosed() { return closed; }
+    /** Clears offer visuals (locally) and closes menus; used after grant/cancel. */
+    public void forceClearAndCloseLocal() {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                if (menu != null) {
+                    menu.clearAllOfferSlotsSafely();
+                }
+            } catch (Throwable ignored) {}
+            closeLocalViewers();
+            this.menu = null;
+
+        });
+    }
+
+    /* ======================================================================
+     * Local click callbacks (menu → session)
+     * ====================================================================== */
+
+    /** Toggle confirm for a side (forA=true → A; false → B). */
     public void clickConfirm(boolean forA) {
-        if (forA) {
-            if (!aConfirmed) {
-                if (cfg.requireEmptyCursorOnConfirm && !isEmpty(a.getItemOnCursor())) {
-                    a.sendMessage("§cEmpty your cursor before confirming.");
-                    return;
-                }
-                aConfirmed = true;
-                offerA = TradeView.snapshotOfferFrom(a, cfg.rows, true);
-                a.playSound(a.getLocation(), cfg.confirmSound, 1, 1);
-            } else {
-                aConfirmed = false;
-                a.playSound(a.getLocation(), cfg.clickSound, 1, 1);
-            }
-        } else {
-            if (!bConfirmed) {
-                if (cfg.requireEmptyCursorOnConfirm && !isEmpty(b.getItemOnCursor())) {
-                    b.sendMessage("§cEmpty your cursor before confirming.");
-                    return;
-                }
-                bConfirmed = true;
-                offerB = TradeView.snapshotOfferFrom(b, cfg.rows, false);
-                b.playSound(b.getLocation(), cfg.confirmSound, 1, 1);
-            } else {
-                bConfirmed = false;
-                b.playSound(b.getLocation(), cfg.clickSound, 1, 1);
-            }
+        log("[TRADE] clickConfirm side=" + (forA ? "A" : "B") + " before A=" + aReady + " B=" + bReady);
+
+        if (uiLocked || completed) return;
+
+        Player p = Bukkit.getPlayer(forA ? aId : bId);
+        if (p != null && cfg.requireEmptyCursorOnConfirm && !isEmpty(p.getItemOnCursor())) {
+            p.sendMessage("§cEmpty your cursor before confirming.");
+            return;
         }
 
-        // No manual refresh needed; SmartInvs will call update() every tick.
+        if (forA) {
+            aReady = !aReady;
+            safePlay(p, aReady ? cfg.confirmSound : cfg.clickSound, 1f, 1f);
+        } else {
+            bReady = !bReady;
+            safePlay(p, bReady ? cfg.confirmSound : cfg.clickSound, 1f, 1f);
+        }
 
-        if (aConfirmed && bConfirmed) {
+        bumpVersionAndFire();
+
+        if (aReady && bReady) {
+            // Immediately lock UI to prevent any item pickup/drag while finishing.
+            lockUiNow();
+
+            // NEW: mark we're closing now; further cancels/edits will be ignored.
+            beginClosing();
+
+            // Finish next tick: close UIs locally, then let service grant & broadcast.
             Bukkit.getScheduler().runTask(plugin, () -> {
-                a.closeInventory();
-                b.closeInventory();
+                closeLocalViewers();
                 onFinish.accept(this);
             });
         }
+
     }
 
+    /** Cancel from a local click. */
     public void clickCancel() {
-        a.closeInventory();
-        b.closeInventory();
+        if (completed || uiLocked || isClosingOrClosed()) return;
+        log("[TRADE] clickCancel");
+        closeLocalViewers();
         onCancel.accept(this, "cancelled");
     }
-
-    public boolean isConfirmed(boolean forA) { return forA ? aConfirmed : bConfirmed; }
-
-    public ItemStack[] getOfferA() {
-        return offerA == null ? new ItemStack[0]
-                : Arrays.stream(offerA).filter(i -> i != null && !i.getType().isAir()).toArray(ItemStack[]::new);
+    /** Player-driven toggle confirm that enforces side ownership. */
+    public void playerToggleConfirm(UUID who) {
+        if (who == null) return;
+        if (isA(who)) {
+            clickConfirm(true);
+        } else if (isB(who)) {
+            clickConfirm(false);
+        } else {
+            // Unknown player => ignore
+        }
     }
-    public ItemStack[] getOfferB() {
-        return offerB == null ? new ItemStack[0]
-                : Arrays.stream(offerB).filter(i -> i != null && !i.getType().isAir()).toArray(ItemStack[]::new);
+
+    /** Player-driven offer edit that enforces side ownership. */
+    public void playerSetOfferSlot(UUID who, int slot, ItemStack item) {
+        if (who == null) return;
+        if (isA(who)) {
+            setOfferSlot(true, slot, item);
+        } else if (isB(who)) {
+            setOfferSlot(false, slot, item);
+        } else {
+            // Unknown player => ignore
+        }
+    }
+
+    /**
+     * Local edit of an offer slot.
+     * Any local modification clears that side's ready flag and bumps version.
+     */
+    public void setOfferSlot(boolean forA, int slot, ItemStack item) {
+        if (slot < 0 || slot >= 18) return;
+        if (uiLocked || completed) return;
+        // Optional: enforce empty cursor on edit like confirm (prevents weird client timing)
+        if (cfg.requireEmptyCursorOnConfirm) {
+            Player p = Bukkit.getPlayer(forA ? aId : bId);
+            if (p != null && !isEmpty(p.getItemOnCursor())) {
+                p.sendMessage("§cEmpty your cursor before editing the offer.");
+                return;
+            }
+        }
+
+        if (forA) {
+            offerA[slot] = cloneOrNull(item);
+            aReady = false;
+        } else {
+            offerB[slot] = cloneOrNull(item);
+            bReady = false;
+        }
+
+        log("[TRADE] setOfferSlot side=" + (forA ? "A" : "B") + " slot=" + slot
+                + " now Aready=" + aReady + " Bready=" + bReady);
+
+        bumpVersionAndFire();
+    }
+
+    /* ======================================================================
+     * Cross-server synchronization (session-local)
+     * ====================================================================== */
+
+    /**
+     * Apply a remote state if newer. Must be called on main thread.
+     * The service computed new arrays/readiness + version for us.
+     */
+    public void applyRemoteState(ItemStack[] newA, ItemStack[] newB, boolean readyA, boolean readyB, long newVersion) {
+        log("[TRADE] applyRemoteState NEW v=" + newVersion + " (old " + version
+                + "), Aready=" + readyA + " Bready=" + readyB);
+
+        if (newVersion <= version) return;        // stale
+        if (uiLocked || completed) return;        // ignore late edits during/after finish
+        // ADD THIS GUARD:
+        if (isClosingOrClosed()) return;
+        copy18(newA, offerA);
+        copy18(newB, offerB);
+        this.aReady = readyA;
+        this.bReady = readyB;
+        this.version = newVersion;
+    }
+
+    /* ======================================================================
+     * Locking helpers
+     * ====================================================================== */
+
+    /**
+     * Lock the UI instantly and swap offer displays with placeholders so
+     * the client can't pull items while confirm→grant is running.
+     * Safe to call multiple times.
+     */
+    public void lockUiNow() {
+        if (uiLocked) return;
+        uiLocked = true;
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                if (menu != null) {
+                    menu.replaceOffersWithPlaceholdersSafely(); // no-op if menu not open
+                }
+                // Always clear cursors, even if menu was closed already
+                try {
+                    Player a = Bukkit.getPlayer(aId);
+                    Player b = Bukkit.getPlayer(bId);
+                    if (a != null) a.setItemOnCursor(null);
+                    if (b != null) b.setItemOnCursor(null);
+                } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {}
+        });
+    }
+
+
+    /** Mark the session as completed (after grant). Any further edits are ignored. */
+    public void markCompleted() { completed = true; }
+
+    public boolean isUiLocked()  { return uiLocked; }
+    public boolean isCompleted() { return completed; }
+
+    /* ======================================================================
+     * Helpers & accessors
+     * ====================================================================== */
+
+    private boolean dbg() { return cfg != null && cfg.debugDeep; }
+    private void log(String s) { if (dbg()) plugin.getLogger().info(s); }
+
+    /** Bump version and notify the service so it can publish the delta. */
+    private void bumpVersionAndFire() {
+        version++;
+        try { onStateChanged.accept(this, version); } catch (Throwable ignored) {}
+    }
+
+    // Identity
+    public UUID getSid() { return sid; }
+    /** Back-compat alias used by some older code. */
+    public UUID getId()  { return sid; }
+    /** Back-compat alias. */
+    public UUID getTradeId() { return sid; }
+
+    // Participants
+    public UUID getAId()   { return aId; }
+    public UUID getBId()   { return bId; }
+    public String getAName() { return aName; }
+    public String getBName() { return bName; }
+
+    // Readiness
+    public boolean isReadyA() { return aReady; }
+    public boolean isReadyB() { return bReady; }
+    public boolean isConfirmed(boolean forA) { return forA ? aReady : bReady; }
+    public OreoEssentials getPlugin() {
+        return plugin;
+    }
+
+    public TradeConfig getConfig() {
+        return cfg;
+    }
+
+    // Version
+    public long getVersion() { return version; }
+
+    // Offer views (treat as read-only by callers)
+// Offer views (return clones so external code cannot mutate internal arrays)
+    public ItemStack[] viewOfferA() { return offerA.clone(); }
+    public ItemStack[] viewOfferB() { return offerB.clone(); }
+
+
+    // Compact snapshots for granting
+    public ItemStack[] getOfferACompact() { return compact(offerA); }
+    public ItemStack[] getOfferBCompact() { return compact(offerB); }
+
+    /* ----------------------------------------------------------------------
+     * Service-facing convenience setters (keep older callers working)
+     * ---------------------------------------------------------------------- */
+
+    public void setOfferItemA(int index, ItemStack item) {
+        if (index < 0 || index >= 18) return;
+        if (uiLocked || completed) return;
+        offerA[index] = cloneOrNull(item);
+        aReady = false;
+        bumpVersionAndFire();
+    }
+
+    public void setOfferItemB(int index, ItemStack item) {
+        if (index < 0 || index >= 18) return;
+        if (uiLocked || completed) return;
+        offerB[index] = cloneOrNull(item);
+        bReady = false;
+        bumpVersionAndFire();
+    }
+
+    public void setReadyA(boolean ready) {
+        if (uiLocked || completed) return;
+        if (this.aReady != ready) {
+            this.aReady = ready;
+            bumpVersionAndFire();
+        }
+    }
+
+    public void setReadyB(boolean ready) {
+        if (uiLocked || completed) return;
+        if (this.bReady != ready) {
+            this.bReady = ready;
+            bumpVersionAndFire();
+        }
+    }
+
+    public void clearOfferA() {
+        Arrays.fill(offerA, null);
+        aReady = false;
+        bumpVersionAndFire();
+    }
+
+    public void clearOfferB() {
+        Arrays.fill(offerB, null);
+        bReady = false;
+        bumpVersionAndFire();
+    }
+
+    /* ----------------------------------------------------------------------
+     * Array + sound helpers
+     * ---------------------------------------------------------------------- */
+
+    private static ItemStack[] compact(ItemStack[] src) {
+        if (src == null) return new ItemStack[0];
+        return Arrays.stream(src)
+                .filter(i -> i != null && !i.getType().isAir() && i.getAmount() > 0)
+                .map(ItemStack::clone)
+                .toArray(ItemStack[]::new);
+    }
+
+    private static void copy18(ItemStack[] from, ItemStack[] to) {
+        if (to == null || to.length != 18) return;
+        if (from == null) {
+            Arrays.fill(to, null);
+            return;
+        }
+        for (int i = 0; i < 18; i++) {
+            to[i] = (i < from.length && from[i] != null) ? from[i].clone() : null;
+        }
+    }
+
+    private static ItemStack cloneOrNull(ItemStack it) {
+        return (it == null || it.getType().isAir() || it.getAmount() <= 0) ? null : it.clone();
     }
 
     private static boolean isEmpty(ItemStack stack) {
         return stack == null || stack.getType().isAir() || stack.getAmount() <= 0;
+    }
+
+    private static void safePlay(Player p, Sound s, float v, float pch) {
+        if (p != null && s != null) {
+            try { p.playSound(p.getLocation(), s, v, pch); } catch (Throwable ignored) {}
+        }
     }
 }

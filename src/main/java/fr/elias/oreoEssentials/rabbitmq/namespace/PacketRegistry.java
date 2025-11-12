@@ -6,6 +6,7 @@ import fr.elias.oreoEssentials.rabbitmq.namespace.impl.SpawnPacketNamespace;
 import fr.elias.oreoEssentials.rabbitmq.namespace.impl.WarpsPacketNamespace;
 import fr.elias.oreoEssentials.rabbitmq.namespace.impl.CrossInvPacketNamespace;
 import fr.elias.oreoEssentials.rabbitmq.packet.Packet;
+import fr.elias.oreoEssentials.rabbitmq.namespace.impl.TradePacketNamespace;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +34,7 @@ public class PacketRegistry {
         register(new HomesPacketNamespace());
         register(new WarpsPacketNamespace());
         register(new SpawnPacketNamespace());
+        register(new TradePacketNamespace());
 
         // Cross-server inv/ec namespace
         register(new CrossInvPacketNamespace());

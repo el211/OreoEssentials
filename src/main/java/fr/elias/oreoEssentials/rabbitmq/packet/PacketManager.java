@@ -231,4 +231,18 @@ public class PacketManager implements IncomingPacketListener {
         sender.close();
         dbg("[PM/CLOSE@" + serverName() + "] PacketManager closed.");
     }
+    /**
+     * Debug-only checksum of the current packet registry state.
+     * Not used for logic, just for logging so all servers can verify
+     * they registered packets in the same way.
+     */
+    public String registryChecksum() {
+        try {
+            // Simple, stable-ish debug value
+            return Integer.toHexString(packetRegistry.hashCode());
+        } catch (Throwable t) {
+            return "n/a";
+        }
+    }
+
 }

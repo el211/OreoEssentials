@@ -10,6 +10,7 @@ features:
   tpa:
     debug: false
     debug-echo-to-player: false
+tradedebug: true
 
 server:
   # Unique logical name for THIS server (used to tag who "owns" a home)
@@ -48,6 +49,7 @@ crossserverhomes: true
 crossserverwarps: true
 crossserverspawn: true
 crossservereconomy: true
+crossserverec: true # if true and storage is mongodb, /ec syncs across servers
 
 # --- Cross-server player state sync ---
 crossserverinv: true   # master on/off for the whole feature

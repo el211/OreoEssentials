@@ -1,0 +1,545 @@
+// File: src/main/java/fr/elias/oreoEssentials/trade/ui/TradeMenu.java
+package fr.elias.oreoEssentials.trade.ui;
+
+import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.trade.TradeConfig;
+import fr.elias.oreoEssentials.trade.TradeService;
+import fr.elias.oreoEssentials.trade.TradeSession;
+import fr.minuskube.inv.ClickableItem;
+import fr.minuskube.inv.SmartInventory;
+import fr.minuskube.inv.content.InventoryContents;
+import fr.minuskube.inv.content.InventoryProvider;
+import fr.minuskube.inv.content.SlotPos;
+import org.bukkit.Bukkit;
+import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
+
+import java.util.Arrays;
+import java.util.UUID;
+
+/**
+ * TradeMenu (restored & fixed)
+ * - Dual SmartInvs (invA/invB) so each local viewer has their own editable 3x3.
+ * - Uses contents.setEditable(...) only on the viewer's grid (guard allows placement there).
+ * - Mirrors edits to the partner's grid instantly for zero-lag local feedback.
+ * - Pushes edits via TradeService.setOfferItem(...) which publishes through the broker.
+ * - Provides refreshFromSession() for remote-state paints.
+ */
+public final class TradeMenu implements InventoryProvider {
+
+    private final OreoEssentials plugin;
+    private final TradeConfig config;
+    private final TradeService service;
+    private final TradeMenuRegistry reg;
+
+    /** Locals on THIS server (either may be null if remote). */
+    private final Player a; // side A if local here (may be null)
+    private final Player b; // side B if local here (may be null)
+
+    private final SmartInventory invA;
+    private final SmartInventory invB;
+
+    // 3×3 offer zones (rows 2..4; columns: A=2..4, B=6..8)
+    private static final int[] A_AREA_SLOTS = slotsOfRect(2, 2, 3, 3); // left
+    private static final int[] B_AREA_SLOTS = slotsOfRect(2, 6, 3, 3); // right
+
+    // last snapshots to detect local edits
+    private final ItemStack[] lastSnapshotA = new ItemStack[9];
+    private final ItemStack[] lastSnapshotB = new ItemStack[9];
+
+    public TradeMenu(OreoEssentials plugin, TradeConfig config, Player aLocal, Player bLocal) {
+        this.plugin = plugin;
+        this.config = config;
+        this.service = plugin.getTradeService();
+        this.reg = (this.service != null) ? this.service.getMenuRegistry() : null;
+        this.a = aLocal;
+        this.b = bLocal;
+
+        String title = "§6Trade: §e" + (a != null ? a.getName() : "A")
+                + " §7⇄ §e" + (b != null ? b.getName() : "B");
+
+        this.invA = SmartInventory.builder()
+                .provider(this)
+                .size(6, 9)
+                .title(title)
+                .id("trade:" + (a != null ? a.getUniqueId() : UUID.randomUUID())
+                        + ":" + (b != null ? b.getUniqueId() : UUID.randomUUID()))
+                .manager(plugin.getInvManager())
+                .closeable(true)
+                .build();
+
+        this.invB = SmartInventory.builder()
+                .provider(this)
+                .size(6, 9)
+                .title(title)
+                .id("trade:" + (b != null ? b.getUniqueId() : UUID.randomUUID())
+                        + ":" + (a != null ? a.getUniqueId() : UUID.randomUUID()))
+                .manager(plugin.getInvManager())
+                .closeable(true)
+                .build();
+    }
+
+    public OreoEssentials getPlugin() { return plugin; }
+
+    /** Open both viewers (if local) and register in registry. */
+    public void openForBoth() {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                if (a != null) {
+                    invA.open(a);
+                    registerViewer(a);
+                }
+                if (b != null && (a == null || !b.getUniqueId().equals(a.getUniqueId()))) {
+                    invB.open(b);
+                    registerViewer(b);
+                }
+                if (a != null) a.sendMessage("§aOpening trade GUI with §f" + (b != null ? b.getName() : "player") + "§a…");
+                if (b != null) b.sendMessage("§aOpening trade GUI with §f" + (a != null ? a.getName() : "player") + "§a…");
+            } catch (Throwable t) {
+                sendFail(a, t);
+                sendFail(b, t);
+                plugin.getLogger().warning("[TRADE] openForBoth failed: " + t.getMessage());
+            }
+        });
+    }
+
+    private void registerViewer(Player p) {
+        try {
+            if (reg != null && p != null) reg.register(p.getUniqueId(), this);
+        } catch (Throwable ignored) {}
+    }
+
+    /** MUST be called by your InventoryCloseEvent listener to avoid leaks. */
+    public void onClose(Player p) {
+        try {
+            if (reg != null && p != null) reg.unregister(p.getUniqueId());
+        } catch (Throwable ignored) {}
+    }
+
+    // ------------------------------------------------------------------------
+    // SmartInvs lifecycle
+    // ------------------------------------------------------------------------
+
+    @Override
+    public void init(Player viewer, InventoryContents contents) {
+        // Mark ONLY the viewer's own 3x3 as editable so the guard lets clicks through
+        final boolean isAViewer = (a != null && viewer.getUniqueId().equals(a.getUniqueId()));
+        final int[] editable = isAViewer ? A_AREA_SLOTS : B_AREA_SLOTS;
+        markEditable(contents, editable);
+
+        // Borders
+        ItemStack border = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ClickableItem borderItem = ClickableItem.empty(border);
+
+        // Top row
+        for (int c = 0; c < 9; c++) contents.set(0, c, borderItem);
+        // Bottom row (except controls)
+        for (int c = 0; c < 9; c++) {
+            if (c == 2 || c == 4 || c == 6) continue;
+            contents.set(5, c, borderItem);
+        }
+        // Left/right verticals
+        for (int r = 1; r < 5; r++) {
+            contents.set(r, 0, borderItem);
+            contents.set(r, 8, borderItem);
+        }
+
+        // Headers (player heads)
+        if (a != null) contents.set(1, 1, ClickableItem.empty(playerHead(a.getUniqueId(), "§e" + a.getName())));
+        if (b != null) contents.set(1, 7, ClickableItem.empty(playerHead(b.getUniqueId(), "§e" + b.getName())));
+
+        // Divider
+        ItemStack divider = new ItemStack(Material.PURPLE_STAINED_GLASS_PANE);
+        ClickableItem dividerItem = ClickableItem.empty(divider);
+        contents.set(2, 4, dividerItem);
+        contents.set(3, 4, dividerItem);
+        contents.set(4, 4, dividerItem);
+
+        // Info (placeholder)
+        contents.set(1, 4, ClickableItem.empty(new ItemStack(Material.BOOK)));
+
+        // Buttons
+        contents.set(5, 2, confirmButton(viewer, false));  // my confirm
+        contents.set(5, 4, cancelButton(viewer));          // cancel
+        contents.set(5, 6, partnerReadyIndicator(false));  // partner status
+
+        // Reset snapshots
+        Arrays.fill(lastSnapshotA, null);
+        Arrays.fill(lastSnapshotB, null);
+
+        // Ensure registered even if inv.open(viewer) used directly
+        registerViewer(viewer);
+    }
+
+    @Override
+    public void update(Player viewer, InventoryContents contents) {
+        if (service == null) return;
+
+        final boolean isAViewer = (a != null && viewer.getUniqueId().equals(a.getUniqueId()));
+
+        // Resolve session via viewer -> sid
+        UUID sid = service.getTradeIdByPlayer(viewer.getUniqueId());
+        if (sid == null) return;
+        TradeSession sess = service.getSession(sid);
+        if (sess == null) return;
+
+        Inventory top = viewer.getOpenInventory().getTopInventory();
+
+        // 1) Push local edits from viewer's zone
+        if (isAViewer) mirrorEdits(viewer, top, A_AREA_SLOTS, lastSnapshotA);
+        else           mirrorEdits(viewer, top, B_AREA_SLOTS, lastSnapshotB);
+
+        // 2) Paint opponent area from session (read-only ghost items)
+        ItemStack[] other = isAViewer ? sess.viewOfferB() : sess.viewOfferA();
+        int[] otherSlots  = isAViewer ? B_AREA_SLOTS : A_AREA_SLOTS;
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            for (int i = 0; i < otherSlots.length; i++) {
+                int slot = otherSlots[i];
+                ItemStack want = (other != null && i < other.length) ? cloneOrNull(other[i]) : null;
+                ItemStack have = safeGet(top, slot);
+                if (!isSame(have, want)) top.setItem(slot, want);
+            }
+
+            boolean myReady  = isAViewer ? sess.isReadyA() : sess.isReadyB();
+            boolean othReady = isAViewer ? sess.isReadyB() : sess.isReadyA();
+
+            contents.set(5, 2, confirmButton(viewer, myReady));
+            contents.set(5, 4, cancelButton(viewer));
+            contents.set(5, 6, partnerReadyIndicator(othReady));
+        });
+    }
+
+    // ------------------------------------------------------------------------
+    // External refresh hook (called by TradeService after applyRemoteState)
+    // ------------------------------------------------------------------------
+
+    /** Repaint any local viewers (A and/or B) from the latest TradeSession state. */
+    public void refreshFromSession() {
+        if (service == null) return;
+
+        if (a != null && a.isOnline()
+                && a.getOpenInventory() != null
+                && a.getOpenInventory().getTopInventory() != null) {
+            refreshFor(a, /* viewerIsA = */ true);
+        }
+        if (b != null && b.isOnline()
+                && b.getOpenInventory() != null
+                && b.getOpenInventory().getTopInventory() != null) {
+            refreshFor(b, /* viewerIsA = */ false);
+        }
+    }
+
+    private void refreshFor(Player viewer, boolean viewerIsA) {
+        try {
+            UUID sid = service.getTradeIdByPlayer(viewer.getUniqueId());
+            if (sid == null) return;
+            TradeSession sess = service.getSession(sid);
+            if (sess == null) return;
+
+            Inventory top = viewer.getOpenInventory().getTopInventory();
+
+            // Paint opponent area from session
+            ItemStack[] other = viewerIsA ? sess.viewOfferB() : sess.viewOfferA();
+            int[] otherSlots  = viewerIsA ? B_AREA_SLOTS : A_AREA_SLOTS;
+
+            for (int i = 0; i < otherSlots.length; i++) {
+                int slot = otherSlots[i];
+                ItemStack want = (other != null && i < other.length) ? cloneOrNull(other[i]) : null;
+                ItemStack have = safeGet(top, slot);
+                if (!isSame(have, want)) top.setItem(slot, want);
+            }
+
+            boolean myReady  = viewerIsA ? sess.isReadyA() : sess.isReadyB();
+            boolean othReady = viewerIsA ? sess.isReadyB() : sess.isReadyA();
+
+            // Buttons (replace items directly)
+            top.setItem(5 * 9 + 2, buildConfirmIcon(myReady));           // row 5, col 2
+            top.setItem(5 * 9 + 6, buildPartnerIndicatorIcon(othReady)); // row 5, col 6
+        } catch (Throwable ignored) {}
+    }
+
+    // ------------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------------
+
+    private static void markEditable(InventoryContents contents, int[] slots) {
+        for (int raw : slots) {
+            int row = raw / 9;
+            int col = raw % 9;
+            try {
+                contents.setEditable(SlotPos.of(row, col), true);
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    private static int[] slotsOfRect(int startRow, int startCol, int height, int width) {
+        int[] out = new int[height * width];
+        int k = 0;
+        for (int r = 0; r < height; r++) {
+            for (int c = 0; c < width; c++) {
+                out[k++] = (startRow + r) * 9 + (startCol + c);
+            }
+        }
+        return out;
+    }
+
+    /** Read viewer's 3×3, push to service, and mirror into opponent's grid locally. */
+    private void mirrorEdits(Player viewer, Inventory top, int[] slots, ItemStack[] last) {
+        for (int i = 0; i < slots.length; i++) {
+            int invSlot = slots[i];
+            ItemStack now = cloneOrNull(safeGet(top, invSlot));
+            ItemStack was = last[i];
+            if (!isSame(now, was)) {
+                last[i] = cloneOrNull(now);
+
+                // Push to TradeService (this un-readies the side and publishes via broker)
+                UUID sid = service.getTradeIdByPlayer(viewer.getUniqueId());
+                if (sid != null) {
+                    TradeSession sess = service.getSession(sid);
+                    if (sess != null) {
+                        // keep index i (0..8 for the 3×3); TradeSession maps it to the correct side
+                        sess.playerSetOfferSlot(viewer.getUniqueId(), i, now);
+                    }
+                }
+
+                // Instant local mirror for the opponent (if also on this server)
+                final int idx = i;
+                final ItemStack itemCopy = cloneOrNull(now);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    boolean viewerIsA = (a != null && viewer.getUniqueId().equals(a.getUniqueId()));
+                    Player opp = viewerIsA ? b : a;
+
+                    if (opp != null && opp.isOnline()
+                            && opp.getOpenInventory() != null
+                            && opp.getOpenInventory().getTopInventory() != null) {
+                        int[] oppSlots = viewerIsA ? A_AREA_SLOTS : B_AREA_SLOTS;
+                        Inventory oppTop = opp.getOpenInventory().getTopInventory();
+                        oppTop.setItem(oppSlots[idx], itemCopy);
+                    }
+                });
+            }
+        }
+    }
+
+    private ItemStack playerHead(UUID uuid, String displayName) {
+        ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+        try {
+            SkullMeta meta = (SkullMeta) head.getItemMeta();
+            OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+            meta.setOwningPlayer(op);
+            meta.setDisplayName(displayName);
+            head.setItemMeta(meta);
+        } catch (Throwable ignored) {}
+        return head;
+    }
+
+    private static ItemStack safeGet(Inventory inv, int slot) {
+        try { return inv.getItem(slot); } catch (Throwable t) { return null; }
+    }
+
+    private static ItemStack cloneOrNull(ItemStack it) {
+        if (it == null || it.getType() == Material.AIR || it.getAmount() <= 0) return null;
+        try { return it.clone(); } catch (Throwable t) { return null; }
+    }
+
+    private static boolean isSame(ItemStack a, ItemStack b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        try {
+            return a.isSimilar(b) && a.getAmount() == b.getAmount();
+        } catch (Throwable t) {
+            return a.getType() == b.getType() && a.getAmount() == b.getAmount();
+        }
+    }
+
+    private static void sendFail(Player p, Throwable t) {
+        if (p != null) p.sendMessage("§cFailed to open trade: " + (t != null ? t.getMessage() : "unknown"));
+    }
+
+    // ------------------------------------------------------------------------
+    // Buttons
+    // ------------------------------------------------------------------------
+
+    private ClickableItem confirmButton(Player viewer, boolean ready) {
+        ItemStack it = buildConfirmIcon(ready);
+        return ClickableItem.of(it, e -> {
+            try {
+                UUID sid = service.getTradeIdByPlayer(viewer.getUniqueId());
+                if (sid != null) {
+                    TradeSession sess = service.getSession(sid);
+                    if (sess != null) {
+                        // We are on main thread in SmartInvs handlers, but being extra safe is fine too:
+                        Bukkit.getScheduler().runTask(plugin, () -> sess.playerToggleConfirm(viewer.getUniqueId()));
+                    }
+                }
+            } catch (Throwable ignored) {}
+            try {
+                viewer.playSound(viewer.getLocation(), config.confirmSound, 1, 1);
+            } catch (Throwable ignored) {}
+        });
+
+    }
+
+    private ItemStack buildConfirmIcon(boolean ready) {
+        ItemStack it = new ItemStack(ready ? config.confirmedMaterial : config.confirmMaterial);
+        var meta = it.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ready ? config.confirmedText : config.confirmText);
+            it.setItemMeta(meta);
+        }
+        return it;
+    }
+
+    private ClickableItem cancelButton(Player viewer) {
+        ItemStack it = new ItemStack(config.cancelMaterial);
+        var meta = it.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(config.cancelText);
+            it.setItemMeta(meta);
+        }
+        return ClickableItem.of(it, e -> {
+            try {
+                service.requestCancel(viewer.getUniqueId());
+            } catch (Throwable ignored) {}
+            try {
+                viewer.playSound(viewer.getLocation(), config.cancelSound, 1, 1);
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    private ClickableItem partnerReadyIndicator(boolean partnerReady) {
+        ItemStack it = buildPartnerIndicatorIcon(partnerReady);
+        return ClickableItem.empty(it);
+    }
+
+    private ItemStack buildPartnerIndicatorIcon(boolean partnerReady) {
+        ItemStack it = new ItemStack(partnerReady ? Material.LIME_CONCRETE : Material.RED_DYE);
+        var meta = it.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(partnerReady ? "§aPartner Ready" : "§cPartner Not Ready");
+            it.setItemMeta(meta);
+        }
+        return it;
+    }
+    /** Replace both sides' offer areas with neutral placeholders to visually lock the UI. */
+    public void replaceOffersWithPlaceholdersSafely() {
+        try {
+            // Build a simple "Locked" pane
+            ItemStack ph = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+            ItemMeta im = ph.getItemMeta();
+            if (im != null) {
+                im.setDisplayName("§7Locked");
+                ph.setItemMeta(im);
+            }
+
+            // If you already have arrays/lists of offer-slot indices, fill them here.
+            // Example placeholders (REPLACE with your actual slot indices if you have them):
+            int[] offerSlotsA = getOfferSlotsAOrEmpty(); // implement below
+            int[] offerSlotsB = getOfferSlotsBOrEmpty(); // implement below
+
+            // Paint on main thread
+            Bukkit.getScheduler().runTask(OreoEssentials.get(), () -> {
+                try {
+                    for (int s : offerSlotsA) setItemSafelyA(s, ph);
+                    for (int s : offerSlotsB) setItemSafelyB(s, ph);
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    /** Clear both sides' offer areas (used as a belt-and-suspenders during close). */
+    public void clearAllOfferSlotsSafely() {
+        try {
+            int[] offerSlotsA = getOfferSlotsAOrEmpty();
+            int[] offerSlotsB = getOfferSlotsBOrEmpty();
+
+            Bukkit.getScheduler().runTask(OreoEssentials.get(), () -> {
+                try {
+                    for (int s : offerSlotsA) setItemSafelyA(s, null);
+                    for (int s : offerSlotsB) setItemSafelyB(s, null);
+                } catch (Throwable ignored) {}
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    /* -------------------------- helpers (stub-safe) -------------------------- */
+
+    /**
+     * Return the exact slot indices of A's 3×3 offer area in your inventory layout.
+     * If you already have something like `OFFER_SLOTS_A`, just return it here.
+     * Leaving empty keeps things as no-op but compiles safely.
+     */
+    private int[] getOfferSlotsAOrEmpty() {
+        return A_AREA_SLOTS;
+    }
+
+    private int[] getOfferSlotsBOrEmpty() {
+        return B_AREA_SLOTS;
+    }
+
+
+    /**
+     * Safely set an item into player A’s inventory view at an absolute slot.
+     * Wire these to whatever you already use to paint items in the menu (SmartInvs, etc.).
+     */
+    private void setItemSafelyA(int slot, ItemStack stack) {
+        try {
+            // If you use SmartInvs, this might be `contents.set(slot, ClickableItem.empty(stack))`
+            // or if you manage a Bukkit Inventory directly, do: inventory.setItem(slot, stack)
+            // TODO: plug into your existing painter for side A
+        } catch (Throwable ignored) {}
+    }
+
+    /** Safely set an item into player B’s view. */
+    private void setItemSafelyB(int slot, ItemStack stack) {
+        try {
+            // TODO: plug into your existing painter for side B
+        } catch (Throwable ignored) {}
+    }
+    // --- helpers expected by TradeMenuRegistry ---
+
+    /** Factory used by the registry to build a menu from a TradeSession. */
+    public static TradeMenu createForSession(TradeSession session) {
+        if (session == null) return null;
+        OreoEssentials pl = session.getPlugin();
+        TradeConfig cfg = session.getConfig();
+        Player aLocal = Bukkit.getPlayer(session.getAId());
+        Player bLocal = Bukkit.getPlayer(session.getBId());
+        return new TradeMenu(pl, cfg, aLocal, bLocal);
+    }
+
+    /** Open the correct SmartInvs instance for this viewer (A or B). */
+    public void openFor(UUID viewerId) {
+        if (viewerId == null) return;
+        if (a != null && a.isOnline() && a.getUniqueId().equals(viewerId)) {
+            invA.open(a);
+            registerViewer(a);
+            return;
+        }
+        if (b != null && b.isOnline() && b.getUniqueId().equals(viewerId)) {
+            invB.open(b);
+            registerViewer(b);
+        }
+    }
+
+    /** Best-effort check if the viewer currently has *this* trade menu open. */
+    public boolean isOpenFor(UUID viewerId) {
+        Player p = (viewerId != null ? Bukkit.getPlayer(viewerId) : null);
+        if (p == null || !p.isOnline() || p.getOpenInventory() == null) return false;
+        // Compare by SmartInvs container identity if possible; fall back to title check.
+        try {
+            // SmartInvs 1.3+ exposes Manager#getInventory(p) sometimes; title check is simplest/portable:
+            String title = p.getOpenInventory().getTitle();
+            return title != null && title.contains("Trade: ");
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+}

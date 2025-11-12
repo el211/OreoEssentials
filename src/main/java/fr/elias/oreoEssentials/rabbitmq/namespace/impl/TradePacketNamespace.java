@@ -1,0 +1,35 @@
+package fr.elias.oreoEssentials.rabbitmq.namespace.impl;
+
+import fr.elias.oreoEssentials.rabbitmq.namespace.PacketNamespace;
+import fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.*;
+
+public final class TradePacketNamespace extends PacketNamespace {
+
+    // Choose a unique short for the namespace, not used by others (1,10,11,12,91 are taken)
+    public static final short NS_ID = (short) 27;
+
+    public static final int TRADE_START_ID  = 27000;
+
+
+    // Unique IDs inside this namespace (keep them stable)
+    public static final int TRADE_INVITE_ID   = 27001;
+    public static final int TRADE_STATE_ID    = 27002;
+    public static final int TRADE_CONFIRM_ID  = 27003;
+    public static final int TRADE_CANCEL_ID   = 27004;
+    public static final int TRADE_GRANT_ID    = 27005;
+
+    public TradePacketNamespace() {
+        super(NS_ID);
+    }
+
+    @Override
+    protected void registerPackets() {
+        registerPacket(TRADE_START_ID,  TradeStartPacket.class,  TradeStartPacket::new);
+
+        registerPacket(TRADE_INVITE_ID,  TradeInvitePacket.class,  TradeInvitePacket::new);
+        registerPacket(TRADE_STATE_ID,   TradeStatePacket.class,   TradeStatePacket::new);
+        registerPacket(TRADE_CONFIRM_ID, TradeConfirmPacket.class, TradeConfirmPacket::new);
+        registerPacket(TRADE_CANCEL_ID,  TradeCancelPacket.class,  TradeCancelPacket::new);
+        registerPacket(TRADE_GRANT_ID,   TradeGrantPacket.class,   TradeGrantPacket::new);
+    }
+}
