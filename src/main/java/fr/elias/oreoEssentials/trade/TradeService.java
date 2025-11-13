@@ -953,6 +953,10 @@ public final class TradeService implements Listener {
     public void grantItems(Player player, ItemStack[] items) {
         if (player == null || items == null || items.length == 0) return;
 
+        // DEBUG: log incoming stacks
+        plugin.getLogger().info("[TRADE] grantItems -> " + player.getName()
+                + " items=" + summarize(items)); // you already have summarize(...)
+
         // Filter null/air
         List<ItemStack> give = new ArrayList<>();
         for (ItemStack it : items) {
@@ -961,10 +965,9 @@ public final class TradeService implements Listener {
         }
         if (give.isEmpty()) return;
 
-        // Add to inventory
-        Map<Integer, ItemStack> leftover = player.getInventory().addItem(give.toArray(new ItemStack[0]));
+        Map<Integer, ItemStack> leftover = player.getInventory()
+                .addItem(give.toArray(new ItemStack[0]));
 
-        // Drop overflow
         if (!leftover.isEmpty()) {
             leftover.values().forEach(rem -> {
                 if (rem != null && !rem.getType().isAir() && rem.getAmount() > 0) {
@@ -973,9 +976,9 @@ public final class TradeService implements Listener {
             });
         }
 
-        // Optional feedback
         try { player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1f, 1f); } catch (Throwable ignored) {}
     }
+
 
     /** Public helper: remove a session by ID and drop reverse index + UI mapping. */
     public void removeSession(UUID sid) {
@@ -1048,42 +1051,53 @@ public final class TradeService implements Listener {
         if (item == null) return false;
 
         Material type = item.getType();
+        if (type == null || type.isAir()) return false;
 
-        // Common filler types – adjust to your actual GUI layout if needed
+        String matName = type.name();
+
+        // 🔒 1) Block ALL glass & panes (any stained, tinted, etc.)
+        // This automatically covers:
+        // - GLASS, TINTED_GLASS
+        // - *_STAINED_GLASS, *_STAINED_GLASS_PANE
+        // - GLASS_PANE, etc.
+        if (matName.contains("GLASS") || matName.contains("PANE")) {
+            return false;
+        }
+
+        // 🔒 2) Optional: block some other very typical filler materials (safe but not mandatory)
+        // Add/remove as you like.
         switch (type) {
-            case GLASS:
-            case GLASS_PANE:
-            case TINTED_GLASS:
-            case WHITE_STAINED_GLASS_PANE:
-            case BLACK_STAINED_GLASS_PANE:
-            case GRAY_STAINED_GLASS_PANE:
-            case LIGHT_GRAY_STAINED_GLASS_PANE:
-            case RED_STAINED_GLASS_PANE:
-            case BLUE_STAINED_GLASS_PANE:
-            case GREEN_STAINED_GLASS_PANE:
-            case CYAN_STAINED_GLASS_PANE:
-            case MAGENTA_STAINED_GLASS_PANE:
-            case ORANGE_STAINED_GLASS_PANE:
-            case YELLOW_STAINED_GLASS_PANE:
+            case BARRIER:
+            case BEDROCK:
+            case STRUCTURE_VOID:
+            case LIGHT:
                 return false;
             default:
                 break;
         }
 
-        // Optional: if you use a specific display name for filler items,
-        // you can also detect & exclude them here.
+        // 🔒 3) Name-based filler detection (covers custom-named GUI items)
         if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
             String name = org.bukkit.ChatColor.stripColor(
                     item.getItemMeta().getDisplayName()
             ).toLowerCase(java.util.Locale.ROOT);
 
-            if (name.contains("filler") || name.contains("border") || name.contains("trade ui")) {
+            // Keywords you *definitely* don't want traded
+            if (name.contains("filler")
+                    || name.contains("border")
+                    || name.contains("trade ui")
+                    || name.contains("locked")
+                    || name.contains("interface")
+                    || name.contains("menu")) {
                 return false;
             }
         }
 
+        // ✅ Everything else is considered a valid trade item
         return true;
     }
+
+
 
 
     /** Optional: inform other servers that the session has closed. */

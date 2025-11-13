@@ -45,8 +45,10 @@ public final class TradeMenu implements InventoryProvider {
     private final SmartInventory invB;
 
     // 3×3 offer zones (rows 2..4; columns: A=2..4, B=6..8)
-    private static final int[] A_AREA_SLOTS = slotsOfRect(2, 2, 3, 3); // left
-    private static final int[] B_AREA_SLOTS = slotsOfRect(2, 6, 3, 3); // right
+// 3×3 offer zones (rows 2..4; columns: A=1..3, B=5..7) – column 4 kept for divider
+    private static final int[] A_AREA_SLOTS = slotsOfRect(2, 1, 3, 3); // left: cols 1,2,3
+    private static final int[] B_AREA_SLOTS = slotsOfRect(2, 5, 3, 3); // right: cols 5,6,7
+
 
     // last snapshots to detect local edits
     private final ItemStack[] lastSnapshotA = new ItemStack[9];
