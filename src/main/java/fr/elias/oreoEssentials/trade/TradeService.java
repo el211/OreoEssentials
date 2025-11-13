@@ -476,8 +476,6 @@ public final class TradeService implements Listener {
     /**
      * When both sides are ready, complete the trade.
      * - If a broker is available: publish two TradeGrant packets (A gets B's items, B gets A's).
-     * - Loop back locally with the SAME codec used by the handler so locals always receive items
-     *   even if the broker doesn't echo to the same node.
      * - If broker fails or is unavailable: complete locally.
      * UI is hard-locked immediately to prevent last-millisecond edits.
      */
@@ -503,7 +501,7 @@ public final class TradeService implements Listener {
                     ItemStack[] itemsForA = getItemsForA(s); // A receives B's items
                     ItemStack[] itemsForB = getItemsForB(s); // B receives A's items
 
-                    // 🔎 Compact summary log of what each side will receive
+                    // Compact summary log of what each side will receive
                     log("[TRADE] finalize sid=" + s.getId()
                             + " toA=" + summarize(itemsForA)
                             + " toB=" + summarize(itemsForB));
@@ -519,23 +517,6 @@ public final class TradeService implements Listener {
                         plugin.getLogger().warning("[TRADE] sendTradeGrant failed, falling back to local completion: " + netErr.getMessage());
                         completeTradeLocally(s);
                         return;
-                    }
-
-                    // --- LOOPBACK for locals (must match handler's codec) ---
-                    try {
-                        byte[] toA = ItemStacksCodec.encodeToBytes(itemsForA); // SAME codec as handler
-                        byte[] toB = ItemStacksCodec.encodeToBytes(itemsForB);
-
-                        Player a = Bukkit.getPlayer(s.getAId());
-                        if (a != null && a.isOnline()) {
-                            handleRemoteGrant(new TradeGrantPacket(s.getId(), s.getAId(), toA));
-                        }
-                        Player b = Bukkit.getPlayer(s.getBId());
-                        if (b != null && b.isOnline()) {
-                            handleRemoteGrant(new TradeGrantPacket(s.getId(), s.getBId(), toB));
-                        }
-                    } catch (Throwable loopErr) {
-                        plugin.getLogger().warning("[TRADE] loopback grant failed: " + loopErr.getMessage());
                     }
 
                     // Local tidy-up (grants may already have closed UIs via handler)
@@ -554,6 +535,7 @@ public final class TradeService implements Listener {
             }
         });
     }
+
 
 
     // --- Debug helpers (safe with debugDeep) ---

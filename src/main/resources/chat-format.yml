@@ -23,3 +23,4 @@ MongoDB_rabbitmq:
   enabled: false
   rabbitmq:
     uri: "amqp://guest:guest@localhost:5672/"
+#gradient messages will also be supported in cross server wise

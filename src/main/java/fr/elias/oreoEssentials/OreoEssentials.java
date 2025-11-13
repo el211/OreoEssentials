@@ -1137,66 +1137,67 @@ public final class OreoEssentials extends JavaPlugin {
 
         // Registeration of all remaining commands
         this.commands
-                .register(new SpawnCommand(spawnService))
-                .register(new SetSpawnCommand(spawnService))
-                .register(new BackCommand(backService))
-                .register(new WarpCommand(warpService))
-                .register(new SetWarpCommand(warpService))
+                .register(new SpawnCommand(spawnService)) //go to spawn command
+                .register(new SetSpawnCommand(spawnService)) //set spawn command
+                .register(new BackCommand(backService)) // go back command
+                .register(new WarpCommand(warpService)) //go to warps
+                .register(new SetWarpCommand(warpService)) //setwarps
                 .register(new WarpsCommand(warpService))      // <- Player GUI /warps
-                .register(new WarpsAdminCommand(warpService)) // <- Admin GUI /warpsadmin (was /warpsgui)                .register(new DelWarpCommand(warpService))
-                .register(new HomeCommand(homeService))
-                .register(new SetHomeCommand(homeService, configService))
-                .register(new DelHomeCommand(homeService))
-                .register(new TpaCommand(teleportService))
-                .register(new TpAcceptCommand(teleportService))
-                .register(new TpDenyCommand(teleportService))
-                .register(new FlyCommand())
-                .register(new HealCommand())
-                .register(new FeedCommand())
-                .register(new MsgCommand(messageService))
-                .register(new ReplyCommand(messageService))
-                .register(new BroadcastCommand())
-                .register(new HomesCommand(homeService))
-                .register(new HomesGuiCommand(homeService))
-                .register(new DeathBackCommand(deathBackService))
-                .register(new GodCommand(godService))
-                .register(new AfeliusReloadCommand(this, chatConfig))
-                .register(new TpCommand())
-                .register(new VanishCommand(vanishService))
-                .register(new BanCommand())
-                .register(new KickCommand())
-                .register(new FreezeCommand(freezeService))
-                .register(new EnchantCommand())
-                .register(muteCmd)
-                .register(new UnbanCommand())
-                .register(unmuteCmd)
-                .register(new OeCommand())
-                .register(new ServerProxyCommand(proxyMessenger))
-                .register(new SkinCommand())
-                .register(new CloneCommand())
-                .register(new fr.elias.oreoEssentials.playersync.PlayerSyncCommand(this, playerSyncService, invSyncEnabled))
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcCommand(this.ecService, crossServerEc))
-                .register(new HeadCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.AfkCommand(afkService))
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.TrashCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.WorkbenchCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.AnvilCommand())
-                .register(new ClearCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.SeenCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.PingCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.HatCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.RealNameCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.FurnaceCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.NearCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.KillCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.CookCommand())
-                .register(new fr.elias.oreoEssentials.commands.ecocommands.BalanceCommand(this))
-                .register(new fr.elias.oreoEssentials.commands.ecocommands.BalTopCommand(this))
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand())
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.UuidCommand());
+                .register(new WarpsAdminCommand(warpService)) // <- Admin GUI /warpsadmin (was /warpsgui)                .
+                .register(new HomeCommand(homeService)) //home command
+                .register(new DelWarpCommand(warpService)) //delete warps
+                .register(new SetHomeCommand(homeService, configService)) //sethome commamnd
+                .register(new DelHomeCommand(homeService)) //delete home command
+                .register(new TpaCommand(teleportService)) //tpa command
+                .register(new TpAcceptCommand(teleportService)) //tpaacept command
+                .register(new TpDenyCommand(teleportService)) //tpdeny command
+                .register(new FlyCommand()) //fly command here
+                .register(new HealCommand()) //heal command
+                .register(new FeedCommand()) //feed command
+                .register(new MsgCommand(messageService)) //msg command
+                .register(new ReplyCommand(messageService)) //reply command
+                .register(new BroadcastCommand()) //broadcast command
+                .register(new HomesCommand(homeService)) //homes command
+                .register(new HomesGuiCommand(homeService)) //homes gui command
+                .register(new DeathBackCommand(deathBackService)) //deathback command
+                .register(new GodCommand(godService)) //god command
+                .register(new AfeliusReloadCommand(this, chatConfig)) //afelius reload command
+                .register(new TpCommand()) //tp command
+                .register(new VanishCommand(vanishService)) // vanish command
+                .register(new BanCommand()) //ban command
+                .register(new KickCommand()) //kick command
+                .register(new FreezeCommand(freezeService)) // freeze command
+                .register(new EnchantCommand()) //enchant command
+                .register(muteCmd) //mute command
+                .register(new UnbanCommand()) //unban command
+                .register(unmuteCmd) //unmute command
+                .register(new OeCommand()) //oecommand
+                .register(new ServerProxyCommand(proxyMessenger)) //server command
+                .register(new SkinCommand()) //skin command ( not being used yet)
+                .register(new CloneCommand()) //clone command ( not implemented fully yet )
+                .register(new fr.elias.oreoEssentials.playersync.PlayerSyncCommand(this, playerSyncService, invSyncEnabled)) //player synch class
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcCommand(this.ecService, crossServerEc)) //cross server enderchests
+                .register(new HeadCommand()) //head command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.AfkCommand(afkService)) //afk command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.TrashCommand()) //trash command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.WorkbenchCommand()) //workbench command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.AnvilCommand()) //anvill command
+                .register(new ClearCommand()) //clear commmand
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.SeenCommand()) //seen command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.PingCommand())  //ping command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.HatCommand()) //hat command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.RealNameCommand()) //realname command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.FurnaceCommand()) //furnace command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.NearCommand()) //near command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.KillCommand()) //kill command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.InvseeCommand()) //invseee command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.CookCommand()) //cook command
+                .register(new fr.elias.oreoEssentials.commands.ecocommands.BalanceCommand(this)) //balance command
+                .register(new fr.elias.oreoEssentials.commands.ecocommands.BalTopCommand(this)) //baltop command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand()) //ecsee commmand
+                .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand()) //reload all command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand()) //vaults command
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.UuidCommand());//uuid command
 
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
