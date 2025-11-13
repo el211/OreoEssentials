@@ -90,12 +90,14 @@ public class AsyncChatListener implements Listener {
         try {
             if (syncManager != null) {
                 // Requires ChatSyncManager.publishMessage(UUID playerId, String serverName, String playerName, String message)
+// NEW ✅ send full formatted message INCLUDING gradients/hex
                 syncManager.publishMessage(
                         player.getUniqueId(),
                         Bukkit.getServer().getName(),
                         player.getName(),
-                        stripColors(formatted)
+                        formatted
                 );
+
             }
         } catch (Throwable ex) {
             Bukkit.getLogger().severe("[OreoEssentials] ChatSync publish failed: " + ex.getMessage());
