@@ -18,6 +18,8 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.ChatColor;
+
 
 import java.util.Arrays;
 import java.util.UUID;
@@ -62,13 +64,17 @@ public final class TradeMenu implements InventoryProvider {
         this.a = aLocal;
         this.b = bLocal;
 
-        String title = "§6Trade: §e" + (a != null ? a.getName() : "A")
-                + " §7⇄ §e" + (b != null ? b.getName() : "B");
+
+        String rawTitle = config.guiTitle
+                .replace("<you>",  (a != null ? a.getName() : "You"))
+                .replace("<them>", (b != null ? b.getName() : "Them"));
+        String title = legacy(rawTitle);
 
         this.invA = SmartInventory.builder()
                 .provider(this)
                 .size(6, 9)
                 .title(title)
+
                 .id("trade:" + (a != null ? a.getUniqueId() : UUID.randomUUID())
                         + ":" + (b != null ? b.getUniqueId() : UUID.randomUUID()))
                 .manager(plugin.getInvManager())
@@ -79,12 +85,18 @@ public final class TradeMenu implements InventoryProvider {
                 .provider(this)
                 .size(6, 9)
                 .title(title)
+
                 .id("trade:" + (b != null ? b.getUniqueId() : UUID.randomUUID())
                         + ":" + (a != null ? a.getUniqueId() : UUID.randomUUID()))
                 .manager(plugin.getInvManager())
                 .closeable(true)
                 .build();
     }
+    private String legacy(String text) {
+        if (text == null) return "";
+        return ChatColor.translateAlternateColorCodes('&', text);
+    }
+
 
     public OreoEssentials getPlugin() { return plugin; }
 
@@ -156,11 +168,19 @@ public final class TradeMenu implements InventoryProvider {
         if (b != null) contents.set(1, 7, ClickableItem.empty(playerHead(b.getUniqueId(), "§e" + b.getName())));
 
         // Divider
-        ItemStack divider = new ItemStack(Material.PURPLE_STAINED_GLASS_PANE);
+// Divider (material + name from trade.yml)
+        ItemStack divider = new ItemStack(config.dividerMaterial);
+        ItemMeta dMeta = divider.getItemMeta();
+        if (dMeta != null) {
+            dMeta.setDisplayName(legacy(config.dividerName));
+            divider.setItemMeta(dMeta);
+        }
+
         ClickableItem dividerItem = ClickableItem.empty(divider);
         contents.set(2, 4, dividerItem);
         contents.set(3, 4, dividerItem);
         contents.set(4, 4, dividerItem);
+
 
         // Info (placeholder)
         contents.set(1, 4, ClickableItem.empty(new ItemStack(Material.BOOK)));
@@ -392,9 +412,12 @@ public final class TradeMenu implements InventoryProvider {
         ItemStack it = new ItemStack(ready ? config.confirmedMaterial : config.confirmMaterial);
         var meta = it.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ready ? config.confirmedText : config.confirmText);
+            String raw = ready ? config.confirmedText : config.confirmText;
+            meta.setDisplayName(legacy(raw));
             it.setItemMeta(meta);
         }
+
+
         return it;
     }
 
@@ -402,9 +425,11 @@ public final class TradeMenu implements InventoryProvider {
         ItemStack it = new ItemStack(config.cancelMaterial);
         var meta = it.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(config.cancelText);
+            meta.setDisplayName(legacy(config.cancelText));
             it.setItemMeta(meta);
         }
+
+
         return ClickableItem.of(it, e -> {
             try {
                 service.requestCancel(viewer.getUniqueId());

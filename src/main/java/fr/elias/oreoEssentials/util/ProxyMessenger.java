@@ -6,7 +6,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.messaging.PluginMessageListener;
-
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import org.bukkit.entity.Player;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -56,6 +58,24 @@ public class ProxyMessenger implements PluginMessageListener {
         return new ArrayList<>(cachedServers);
     }
 
+    public void sendToServer(Player player, String serverName) {
+        if (player == null || serverName == null || serverName.isBlank()) return;
+
+        try {
+            ByteArrayDataOutput out = ByteStreams.newDataOutput();
+            out.writeUTF("Connect");         // BungeeCord sub-channel
+            out.writeUTF(serverName);        // target server name
+
+            player.sendPluginMessage(
+                    plugin,
+                    "BungeeCord",
+                    out.toByteArray()
+            );
+        } catch (Throwable t) {
+            plugin.getLogger().warning("[ProxyMessenger] Failed to send "
+                    + player.getName() + " to server " + serverName + ": " + t.getMessage());
+        }
+    }
     @Override
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
         if (!BUNGEE_CHANNEL.equals(channel)) return;

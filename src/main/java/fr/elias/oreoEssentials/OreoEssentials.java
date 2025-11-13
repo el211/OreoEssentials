@@ -106,11 +106,17 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.integration.DiscordModerationNotifier getDiscordMod() { return discordMod; }
     private fr.elias.oreoEssentials.services.HomeDirectory homeDirectory; // cross-server directory
     // Essentials services
+    // with other fields
+    private fr.elias.oreoEssentials.teleport.TpCrossServerBroker tpBroker;
+    public fr.elias.oreoEssentials.teleport.TpCrossServerBroker getTpBroker() { return tpBroker; }
+
     private ConfigService configService;
     private StorageApi storage;
     private SpawnService spawnService;
     private InventoryManager invManager;
     public InventoryManager getInvManager() { return invManager; }
+    private ProxyMessenger proxyMessenger;
+    public ProxyMessenger getProxyMessenger() { return proxyMessenger; }
     private WarpService warpService;
     private HomeService homeService;
     private TeleportService teleportService;
@@ -452,10 +458,13 @@ public final class OreoEssentials extends JavaPlugin {
         this.aliasService.load();
         this.aliasService.applyRuntimeRegistration();
         // -------- Proxy plugin messaging (server switching) --------
+        // -------- Proxy plugin messaging (server switching) --------
         getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
         getServer().getMessenger().registerOutgoingPluginChannel(this, "bungeecord:main");
-        ProxyMessenger proxyMessenger = new ProxyMessenger(this);
+        this.proxyMessenger = new ProxyMessenger(this);
+        ProxyMessenger proxyMessenger = this.proxyMessenger; // reuse local var below
         getLogger().info("[BOOT] Registered proxy plugin messaging channels.");
+
 
         // -------- UI/Managers created early --------
         this.invManager = new InventoryManager(this);
@@ -1028,7 +1037,20 @@ public final class OreoEssentials extends JavaPlugin {
             this.tpaBroker = null;
             getLogger().info("[BROKER] TPA cross-server broker disabled (PacketManager unavailable or not initialized).");
         }
-
+// --- NEW: TP cross-server broker (admin /tp) ---
+        if (packetManager != null && packetManager.isInitialized()) {
+            this.tpBroker = new fr.elias.oreoEssentials.teleport.TpCrossServerBroker(
+                    this,
+                    this.teleportService,
+                    this.packetManager,
+                    proxyMessenger,
+                    configService.serverName()
+            );
+            getLogger().info("[BROKER] TP cross-server broker ready (server=" + configService.serverName() + ").");
+        } else {
+            this.tpBroker = null;
+            getLogger().info("[BROKER] TP cross-server broker disabled (PacketManager unavailable or not initialized).");
+        }
 
         // -------- Moderation listeners --------
         FreezeService freezeService = new FreezeService();
@@ -1162,7 +1184,6 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new DeathBackCommand(deathBackService)) //deathback command
                 .register(new GodCommand(godService)) //god command
                 .register(new AfeliusReloadCommand(this, chatConfig)) //afelius reload command
-                .register(new TpCommand()) //tp command
                 .register(new VanishCommand(vanishService)) // vanish command
                 .register(new BanCommand()) //ban command
                 .register(new KickCommand()) //kick command
@@ -1197,8 +1218,8 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.EcSeeCommand()) //ecsee commmand
                 .register(new fr.elias.oreoEssentials.commands.core.admins.ReloadAllCommand()) //reload all command
                 .register(new fr.elias.oreoEssentials.commands.core.playercommands.VaultsCommand()) //vaults command
-                .register(new fr.elias.oreoEssentials.commands.core.playercommands.UuidCommand());//uuid command
-
+                .register(new fr.elias.oreoEssentials.commands.core.playercommands.UuidCommand())//uuid command
+                .register(new TpCommand(teleportService));
         // -------- Tab completion wiring --------
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
@@ -1430,9 +1451,6 @@ public final class OreoEssentials extends JavaPlugin {
     }
 
 
-
-
-
     public fr.elias.oreoEssentials.playervaults.PlayerVaultsService getPlayerVaultsService() {
         return playervaultsService;
     }
@@ -1485,6 +1503,12 @@ public final class OreoEssentials extends JavaPlugin {
         );
 
         // --- TPA packets (always register, even if feature disabled) ---
+        // --- TP packets (admin cross-server /tp) ---
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.tp.TpJumpPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.tp.TpJumpPacket::new
+        );
+
         pm.registerPacket(
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket.class,
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket::new
