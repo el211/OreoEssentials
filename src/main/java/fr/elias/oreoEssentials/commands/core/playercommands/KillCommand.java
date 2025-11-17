@@ -2,13 +2,13 @@
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.attribute.Attribute;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
+import java.util.Map;
 
 public class KillCommand implements OreoCommand {
     @Override public String name() { return "kill"; }
@@ -19,33 +19,67 @@ public class KillCommand implements OreoCommand {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
+        // /kill -> self kill
         if (args.length == 0) {
             if (!(sender instanceof Player p)) {
-                sender.sendMessage(ChatColor.RED + "Usage: /kill <player>");
+                // Console: keep simple usage text
+                sender.sendMessage("Usage: /" + label + " <player>");
                 return true;
             }
-            // kill self
+
+            // Self kill permission
             if (!p.hasPermission("oreo.kill")) {
-                p.sendMessage(ChatColor.RED + "You lack permission.");
+                Lang.send(p, "kill.self.no-permission",
+                        Map.of(),
+                        p
+                );
                 return true;
             }
+
             p.setHealth(0.0);
-            p.sendMessage(ChatColor.RED + "You have been slain.");
+            Lang.send(p, "kill.self.slain",
+                    Map.of(),
+                    p
+            );
             return true;
         }
 
-        // kill others
-        if (!(sender.hasPermission("oreo.kill.others"))) {
-            sender.sendMessage(ChatColor.RED + "You lack permission to kill others.");
+        // /kill <player> -> kill others
+        if (!sender.hasPermission("oreo.kill.others")) {
+            if (sender instanceof Player p) {
+                Lang.send(p, "kill.others.no-permission",
+                        Map.of(),
+                        p
+                );
+            } else {
+                sender.sendMessage("You lack permission to kill others.");
+            }
             return true;
         }
+
         Player target = Bukkit.getPlayerExact(args[0]);
         if (target == null) {
-            sender.sendMessage(ChatColor.RED + "Player not found.");
+            if (sender instanceof Player p) {
+                Lang.send(p, "kill.target-not-found",
+                        Map.of(),
+                        p
+                );
+            } else {
+                sender.sendMessage("Player not found.");
+            }
             return true;
         }
+
         target.setHealth(0.0);
-        sender.sendMessage(ChatColor.GREEN + "Killed " + ChatColor.AQUA + target.getName() + ChatColor.GREEN + ".");
+
+        if (sender instanceof Player p) {
+            Lang.send(p, "kill.others.killed",
+                    Map.of("player", target.getName()),
+                    p
+            );
+        } else {
+            sender.sendMessage("Killed " + target.getName() + ".");
+        }
         return true;
     }
 }

@@ -4,6 +4,7 @@ package fr.elias.oreoEssentials.commands.core.playercommands;
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.services.WarpDirectory;
 import fr.elias.oreoEssentials.services.WarpService;
+import fr.elias.oreoEssentials.util.Lang;
 import fr.minuskube.inv.ClickableItem;
 import fr.minuskube.inv.SmartInventory;
 import fr.minuskube.inv.content.InventoryContents;
@@ -16,6 +17,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.List;
+import java.util.Map;
 
 public class WarpConfirmDeleteGui implements InventoryProvider {
 
@@ -55,11 +57,20 @@ public class WarpConfirmDeleteGui implements InventoryProvider {
                         if (dir != null) {
                             try { dir.deleteWarp(warpName); } catch (Throwable ignored) {}
                         }
-                        p.sendMessage(ChatColor.RED + "Deleted warp " + ChatColor.YELLOW + warpName + ChatColor.RED + ".");
+
+                        Lang.send(p, "warp.delete.success",
+                                Map.of("warp", warpName),
+                                p
+                        );
+
                         p.closeInventory();
                         if (onConfirm != null) onConfirm.run();
                     } else {
-                        p.sendMessage(ChatColor.RED + "Failed to delete warp " + ChatColor.YELLOW + warpName + ChatColor.RED + ".");
+                        Lang.send(p, "warp.delete.failed",
+                                Map.of("warp", warpName),
+                                p
+                        );
+
                         p.closeInventory();
                         if (onCancel != null) onCancel.run();
                     }
@@ -81,8 +92,10 @@ public class WarpConfirmDeleteGui implements InventoryProvider {
         ItemStack it = new ItemStack(Material.PAPER);
         ItemMeta m = it.getItemMeta();
         m.setDisplayName(ChatColor.GOLD + "Delete Warp");
-        m.setLore(List.of(ChatColor.GRAY + "Are you sure you want to delete",
-                ChatColor.YELLOW + name + ChatColor.GRAY + "?"));
+        m.setLore(List.of(
+                ChatColor.GRAY + "Are you sure you want to delete",
+                ChatColor.YELLOW + name + ChatColor.GRAY + "?"
+        ));
         it.setItemMeta(m);
         return it;
     }

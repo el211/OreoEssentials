@@ -59,7 +59,7 @@ public final class ScoreboardConfig {
             );
         }
 
-        boolean enabled = root.getBoolean("enabled", true);
+        boolean enabled = plugin.getSettingsConfig().scoreboardEnabled();
         boolean defaultEnabled = root.getBoolean("default-enabled", true);
         long updateTicks = Math.max(1L, root.getLong("update-ticks", 20L));
 

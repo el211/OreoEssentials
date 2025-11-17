@@ -43,7 +43,7 @@ public final class PlayerVaultsConfig {
         ConfigurationSection cs = plugin.getConfig().getConfigurationSection("playervaults");
         if (cs == null) cs = plugin.getConfig().createSection("playervaults");
 
-        enabled    = cs.getBoolean("enabled", true);
+        enabled = plugin.getSettings().playerVaultsEnabled();
         storage    = cs.getString("storage", "auto");
         collection = cs.getString("collection", "oreo_playervaults");
 

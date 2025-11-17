@@ -2,6 +2,7 @@
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -10,6 +11,7 @@ import org.bukkit.entity.Player;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class NearCommand implements OreoCommand {
@@ -28,7 +30,10 @@ public class NearCommand implements OreoCommand {
             try {
                 radius = Math.max(1, Math.min(1000, Integer.parseInt(args[0])));
             } catch (NumberFormatException e) {
-                sender.sendMessage(ChatColor.RED + "Radius must be a number.");
+                Lang.send(p, "near.radius-not-number",
+                        Map.of("input", args[0]),
+                        p
+                );
                 return true;
             }
         }
@@ -43,14 +48,28 @@ public class NearCommand implements OreoCommand {
                 .collect(Collectors.toList());
 
         if (list.isEmpty()) {
-            p.sendMessage(ChatColor.YELLOW + "No players within " + radius + " blocks.");
+            Lang.send(p, "near.none",
+                    Map.of("radius", String.valueOf(radius)),
+                    p
+            );
             return true;
         }
 
-        String msg = list.stream()
-                .map(e -> ChatColor.AQUA + e.name + ChatColor.GRAY + " (" + ChatColor.YELLOW + String.format("%.1f", e.dist) + "m" + ChatColor.GRAY + ")")
+        // Build the colored list, leave full sentence to lang.yml
+        String formattedList = list.stream()
+                .map(e -> ChatColor.AQUA + e.name
+                        + ChatColor.GRAY + " ("
+                        + ChatColor.YELLOW + String.format("%.1f", e.dist) + "m"
+                        + ChatColor.GRAY + ")")
                 .collect(Collectors.joining(ChatColor.GRAY + ", "));
-        p.sendMessage(ChatColor.GOLD + "Nearby: " + ChatColor.GRAY + msg);
+
+        Lang.send(p, "near.list",
+                Map.of(
+                        "radius", String.valueOf(radius),
+                        "list", formattedList
+                ),
+                p
+        );
         return true;
     }
 

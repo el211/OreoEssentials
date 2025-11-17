@@ -1,4 +1,3 @@
-enabled: true
 default_webhook: "https://discord.com/api/webhooks/..."
 include_server_name: true
 

@@ -1,5 +1,6 @@
 package fr.elias.oreoEssentials.portals;
 
+import fr.elias.oreoEssentials.OreoEssentials;
 import org.bukkit.*;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -38,8 +39,7 @@ public class PortalsManager {
         }
     }
 
-    private final Plugin plugin;
-    private final File file;
+    private final OreoEssentials plugin;    private final File file;
     private final FileConfiguration cfg;
 
     // runtime maps
@@ -56,12 +56,12 @@ public class PortalsManager {
     private final int particleCount;
     private final boolean allowKeepYawPitch;
 
-    public PortalsManager(Plugin plugin) {
+    public PortalsManager(OreoEssentials plugin) {
         this.plugin = plugin;
 
         // read config (with sane defaults)
         FileConfiguration c = plugin.getConfig();
-        this.enabled = c.getBoolean("portals.enabled", true);
+        this.enabled = plugin.getSettings().portalsEnabled();
         this.cooldownMs = c.getLong("portals.cooldown_ms", 1000L);
         this.soundName = c.getString("portals.sound", "ENTITY_ENDERMAN_TELEPORT");
         this.particleName = c.getString("portals.particle", "PORTAL");

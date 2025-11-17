@@ -97,6 +97,12 @@ commands:
     description: Toggle flight
     permission: oreo.fly
 
+  disenchant:
+    description: "Remove or lower enchantments from the item in your hand"
+    usage: "/disenchant <enchantment|all> [levels-to-remove]"
+    permission: "oreo.disenchant"
+    aliases: [ "unenchant", "deench" ]
+
   heal:
     description: Heal yourself or others
     permission: oreo.heal
@@ -741,6 +747,9 @@ permissions:
     description: Allow admins to list and teleport to other players' homes
     default: op
   oreo.uuid:
+    default: true
+  oreo.sit:
+    description: "Allows using /sit"
     default: true
 
   oreo.god.others:

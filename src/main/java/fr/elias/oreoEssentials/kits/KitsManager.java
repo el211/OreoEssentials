@@ -250,14 +250,65 @@ public class KitsManager {
         }
 
         // Run commands (console:/player: prefixes)
+// Run commands (console:/player: prefixes) with simple delay! support
         if (kit.getCommands() != null) {
-            for (String raw : kit.getCommands()) runKitCommand(p, raw);
+            long delayTicks = 0L; // cumul
+            for (String raw : kit.getCommands()) {
+                if (raw == null) continue;
+                String line = raw.trim();
+                if (line.isEmpty()) continue;
+
+                String lower = line.toLowerCase(Locale.ROOT);
+
+                // Syntaxe: "delay! 1"  -> attend 1 seconde (20 ticks)
+                //          "delay! 20t" -> attend 20 ticks
+                //          "delay! 2.5s" -> 2.5 secondes (~50 ticks)
+                if (lower.startsWith("delay!")) {
+                    delayTicks += parseDelayTicks(line);
+                    continue; // on ne l'exécute pas comme commande
+                }
+
+                long runAt = delayTicks;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> runKitCommand(p, line), runAt);
+            }
+
             Lang.send(p, "kits.commands-ran", Map.of("kit_name", kit.getDisplayName()), p);
         }
+
 
         markClaim(p, kit);
         Lang.send(p, "kits.claimed", Map.of("kit_name", kit.getDisplayName()), p);
         return true;
+    }
+    private long parseDelayTicks(String line) {
+        try {
+            String arg = line.substring("delay!".length()).trim().toLowerCase(Locale.ROOT);
+            if (arg.isEmpty()) return 0L;
+
+            // "delay! 1" -> 1 seconde
+            // "delay! 1s" / "delay! 1sec" / "delay! 1.5s" -> secondes
+            // "delay! 20t" -> ticks bruts
+            if (arg.endsWith("t")) {
+                // ticks explicites
+                arg = arg.substring(0, arg.length() - 1).trim();
+                if (arg.isEmpty()) return 0L;
+                return Math.max(0L, Long.parseLong(arg));
+            }
+
+            // par défaut: secondes (supporte décimal)
+            if (arg.endsWith("s")) {
+                arg = arg.substring(0, arg.length() - 1).trim();
+            } else if (arg.endsWith("sec")) {
+                arg = arg.substring(0, arg.length() - 3).trim();
+            }
+
+            if (arg.isEmpty()) return 0L;
+
+            double seconds = Double.parseDouble(arg);
+            return Math.max(0L, (long) Math.round(seconds * 20.0));
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     private void runKitCommand(Player p, String raw) {

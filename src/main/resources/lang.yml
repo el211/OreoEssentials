@@ -193,6 +193,107 @@ economy:
     decimal-separator: "."
     decimals: 2
 
+tpa:
+  usage: "&cUsage: &f/%label% <player>"
+  self: "&cYou cannot TPA to yourself."
+  not-found:
+    name-hint: "&cPlayer &f%input% &cis not online. &7(If they’re on another server, use their exact &fMinecraft&7 name.)"
+    generic: "&cPlayer &f%input% &cnot found online. &7(They may be offline or on another proxy cluster.)"
+  sent:
+    cross-server: "&7Request sent to &b%target% &7on &b%server%&7. They can &a/tpaccept&7."
+    global: "&7We broadcast your request to &f%target% &7across the network. If they’re online, they can &a/tpaccept&7."
+  broker-unavailable: "&cCross-server TPA broker is currently unavailable. &7Ask &f%target% &7to join your server directly."
+  accept:
+    none: "&cNo pending teleport requests."
+    debug-hint: "&7(If this was cross-server, ensure the request arrived on this server and hasn’t expired.)"
+    failed: "&cFailed to accept teleport request. &7See console or contact an administrator."
+near:
+  radius-not-number: "&cRadius must be a number."
+  none: "&eNo players within &f%radius% &eblocks."
+  list: "&6Nearby (&f%radius%m&6): &7%list%"
+
+playtime:
+  self: "&bYour playtime: &f%time%"
+  other: "&b%player%&7's playtime: &f%time%"
+  no-permission: "&cYou don't have permission."
+  player-not-found: "&cPlayer not found."
+
+kill:
+  self:
+    no-permission: "&cYou lack permission."
+    slain: "&cYou have been slain."
+  others:
+    no-permission: "&cYou lack permission to kill others."
+    killed: "&aKilled &b%player%&a."
+  target-not-found: "&cPlayer not found."
+
+
+warp:
+  list-empty: "&eWarps: &7(none)"
+  list: "&eWarps: &7%warps%"
+
+  no-permission: "&cYou don't have permission for this warp."
+  no-permission-with-node: "&cYou don't have permission for this warp.&7 (%permission%)"
+
+  not-found: "&cWarp not found."
+  teleported: "&aTeleported to warp &b%warp%&a."
+  teleport-failed: "&cTeleport failed: &7%error%"
+
+  cross-disabled: "&cCross-server warps are disabled by server config."
+  cross-disabled-tip: "&7Use &b/server %server% &7then run &b/warp %warp%"
+
+  messaging-disabled: "&cCross-server messaging is disabled."
+  messaging-disabled-tip: "&7Use &b/server %server% &7then run &b/warp %warp%"
+
+  sending: "&eSending you to &b%server%&e… you'll be teleported to warp &b%warp%&e on arrival."
+  switch-failed: "&cFailed to switch you to %server%."
+  delete:
+    success: "&cDeleted warp &e%warp%&c."
+    failed: "&cFailed to delete warp &e%warp%&c."
+spawn:
+  not-set: "&cSpawn is not set."
+  teleported: "&aTeleported to spawn."
+  teleport-failed: "&cTeleport failed: &7%error%"
+  cross-disabled: "&cCross-server spawn is disabled by server config."
+  cross-disabled-tip: "&7Use &b/server %server% &7then run &b/spawn"
+  messaging-disabled: "&cCross-server messaging is disabled."
+  messaging-disabled-tip: "&7Use &b/server %server% &7then run &b/spawn"
+  sending: "&eSending you to &b%server%&e… you'll be teleported to spawn on arrival."
+  switch-failed: "&cFailed to switch you to %server%."
+
+delhome:
+  removed: "&aHome removed."
+  not-found: "&cHome not found."
+
+sethome:
+  limit: "&cHome limit reached (&e%max%&c). Ask staff for a higher rank."
+  set: "&aHome &b%name% &ahas been set."
+
+home:
+  no-homes: "&eYou have no homes. Use &b%sethome% <name>"
+  list: "&6Homes: &b%homes%"
+  tip: "&7Tip: &b/%label% <name>&7 to teleport."
+  not-found: "&cHome not found: &e%name%"
+  teleported: "&aTeleported to home &b%name%&a."
+  cross-disabled: "&cCross-server homes are disabled by server config."
+  cross-disabled-tip: "&7Use &b/server %server% &7then run &b/home %name%"
+  messaging-disabled: "&cCross-server messaging is disabled. Ask an admin to enable RabbitMQ."
+  messaging-disabled-tip: "&7You can still switch with &b/server %server% &7and run &b/home %name%"
+  sending: "&eSending you to &b%server%&e… you'll be teleported to home &b%name%&e on arrival."
+  switch-failed: "&cFailed to switch you to %server%."
+  switch-failed-tip: "&7Make sure '&b%server%&7' matches the server name in your proxy config."
+  suggest: "&7Did you mean: &b%suggestions%"
+
+
+player:
+  sit:
+    sat: "&aYou sit down on &f%block%&a."
+    stand: "&aYou stand up."
+    already-riding: "&cYou are already riding something."
+    not-on-ground: "&cYou must be on the ground to sit."
+    not-while-flying: "&cYou cannot sit while flying or gliding."
+    no-block: "&cYou can't sit here."
+
 # =========================================================
 # Admin / Utility command messages
 # =========================================================
@@ -203,6 +304,14 @@ admin:
     reloaded-config: "%prefix%&aMain config reloaded."
     reloaded-chat: "%prefix%&achat-format.yml reloaded."
     unknown-section: "%prefix%&cUnknown section. Use: &7%sections%"
+
+  disenchant:
+    usage: "&cUsage: /%label% <enchantment|all> [levels]"
+    none: "&cThis item has no enchantments."
+    all: "&aAll enchantments have been removed."
+    not-present: "&cThis item does not have &e%ench%&c."
+    removed: "&aRemoved enchantment &e%ench%&a from your item."
+    partial: "&aLowered &e%ench%&a by &e%removed% &alevel(s). Remaining: &e%remaining%."
 
   enchant:
     usage: "%prefix%&eUsage: &f/%label% &7<enchantment> [level] [unsafe] [ignoreConflicts]"

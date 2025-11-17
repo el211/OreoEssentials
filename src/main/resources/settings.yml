@@ -1,0 +1,64 @@
+features:
+
+  bossbar:
+    enabled: true
+
+  chat:
+    enabled: true
+    discord-bridge: true
+
+  economy:
+    enabled: true
+
+  jumppads:
+    enabled: true
+
+  kits:
+    enabled: true
+    register-commands: true
+
+  mobs:
+    enabled: true
+    healthbar: true
+
+  clearlag:
+    enabled: true   # Master switch for ClearLag module (/olagg, auto clear, TPS monitor)
+
+  oreoholograms:
+    enabled: true
+
+  playervaults:
+    enabled: true
+
+  playtime-rewards:
+    enabled: true
+
+  portals:
+    enabled: true
+
+  rtp:
+    enabled: true
+
+  scoreboard:
+    enabled: true
+
+  sit:
+    enabled: true
+
+  trade:
+    enabled: true
+    cross-server: true
+
+  discord-moderation:
+    enabled: true
+
+  cross-server:
+    homes: true
+    warps: true
+    spawn: true
+    economy: true
+    enderchest: true
+
+
+  tab:
+    enabled: true      # 👈 NEW

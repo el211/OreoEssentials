@@ -1,9 +1,9 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/TpAcceptCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.services.TeleportService;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -20,7 +20,7 @@ public class TpAcceptCommand implements OreoCommand {
     @Override public String name() { return "tpaccept"; }
     @Override public List<String> aliases() { return List.of(); }
     @Override public String permission() { return "oreo.tpa"; }
-    @Override public String usage() { return "[player]"; } // optional arg in case you add it later
+    @Override public String usage() { return "[player]"; }
     @Override public boolean playerOnly() { return true; }
 
     // ---- debug helpers (same pattern as /tpa) ----
@@ -67,7 +67,7 @@ public class TpAcceptCommand implements OreoCommand {
                 P(target, id, "cross-server accept " + (handled ? "✓" : "–"));
                 if (handled) {
                     D(id, "done in " + ms(t0));
-                    return true; // fully handled by broker (includes instructing the other server / moving player)
+                    return true;
                 }
             }
         } catch (Throwable t) {
@@ -82,17 +82,16 @@ public class TpAcceptCommand implements OreoCommand {
             P(target, id, "local accept " + (ok ? "✓" : "–"));
 
             if (!ok) {
-                // Mirror the vanilla message but add a helpful hint while debugging
-                target.sendMessage("§cNo pending teleport requests.");
+                Lang.send(target, "tpa.accept.none", null, target);
                 if (dbg()) {
-                    target.sendMessage("§7(If this was cross-server, ensure the request arrived on this server and hasn’t expired.)");
+                    Lang.send(target, "tpa.accept.debug-hint", null, target);
                 }
             }
             D(id, "done in " + ms(t0));
             return true;
         } catch (Throwable t) {
             E(id, "teleportService.accept threw", t);
-            target.sendMessage("§cFailed to accept teleport request. See console for details.");
+            Lang.send(target, "tpa.accept.failed", null, target);
             return true;
         }
     }

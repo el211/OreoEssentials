@@ -1,6 +1,8 @@
 package fr.elias.oreoEssentials.tab;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.config.SettingsConfig;
+import fr.elias.oreoEssentials.playerdirectory.PlayerDirectory;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -13,16 +15,26 @@ import java.lang.reflect.Method;
 import java.util.*;
 
 public class TabListManager {
+
     private final OreoEssentials plugin;
+    private final SettingsConfig settings;
+    private final PlayerDirectory playerDirectory;
+
     private File file;
     private FileConfiguration cfg;
     private BukkitTask task;
 
+    // legacy flag from tab.yml (no longer used to toggle feature, kept for compatibility)
     private boolean enabled;
+
     private boolean usePapi;
     private String header;
     private String footer;
     private int intervalTicks;
+
+    // NEW: network-wide mode (true = use PlayerDirectory to show network stats)
+    // Controlled by tab.yml: tab.network.all-servers
+    private boolean networkMode;
 
     // Title
     private boolean titleEnabled;
@@ -34,15 +46,15 @@ public class TabListManager {
     // Name format
     private boolean nameEnabled;
     private boolean useRankFormats;
-    private String rankKey; // PAPI placeholder used to select a rank format
-    private String namePattern; // fallback pattern when no rank formats / no default
+    private String rankKey;       // PAPI placeholder used to select a rank format
+    private String namePattern;   // fallback pattern when no rank formats / no default
     private boolean nameEnforceMax;
     private int nameMaxLen;
     private OverflowMode overflowMode;
-    private Map<String, String> rankFormats = new HashMap<>(); // lowercased rank -> pattern
+    private final Map<String, String> rankFormats = new HashMap<>(); // lowercased rank -> pattern
 
     // Per world overrides
-    private Map<String, WorldOverrides> worldOverrides = new HashMap<>();
+    private final Map<String, WorldOverrides> worldOverrides = new HashMap<>();
 
     // track who already received title on this session
     private final Set<UUID> titleShown = new HashSet<>();
@@ -69,8 +81,15 @@ public class TabListManager {
 
     public TabListManager(OreoEssentials plugin) {
         this.plugin = plugin;
+        this.settings = plugin.getSettingsConfig();
+        this.playerDirectory = plugin.getPlayerDirectory();
+
         load();
-        if (enabled) start();
+
+        // Do NOT auto-start here — OreoEssentials controls start/stop using settings.yml
+        // (features.tab.enabled). This class just handles logic.
+
+        // Title on join (still handled here)
         if (titleEnabled && titleShowOnJoin) {
             Bukkit.getPluginManager().registerEvents(new org.bukkit.event.Listener() {
                 @org.bukkit.event.EventHandler
@@ -83,16 +102,29 @@ public class TabListManager {
 
     public void load() {
         file = new File(plugin.getDataFolder(), "tab.yml");
-        if (!file.exists()) plugin.saveResource("tab.yml", false);
+        if (!file.exists()) {
+            plugin.saveResource("tab.yml", false);
+        }
         cfg = YamlConfiguration.loadConfiguration(file);
 
+        // Legacy flag (kept for compatibility but NOT used to toggle the feature)
         enabled = cfg.getBoolean("tab.enabled", true);
+        if (!enabled) {
+            plugin.getLogger().info("[TAB] tab.yml 'tab.enabled' is deprecated. Use settings.yml features.tab.enabled instead.");
+        }
+
         usePapi = cfg.getBoolean("tab.use-placeholderapi", true)
                 && Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null;
 
         header = color(cfg.getString("tab.header", ""));
         footer = color(cfg.getString("tab.footer", ""));
         intervalTicks = Math.max(20, cfg.getInt("tab.interval-ticks", 200));
+
+        // --- NEW: network mode ---
+        // tab.network.all-servers: true = use PlayerDirectory / network counts & list
+        ConfigurationSection net = cfg.getConfigurationSection("tab.network");
+        this.networkMode = net != null && net.getBoolean("all-servers", false);
+        plugin.getLogger().info("[TAB] Network mode: " + (networkMode ? "NETWORK_ALL (using PlayerDirectory if available)" : "LOCAL_ONLY"));
 
         // title
         ConfigurationSection t = cfg.getConfigurationSection("tab.title");
@@ -158,10 +190,14 @@ public class TabListManager {
         }
     }
 
+    /**
+     * Called from OreoEssentials.onEnable() ONLY when features.tab.enabled=true in settings.yml.
+     */
     public void start() {
         stop();
         task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
+
                 // per-world overrides
                 WorldOverrides o = worldOverrides.get(p.getWorld().getName().toLowerCase(Locale.ROOT));
                 boolean papi = (o != null && o.usePapi != null) ? (o.usePapi && hasPapi()) : usePapi;
@@ -169,8 +205,15 @@ public class TabListManager {
                 // header/footer
                 String h = firstNonNull(o != null ? o.header : null, header);
                 String f = firstNonNull(o != null ? o.footer : null, footer);
+
+                // Apply internal network/local placeholders BEFORE PAPI
+                h = applyInternalPlaceholders(p, h);
+                f = applyInternalPlaceholders(p, f);
+
+                // Now let PlaceholderAPI do its thing
                 h = runPapiIf(papi, p, h);
                 f = runPapiIf(papi, p, f);
+
                 setTab(p, h, f);
 
                 // name format
@@ -204,6 +247,11 @@ public class TabListManager {
                 // build name
                 String nickOrName = safeNickOrName(p);
                 String rendered = patternToUse.replace("%nick_or_name%", nickOrName);
+
+                // Apply our internal placeholders in names too (if you want network counts in prefix)
+                rendered = applyInternalPlaceholders(p, rendered);
+
+                // then PAPI
                 rendered = runPapiIf(papi, p, rendered);
 
                 // enforce max length
@@ -217,22 +265,35 @@ public class TabListManager {
 
                 if (enforce) rendered = fitToMax(rendered, maxLen, mode);
 
-                try { p.setPlayerListName(rendered); } catch (Throwable ignored) {}
+                try {
+                    p.setPlayerListName(rendered);
+                } catch (Throwable ignored) {}
             }
         }, 1L, intervalTicks);
     }
 
     public void stop() {
-        if (task != null) { task.cancel(); task = null; }
+        if (task != null) {
+            task.cancel();
+            task = null;
+        }
         titleShown.clear();
     }
 
     private void sendTitleOnce(Player p) {
         if (!titleEnabled || !titleShowOnJoin) return;
         if (titleShown.contains(p.getUniqueId())) return;
-        String t = runPapiIf(usePapi && hasPapi(), p, titleText);
-        String s = runPapiIf(usePapi && hasPapi(), p, titleSub);
-        try { p.sendTitle(t, s, titleIn, titleStay, titleOut); } catch (Throwable ignored) {}
+
+        // Internal placeholders first, then PAPI
+        String t = applyInternalPlaceholders(p, titleText);
+        String s = applyInternalPlaceholders(p, titleSub);
+
+        t = runPapiIf(usePapi && hasPapi(), p, t);
+        s = runPapiIf(usePapi && hasPapi(), p, s);
+
+        try {
+            p.sendTitle(t, s, titleIn, titleStay, titleOut);
+        } catch (Throwable ignored) {}
         titleShown.add(p.getUniqueId());
     }
 
@@ -246,16 +307,24 @@ public class TabListManager {
             Class<?> papiCls = Class.forName("me.clip.placeholderapi.PlaceholderAPI");
             Method m = papiCls.getMethod("setPlaceholders", Player.class, String.class);
             return (String) m.invoke(null, p, s);
-        } catch (Throwable ignored) { return s; }
+        } catch (Throwable ignored) {
+            return s;
+        }
     }
 
     private void setTab(Player player, String header, String footer) {
-        try { player.setPlayerListHeaderFooter(header, footer); } catch (Throwable ignored) {}
+        try {
+            player.setPlayerListHeaderFooter(header, footer);
+        } catch (Throwable ignored) {}
     }
 
-    private static String firstNonNull(String a, String b) { return a != null ? a : b; }
+    private static String firstNonNull(String a, String b) {
+        return a != null ? a : b;
+    }
 
-    private static String color(String s) { return s == null ? "" : s.replace('&', '§').replace("\\n", "\n"); }
+    private static String color(String s) {
+        return s == null ? "" : s.replace('&', '§').replace("\\n", "\n");
+    }
 
     /** Prefer displayName (/nick) when available. */
     private static String safeNickOrName(Player p) {
@@ -299,5 +368,91 @@ public class TabListManager {
         if (max <= 3) return "...".substring(0, Math.min(3, max));
         if (raw.length() <= max) return raw;
         return raw.substring(0, max - 3) + "...";
+    }
+
+    // --------------------------------------------------
+    // INTERNAL PLACEHOLDERS (NETWORK MODE SUPPORT)
+    // --------------------------------------------------
+
+    /**
+     * Replace internal placeholders like:
+     *   %oe_local_online%   -> current server online players
+     *   %oe_network_online% -> full network online players (PlayerDirectory), fallback = local
+     *   %oe_network_list%   -> multi-line "name §8(§7server§8)" list (if PlayerDirectory available)
+     *
+     * This runs BEFORE PlaceholderAPI.
+     */
+    private String applyInternalPlaceholders(Player viewer, String input) {
+        if (input == null || input.isEmpty()) return input;
+
+        int localOnline = Bukkit.getOnlinePlayers().size();
+        int networkOnline = localOnline;
+        List<String> networkLines = Collections.emptyList();
+
+        if (networkMode && playerDirectory != null) {
+            try {
+                // Try to use PlayerDirectory if it exposes a suitable API.
+                // You can adjust this to your real methods (e.g. playerDirectory.getOnlinePlayersSnapshot()).
+                // Reflection keeps this class from breaking if method names change.
+                Method m = playerDirectory.getClass().getMethod("snapshotOnline");
+                @SuppressWarnings("unchecked")
+                Collection<?> entries = (Collection<?>) m.invoke(playerDirectory);
+
+                List<String> lines = new ArrayList<>();
+                int count = 0;
+                if (entries != null) {
+                    for (Object e : entries) {
+                        String name = invokeString(e, "getName", "name");
+                        String server = invokeString(e, "getServer", "server", "getServerName");
+                        if (name == null || name.isEmpty()) continue;
+                        if (server == null || server.isEmpty()) {
+                            server = plugin.getConfigService().serverName();
+                        }
+                        lines.add("§f" + name + " §8(§7" + server + "§8)");
+                        count++;
+                    }
+                }
+                if (!lines.isEmpty()) {
+                    networkLines = lines;
+                    networkOnline = count;
+                }
+            } catch (Throwable ignored) {
+                // If PlayerDirectory API doesn't match, we silently fall back to local-only counts.
+                networkOnline = localOnline;
+                networkLines = Collections.emptyList();
+            }
+        }
+
+        String out = input;
+        out = out.replace("%oe_local_online%", String.valueOf(localOnline));
+        out = out.replace("%oe_network_online%", String.valueOf(networkOnline));
+
+        if (out.contains("%oe_network_list%")) {
+            if (!networkMode || networkLines.isEmpty()) {
+                out = out.replace("%oe_network_list%", "");
+            } else {
+                out = out.replace("%oe_network_list%", String.join("\n", networkLines));
+            }
+        }
+
+        return out;
+    }
+
+    /**
+     * Helper for reflective access to PlayerDirectory snapshot entries.
+     * Tries several method names, returns first non-null, non-empty String.
+     */
+    private static String invokeString(Object target, String... methodNames) {
+        for (String name : methodNames) {
+            try {
+                Method m = target.getClass().getMethod(name);
+                Object o = m.invoke(target);
+                if (o instanceof String s && !s.isEmpty()) {
+                    return s;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 }

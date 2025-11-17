@@ -47,12 +47,19 @@ public class AsyncChatListener implements Listener {
     public void onChat(AsyncPlayerChatEvent event) {
         // If something else (e.g., MuteListener) cancelled already, we won't run (ignoreCancelled=true)
 
-        // Respect chat.enabled in chat-format.yml
-        final FileConfiguration conf = chatConfig == null ? null : chatConfig.getCustomConfig();
-        if (conf == null || !conf.getBoolean("chat.enabled", false)) {
-            // Let vanilla/bukkit handle chat if plugin chat is disabled
+        // Respect global master toggle from settings.yml
+        if (!OreoEssentials.get().getSettingsConfig().chatEnabled()) {
+            // Let vanilla/bukkit handle chat if Oreo chat formatting is disabled
             return;
         }
+
+        // Optionally still ensure config exists (for formats), but don't use it as toggle
+        final FileConfiguration conf = chatConfig == null ? null : chatConfig.getCustomConfig();
+        if (conf == null) {
+            // No chat-format.yml found; let vanilla handle it, or you can still continue with hardcoded fallback.
+            return;
+        }
+
 
         final Player player = event.getPlayer();
 
@@ -90,7 +97,7 @@ public class AsyncChatListener implements Listener {
         try {
             if (syncManager != null) {
                 // Requires ChatSyncManager.publishMessage(UUID playerId, String serverName, String playerName, String message)
-// NEW ✅ send full formatted message INCLUDING gradients/hex
+        // NEW ✅ send full formatted message INCLUDING gradients/hex
                 syncManager.publishMessage(
                         player.getUniqueId(),
                         Bukkit.getServer().getName(),

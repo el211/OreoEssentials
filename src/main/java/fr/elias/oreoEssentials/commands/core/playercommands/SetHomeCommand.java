@@ -1,13 +1,16 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/SetHomeCommand.java
+// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/SetHomeCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.services.ConfigService;
 import fr.elias.oreoEssentials.services.HomeService;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public class SetHomeCommand implements OreoCommand {
     private final HomeService homes;
@@ -26,15 +29,26 @@ public class SetHomeCommand implements OreoCommand {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        if (args.length < 1) return false;
+        if (args.length < 1) return false; // keep usage handling from framework
+
         Player p = (Player) sender;
-        boolean ok = homes.setHome(p, args[0], p.getLocation());
+        String rawName = args[0];
+        String key = rawName.toLowerCase(Locale.ROOT);
+
+        boolean ok = homes.setHome(p, rawName, p.getLocation());
         if (!ok) {
             int max = config.getMaxHomesFor(p);
-            p.sendMessage("§cHome limit reached (" + max + "). Ask staff for a higher rank.");
+            Lang.send(p, "sethome.limit",
+                    Map.of("max", String.valueOf(max)),
+                    p
+            );
             return true;
         }
-        p.sendMessage("§aHome §b" + args[0].toLowerCase() + " §aset.");
+
+        Lang.send(p, "sethome.set",
+                Map.of("name", key),
+                p
+        );
         return true;
     }
 }

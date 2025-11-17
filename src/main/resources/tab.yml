@@ -1,12 +1,18 @@
 tab:
+  # Deprecated, only kept for backwards compat (real toggle is settings.yml -> features.tab.enabled)
   enabled: true
+
   use-placeholderapi: true
   interval-ticks: 100
 
+  # 🔴 NEW: global network mode (read by TabListManager.networkMode)
+  network:
+    all-servers: true   # true = use PlayerDirectory snapshot for %oe_network_*% placeholders
+
   header: |-
     &8&m------------------------------\n
-    &6&lOREO&f&lESSENTIALS &7| &f%server_online%&7/&f%server_max_players%\n
-    &7TPS: &a%server_tps_1%  &7Ping: &a%player_ping%
+    &6&lOREO&f&lESSENTIALS &7| &f%oe_network_online%&7/&f%server_max_players%\n
+    &7Local: &a%oe_local_online% &8| &7TPS: &a%server_tps_1%  &7Ping: &a%player_ping%
   footer: |-
     &8&m------------------------------\n
     &7Welcome, &f%player_displayname%&7!  &8|  &7Balance: &a$%vault_eco_balance_formatted%\n
@@ -22,23 +28,11 @@ tab:
     fade-out: 10
 
   name-format:
-    enabled: true
-
-    # If rank formats are enabled, we’ll pick a pattern from rank-formats
-    # based on the resolved "rank-key". If no match, "default" is used.
+    # ❗ keep network OUT of here – this block is only for name rules
     use-rank-formats: true
-
-    # This is a PAPI placeholder that resolves to your rank key.
-    # LuckPerms examples:
-    #   %luckperms_primary_group%        -> owner/admin/mod/default
-    #   %luckperms_highest_group_by_weight%
-    # You can use any placeholder; we lowercase it to find a key below.
     rank-key: "%luckperms_primary_group%"
-
-    # Fallback pattern if not using rank-formats, or if not matched (and "default" is missing).
     pattern: "&7[%luckperms_prefix%&7]&r %nick_or_name%"
 
-    # Map of rank -> pattern. Keys are compared in lowercase.
     rank-formats:
       default: "&7[%luckperms_prefix%&7]&r %nick_or_name%"
       owner: "&4&lOWNER &r%nick_or_name%"
@@ -46,7 +40,6 @@ tab:
       mod: "&2&lMOD &r%nick_or_name%"
       vip: "&6⭐ &r%nick_or_name%"
 
-    # Keep tab-list names inside vanilla limit
     enforce-max-length: true
     max-length: 16
     overflow: "TRIM"   # TRIM or ELLIPSIS

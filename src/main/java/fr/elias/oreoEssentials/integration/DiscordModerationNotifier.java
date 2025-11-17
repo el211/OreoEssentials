@@ -18,9 +18,10 @@ public class DiscordModerationNotifier {
 
     private final Plugin plugin;
     private final CustomConfig cfg; // wraps discord-integration.yml
-    private boolean enabled;
+    private boolean fileEnabled;
     private String defaultWebhook;
     private boolean includeServerName;
+
 
     public DiscordModerationNotifier(Plugin plugin) {
         // NOTE: CustomConfig expects OreoEssentials, but it extends JavaPlugin so this is fine.
@@ -32,7 +33,7 @@ public class DiscordModerationNotifier {
 
     public void reload() {
         var c = cfg.getCustomConfig();
-        this.enabled           = c.getBoolean("enabled", false);
+        this.fileEnabled       = c.getBoolean("enabled", true); // default true so you can remove it from the file
         this.defaultWebhook    = safe(c.getString("default_webhook", ""));
         this.includeServerName = c.getBoolean("include_server_name", true);
 
@@ -90,7 +91,10 @@ public class DiscordModerationNotifier {
     }
 
     public boolean isEnabled() {
-        return enabled && hasAnyWebhook();
+        // master toggle + file toggle + at least one webhook present
+        return OreoEssentials.get().getSettingsConfig().discordModerationEnabled()
+                && fileEnabled
+                && hasAnyWebhook();
     }
 
     /* ------------------ Public helpers (existing) ------------------ */
@@ -152,8 +156,7 @@ public class DiscordModerationNotifier {
     /* ------------------ Core sending (ASYNC) ------------------ */
 
     private void send(EventType type, Map<String,String> placeholders) {
-        if (!enabled) return;
-
+        if (!isEnabled()) return;
         var c = cfg.getCustomConfig();
         String node = "events." + type.name().toLowerCase();
         boolean evEnabled = c.getBoolean(node + ".enabled", true);

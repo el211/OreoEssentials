@@ -96,6 +96,12 @@ public class CommandManager {
             pc.setTabCompleter(exec);
         }
     }
+    public CommandManager registerIf(boolean enabled, OreoCommand cmd) {
+        if (enabled) {
+            register(cmd);
+        }
+        return this;
+    }
 
     private CommandMap getCommandMap() {
         try {

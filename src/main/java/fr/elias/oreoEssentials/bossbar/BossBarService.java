@@ -44,9 +44,12 @@ public final class BossBarService implements Listener {
 
     private void readConfig() {
         var cfg = plugin.getConfig().getConfigurationSection("bossbar");
-        this.enabled  = cfg != null && cfg.getBoolean("enabled", false);
+
+        // 🔄 NEW toggle source (master toggle from settings.yml)
+        this.enabled = plugin.getSettingsConfig().bossbarEnabled();
+
         this.text     = cfg != null ? cfg.getString("text", "<gradient:#FF1493:#00FF7F>Welcome</gradient> {player}")
-                : "<gradient:#FF1493:#00FF7F>Welcome</gradient> {player}";
+                : "<gradient:#FF1493:#00FF7FF>Welcome</gradient> {player}";
         this.color    = safeColor(cfg != null ? cfg.getString("color", "PURPLE") : "PURPLE");
         this.style    = safeStyle(cfg != null ? cfg.getString("style", "SEGMENTED_10") : "SEGMENTED_10");
         double p      = cfg != null ? cfg.getDouble("progress", 1.0) : 1.0;
@@ -54,6 +57,7 @@ public final class BossBarService implements Listener {
         long per      = cfg != null ? cfg.getLong("update-ticks", 40) : 40L;
         this.period   = Math.max(1L, per);
     }
+
 
     /* ---------------- lifecycle ---------------- */
 

@@ -1,6 +1,9 @@
 // File: src/main/java/fr/elias/oreoEssentials/OreoEssentials.java
 package fr.elias.oreoEssentials;
 
+import fr.elias.oreoEssentials.bossbar.BossBarService;
+import fr.elias.oreoEssentials.bossbar.BossBarToggleCommand;
+import fr.elias.oreoEssentials.clearlag.ClearLagCommands;
 import fr.elias.oreoEssentials.clearlag.ClearLagManager;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
@@ -17,6 +20,7 @@ import fr.elias.oreoEssentials.commands.core.playercommands.TpAcceptCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpDenyCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.TpaCommand;
 import fr.elias.oreoEssentials.commands.core.playercommands.WarpCommand;
+import fr.elias.oreoEssentials.config.SettingsConfig;
 import fr.elias.oreoEssentials.customcraft.CustomCraftingService;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
 import fr.elias.oreoEssentials.kits.KitsManager;
@@ -32,6 +36,8 @@ import fr.elias.oreoEssentials.scoreboard.ScoreboardService;
 import fr.elias.oreoEssentials.scoreboard.ScoreboardToggleCommand;
 import fr.elias.oreoEssentials.customcraft.OeCraftCommand;
 import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
+import fr.elias.oreoEssentials.commands.core.playercommands.SitCommand;
+import fr.elias.oreoEssentials.listeners.SitListener;
 
 
 // Tab completion
@@ -97,6 +103,8 @@ public final class OreoEssentials extends JavaPlugin {
     public MuteService getMuteService() { return muteService; }
     // Economy bridge (internal) — distinct from Vault Economy
     private MongoClient homesMongoClient;
+    private fr.elias.oreoEssentials.config.SettingsConfig settingsConfig;
+    public fr.elias.oreoEssentials.config.SettingsConfig getSettingsConfig() { return settingsConfig; }
 
     private fr.elias.oreoEssentials.daily.DailyMongoStore dailyStore;
 
@@ -109,6 +117,10 @@ public final class OreoEssentials extends JavaPlugin {
     // with other fields
     private fr.elias.oreoEssentials.teleport.TpCrossServerBroker tpBroker;
     public fr.elias.oreoEssentials.teleport.TpCrossServerBroker getTpBroker() { return tpBroker; }
+    // Portals + JumpPads + PlayerVaults
+    private fr.elias.oreoEssentials.portals.PortalsManager portals;
+    private fr.elias.oreoEssentials.jumpads.JumpPadsManager jumpPads;
+    private fr.elias.oreoEssentials.playervaults.PlayerVaultsConfig playerVaultsConfig;
 
     private ConfigService configService;
     private StorageApi storage;
@@ -165,6 +177,7 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.playtime.PlaytimeRewardsService playtimeRewards;
     public fr.elias.oreoEssentials.playtime.PlaytimeRewardsService getPlaytimeRewards() { return playtimeRewards; }
 
+    private SettingsConfig settings;
 
     // Toggles
     private boolean economyEnabled;
@@ -222,6 +235,10 @@ public final class OreoEssentials extends JavaPlugin {
         // -------------------------------------------------
         instance = this;
         saveDefaultConfig();
+        fr.elias.oreoEssentials.config.LegacySettingsMigrator.migrate(this);
+
+        this.settingsConfig = new fr.elias.oreoEssentials.config.SettingsConfig(this);
+        this.settings = this.settingsConfig; // keep both names valid
 
         getLogger().info("[BOOT] OreoEssentials starting up…");
 
@@ -229,7 +246,9 @@ public final class OreoEssentials extends JavaPlugin {
         this.configService = new ConfigService(this); // we pull this early now
         final String essentialsStorage = getConfig().getString("essentials.storage", "yaml").toLowerCase();
         final String economyType       = getConfig().getString("economy.type", "none").toLowerCase();
-        this.economyEnabled            = getConfig().getBoolean("economy.enabled", !economyType.equals("none"));
+        this.economyEnabled = settingsConfig.economyEnabled();
+        getLogger().info("[Economy] " + (economyEnabled ? "Enabled" : "Disabled") + " via settings.yml");
+
         this.redisEnabled              = getConfig().getBoolean("redis.enabled", false);
         this.rabbitEnabled             = getConfig().getBoolean("rabbitmq.enabled", false);
 
@@ -429,8 +448,9 @@ public final class OreoEssentials extends JavaPlugin {
         // Locales
         Lang.init(this);
         // --- Kits (fully optional) ---
-        boolean kitsFeature   = getConfig().getBoolean("features.kits.enabled", true);
-        boolean kitsRegister  = getConfig().getBoolean("features.kits.register-commands", true);
+        boolean kitsFeature   = settingsConfig.kitsEnabled();
+        boolean kitsRegister  = settingsConfig.kitsCommandsEnabled();
+
 
         if (kitsFeature) {
             this.kitsManager = new fr.elias.oreoEssentials.kits.KitsManager(this);
@@ -479,7 +499,7 @@ public final class OreoEssentials extends JavaPlugin {
         // --- Trade (/trade) ---
         this.tradeConfig = new fr.elias.oreoEssentials.trade.TradeConfig(this);
 
-        if (this.tradeConfig.enabled) {
+        if (this.tradeConfig.enabled && settingsConfig.tradeEnabled()) {
             // service
             this.tradeService = new fr.elias.oreoEssentials.trade.TradeService(this, this.tradeConfig);
 
@@ -493,17 +513,16 @@ public final class OreoEssentials extends JavaPlugin {
                 getLogger().warning("[Trade] Command 'trade' not found in plugin.yml; skipping.");
             }
 
-            // 🔒 anti-steal guard for the trade GUI
             org.bukkit.Bukkit.getPluginManager().registerEvents(
                     new fr.elias.oreoEssentials.trade.ui.TradeGuiGuardListener(this),
                     this
             );
-
         } else {
             this.tradeService = null;
             unregisterCommandHard("trade");
-            getLogger().info("[Trade] Disabled by config — command unregistered.");
+            getLogger().info("[Trade] Disabled (trade.yml or settings.yml).");
         }
+
 
 
         // === Custom Crafting (SmartInvs GUI) ===
@@ -558,37 +577,42 @@ public final class OreoEssentials extends JavaPlugin {
         );
 
         // -------- Discord moderation notifier (separate config)
-        this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
-// Health bar for mobs
+        if (settingsConfig.discordModerationEnabled()) {
+            this.discordMod = new fr.elias.oreoEssentials.integration.DiscordModerationNotifier(this);
+            getLogger().info("[DiscordMod] Discord moderation integration enabled (settings.yml).");
+        } else {
+            this.discordMod = null;
+            getLogger().info("[DiscordMod] Disabled by settings.yml (features.discord-moderation.enabled=false).");
+        }
+
+        // -------- MOBS Health bar --------
         try {
             // Soft-hook UltimateChristmas (may be null)
             fr.elias.ultimateChristmas.UltimateChristmas xmasHook = null;
             try {
-                org.bukkit.plugin.Plugin maybe = getServer().getPluginManager().getPlugin("UltimateChristmas");
+                var maybe = getServer().getPluginManager().getPlugin("UltimateChristmas");
                 if (maybe instanceof fr.elias.ultimateChristmas.UltimateChristmas uc && maybe.isEnabled()) {
                     xmasHook = uc;
-                    getLogger().info("[MOBS] UltimateChristmas detected – Santa & Grinch will be excluded from health bars.");
-                } else {
-                    getLogger().info("[MOBS] UltimateChristmas not found or not enabled; showing bars for all mobs.");
+                    getLogger().info("[MOBS] UltimateChristmas hooked.");
                 }
-            } catch (Throwable ignored) {
-                // Don’t hard-crash if class isn’t on the classpath
-                getLogger().info("[MOBS] UltimateChristmas not available (soft hook skipped).");
-            }
+            } catch (Throwable ignored) {}
 
-            // Pass BOTH: this plugin and the Xmas hook (may be null)
-            var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(this, xmasHook);
-
-            if (hbl.isEnabled()) {
-                this.healthBarListener = hbl;
-                getServer().getPluginManager().registerEvents(hbl, this);
-                getLogger().info("[MOBS] Health bars enabled.");
+            if (settingsConfig.mobsHealthbarEnabled()) {
+                try {
+                    var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(this, xmasHook);
+                    this.healthBarListener = hbl;
+                    getServer().getPluginManager().registerEvents(hbl, this);
+                    getLogger().info("[MOBS] Health bars enabled (settings.yml).");
+                } catch (Throwable t) {
+                    getLogger().warning("[MOBS] Failed to init health bars: " + t.getMessage());
+                }
             } else {
-                getLogger().info("[MOBS] Health bars disabled by config.");
+                getLogger().info("[MOBS] Disabled by settings.yml (features.mobs.enabled=false or healthbar=false).");
             }
         } catch (Throwable t) {
-            getLogger().warning("[MOBS] Failed to init health bars: " + t.getMessage());
+            getLogger().warning("[MOBS] Unexpected failure booting health bars: " + t.getMessage());
         }
+
 
 
         // -------- KILLALL Recorder commands --------
@@ -598,20 +622,30 @@ public final class OreoEssentials extends JavaPlugin {
         getCommand("killallrlog").setExecutor(new KillallLogViewCommand(killallLogger));
 
         // -------- ClearLag Module (manager + command) --------
-        try {
-            this.clearLag = new fr.elias.oreoEssentials.clearlag.ClearLagManager(this);
-            var olaggCmd = getCommand("olagg");
-            if (olaggCmd != null) {
-                var olagg = new fr.elias.oreoEssentials.clearlag.ClearLagCommands(clearLag);
-                olaggCmd.setExecutor(olagg);
-                olaggCmd.setTabCompleter(olagg);
-            } else {
-                getLogger().warning("[OreoLag] Command 'olagg' not found in plugin.yml; skipping registration.");
+        if (settingsConfig.clearLagEnabled()) {
+            try {
+                this.clearLag = new ClearLagManager(this);
+
+                var olaggCmd = getCommand("olagg");
+                if (olaggCmd != null) {
+                    var olagg = new fr.elias.oreoEssentials.clearlag.ClearLagCommands(clearLag);
+                    olaggCmd.setExecutor(olagg);
+                    olaggCmd.setTabCompleter(olagg);
+                    getLogger().info("[OreoLag] Enabled — /olagg active.");
+                } else {
+                    getLogger().warning("[OreoLag] Command 'olagg' not found in plugin.yml; skipping.");
+                }
+
+            } catch (Throwable t) {
+                getLogger().warning("[OreoLag] FAILED to initialize: " + t.getMessage());
+                this.clearLag = null;
             }
-            getLogger().info("[OreoLag] ClearLag manager initialized.");
-        } catch (Throwable t) {
-            getLogger().warning("[OreoLag] Failed to initialize ClearLag manager: " + t.getMessage());
+        } else {
+            unregisterCommandHard("olagg");
+            this.clearLag = null;
+            getLogger().info("[OreoLag] Disabled by settings.yml.");
         }
+
 
         // -------- Chat system (Afelius merge) --------
         this.chatConfig = new fr.elias.oreoEssentials.chat.CustomConfig(this, "chat-format.yml");
@@ -632,14 +666,17 @@ public final class OreoEssentials extends JavaPlugin {
             this.chatSyncManager = new ChatSyncManager(false, "", muteService);
         }
 
-        // Discord relay (read from chat-format.yml)
-        var chatRoot = chatConfig.getCustomConfig().getConfigurationSection("chat");
-        boolean discordEnabled = chatRoot != null
-                && chatRoot.getConfigurationSection("discord") != null
-                && chatRoot.getConfigurationSection("discord").getBoolean("enabled", false);
-        String discordWebhookUrl = (chatRoot != null && chatRoot.getConfigurationSection("discord") != null)
-                ? chatRoot.getConfigurationSection("discord").getString("webhook_url", "")
-                : "";
+        // Discord relay (controlled by settings.yml master toggle + chat-format.yml)
+        boolean discordEnabled = false;
+        String discordWebhookUrl = "";
+
+        if (getSettingsConfig().chatDiscordBridgeEnabled()) { // ← NEW master toggle check
+            var chatRoot = chatConfig.getCustomConfig().getConfigurationSection("chat.discord");
+            if (chatRoot != null) {
+                discordEnabled = chatRoot.getBoolean("enabled", false);
+                discordWebhookUrl = chatRoot.getString("webhook_url", "");
+            }
+        }
 
         // Register async chat listener (mute-aware)
         getServer().getPluginManager().registerEvents(
@@ -653,6 +690,7 @@ public final class OreoEssentials extends JavaPlugin {
                 ),
                 this
         );
+
 
         // Conversations / auto messages
         getServer().getPluginManager().registerEvents(new ConversationListener(this), this);
@@ -740,27 +778,27 @@ public final class OreoEssentials extends JavaPlugin {
             }
         }
 
-        // ---- EnderChest config + storage (respect crossserverec)
+        // ---- EnderChest config + storage (respect cross-server.enderchest + storage mode)
+        // ---- EnderChest config + storage (respect cross-server.enderchest + storage mode)
         this.ecConfig = new fr.elias.oreoEssentials.enderchest.EnderChestConfig(this);
+        // Constructor already calls reload(), so no extra call needed.
 
-        // --- PlayerVaults (SmartInvs + YAML/Mongo; cross-server)
-        this.playervaultsService = new fr.elias.oreoEssentials.playervaults.PlayerVaultsService(this);
-        if (this.playervaultsService.enabled()) {
-            getLogger().info("[Vaults] PlayerVaults enabled.");
-        } else {
-            getLogger().info("[Vaults] PlayerVaults disabled by config or storage unavailable.");
-        }
+        final boolean crossServerEc =
+                settingsConfig.featureOption("cross-server", "enderchest", true);
+        final boolean mongoStorage =
+                "mongodb".equalsIgnoreCase(getConfig().getString("essentials.storage", "yaml"));
 
-        boolean crossServerEc = getConfig().getBoolean("crossserverec", false);
         fr.elias.oreoEssentials.enderchest.EnderChestStorage ecStorage;
 
-        if ("mongodb".equalsIgnoreCase(getConfig().getString("essentials.storage", "yaml"))
-                && crossServerEc
-                && this.homesMongoClient != null) {
+        if (mongoStorage && crossServerEc && this.homesMongoClient != null) {
             String dbName = getConfig().getString("storage.mongo.database", "oreo");
             String prefix = getConfig().getString("storage.mongo.collectionPrefix", "oreo_");
+
             ecStorage = new fr.elias.oreoEssentials.enderchest.MongoEnderChestStorage(
-                    this.homesMongoClient, dbName, prefix, getLogger()
+                    this.homesMongoClient,
+                    dbName,
+                    prefix,
+                    getLogger()
             );
             getLogger().info("[EC] Using MongoDB cross-server ender chest storage.");
         } else {
@@ -770,9 +808,10 @@ public final class OreoEssentials extends JavaPlugin {
 
         this.ecService = new fr.elias.oreoEssentials.enderchest.EnderChestService(
                 this,
-                ecConfig,
+                this.ecConfig,
                 ecStorage
         );
+
         Bukkit.getServicesManager().register(
                 fr.elias.oreoEssentials.enderchest.EnderChestService.class,
                 this.ecService,
@@ -780,10 +819,14 @@ public final class OreoEssentials extends JavaPlugin {
                 org.bukkit.plugin.ServicePriority.Normal
         );
 
+
+
         // --- Player Sync bootstrap ---
-        final boolean invSyncEnabled = getConfig().getBoolean("crossserverinv", false);
+// --- Player Sync bootstrap ---
+        final boolean invSyncEnabled = settingsConfig.featureOption("cross-server", "inventory", true);
 
         fr.elias.oreoEssentials.playersync.PlayerSyncStorage invStorage;
+
         if (invSyncEnabled
                 && "mongodb".equalsIgnoreCase(getConfig().getString("essentials.storage", "yaml"))
                 && this.homesMongoClient != null) {
@@ -943,6 +986,7 @@ public final class OreoEssentials extends JavaPlugin {
 
 
         // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
+        // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
         if (packetManager != null && packetManager.isInitialized() && invSyncEnabled) {
             this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(
                     this,
@@ -954,17 +998,24 @@ public final class OreoEssentials extends JavaPlugin {
             this.invBridge = null;
             getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable or crossserverinv=false).");
         }
-        if (packetManager != null && packetManager.isInitialized()) {
+
+        // ---- Cross-server Trade broker (only if Rabbit AND tradeService AND enabled in settings) ----
+        if (packetManager != null
+                && packetManager.isInitialized()
+                && this.tradeService != null
+                && settingsConfig.tradeCrossServerEnabled()) {
+
             this.tradeBroker = new fr.elias.oreoEssentials.trade.TradeCrossServerBroker(
                     this,
                     packetManager,
                     configService.serverName(),
-                    this.tradeService // 👈 required: broker needs to drop incoming invites into TradeService
+                    this.tradeService
             );
+            getLogger().info("[TRADE] Cross-server trade broker ready.");
         } else {
             this.tradeBroker = null;
+            getLogger().info("[TRADE] Cross-server trade broker disabled (PacketManager unavailable, trade disabled, or settings.yml).");
         }
-
 
         // -------- Cross-server teleport brokers --------
         if (packetManager != null && packetManager.isInitialized()) {
@@ -1016,12 +1067,14 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().warning("[BROKER] Brokers not started: PacketManager unavailable.");
         }
-// -------- Core services --------
+
+        // -------- Core services --------
         this.backService      = new BackService(storage);
         this.messageService   = new MessageService();
         this.teleportService  = new TeleportService(this, backService, configService);
         this.deathBackService = new DeathBackService();
         this.godService       = new GodService();
+
 
 // --- TPA cross-server broker (single initialization; no duplicates) ---
         if (packetManager != null && packetManager.isInitialized()) {
@@ -1078,56 +1131,89 @@ public final class OreoEssentials extends JavaPlugin {
                 this
         );
 
-        // -------- Portals --------
-        var portalsManager = new fr.elias.oreoEssentials.portals.PortalsManager(this);
+            // -------- Portals --------
+        this.portals = new fr.elias.oreoEssentials.portals.PortalsManager(this);
         getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.portals.PortalsListener(portalsManager),
+                new fr.elias.oreoEssentials.portals.PortalsListener(this.portals),
                 this
         );
         if (getCommand("portal") != null) {
-            var portalCmd = new fr.elias.oreoEssentials.portals.PortalsCommand(portalsManager);
+            var portalCmd = new fr.elias.oreoEssentials.portals.PortalsCommand(this.portals);
             getCommand("portal").setExecutor(portalCmd);
             getCommand("portal").setTabCompleter(portalCmd);
         }
 
         // -------- JumpPads --------
-        var jumpPadsManager = new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
+        this.jumpPads = new fr.elias.oreoEssentials.jumpads.JumpPadsManager(this);
         getServer().getPluginManager().registerEvents(
-                new fr.elias.oreoEssentials.jumpads.JumpPadsListener(jumpPadsManager),
+                new fr.elias.oreoEssentials.jumpads.JumpPadsListener(this.jumpPads),
                 this
         );
         if (getCommand("jumpad") != null) {
-            var jumpCmd = new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(jumpPadsManager);
+            var jumpCmd = new fr.elias.oreoEssentials.jumpads.JumpPadsCommand(this.jumpPads);
             getCommand("jumpad").setExecutor(jumpCmd);
             getCommand("jumpad").setTabCompleter(jumpCmd);
         }
+
+        // --- PlayerVaults ---
+        this.playerVaultsConfig = new fr.elias.oreoEssentials.playervaults.PlayerVaultsConfig(this);
+        this.playervaultsService = new fr.elias.oreoEssentials.playervaults.PlayerVaultsService(this);
+        if (this.playervaultsService.enabled()) {
+            getLogger().info("[Vaults] PlayerVaults enabled.");
+        } else {
+            getLogger().info("[Vaults] PlayerVaults disabled by config or storage unavailable.");
+        }
+
 
         // -------- Commands (manager then registrations) --------
         this.commands = new CommandManager(this);
         // ---- RTP config
         // Initialize RTP config (constructor calls reload())
-        this.rtpConfig = new RtpConfig(this);
+            this.rtpConfig = new RtpConfig(this);
 
-        if (this.rtpConfig.isEnabled()) {
-            this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
-            getLogger().info("[RTP] Enabled — /rtp registered.");
-        } else {
-            unregisterCommandHard("rtp");
-            unregisterCommandHard("wild"); // if you expose an alias
-            getLogger().info("[RTP] Disabled by config — /rtp unregistered.");
-        }
+            if (settingsConfig.rtpEnabled() && this.rtpConfig.isEnabled()) {
+                this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
+                getLogger().info("[RTP] Enabled — /rtp registered.");
+            } else {
+                unregisterCommandHard("rtp");
+                unregisterCommandHard("wild");
+                getLogger().info("[RTP] Disabled (rtp.yml or settings.yml).");
+            }
+
         // --- BossBar (controlled by config: bossbar.enabled)
-        this.bossBarService = new fr.elias.oreoEssentials.bossbar.BossBarService(this);
-        this.bossBarService.start();
-        this.commands.register(
-                new fr.elias.oreoEssentials.bossbar.BossBarToggleCommand(this.bossBarService)
-        );
+        if (settingsConfig.bossbarEnabled()) {
+            this.bossBarService = new BossBarService(this);
+            this.bossBarService.start();
+            this.commands.register(new BossBarToggleCommand(this.bossBarService));
+            getLogger().info("[BossBar] Enabled from settings.yml.");
+        } else {
+            unregisterCommandHard("bossbar");
+            getLogger().info("[BossBar] Disabled by settings.yml.");
+        }
 
-        // --- Scoreboard (controlled by config: scoreboard.enabled)
-        ScoreboardConfig sbCfg = ScoreboardConfig.load(this);
-        this.scoreboardService = new ScoreboardService(this, sbCfg);
-        this.scoreboardService.start();
-        this.commands.register(new ScoreboardToggleCommand(this.scoreboardService));
+
+        // --- Scoreboard (controlled by settings.yml: features.scoreboard.enabled)
+        if (settingsConfig.scoreboardEnabled()) {
+            ScoreboardConfig sbCfg = ScoreboardConfig.load(this);
+            this.scoreboardService = new ScoreboardService(this, sbCfg);
+            this.scoreboardService.start();
+            this.commands.register(new ScoreboardToggleCommand(this.scoreboardService));
+            getLogger().info("[Scoreboard] Enabled from settings.yml");
+        } else {
+            getLogger().info("[Scoreboard] Disabled via settings.yml");
+            unregisterCommandHard("scoreboard");
+            unregisterCommandHard("sb");
+        }
+
+        // --- TAB list (controlled by settings.yml: features.tab.enabled)
+        if (settingsConfig.tabEnabled()) {
+            this.tabListManager = new fr.elias.oreoEssentials.tab.TabListManager(this);
+            this.tabListManager.start();
+            getLogger().info("[TAB] Custom tab-list enabled via settings.yml.");
+        } else {
+            this.tabListManager = null;
+            getLogger().info("[TAB] Disabled by settings.yml (features.tab.enabled=false).");
+        }
 
         var tphere = new fr.elias.oreoEssentials.commands.core.admins.TphereCommand();
         this.commands.register(tphere);
@@ -1189,6 +1275,7 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new KickCommand()) //kick command
                 .register(new FreezeCommand(freezeService)) // freeze command
                 .register(new EnchantCommand()) //enchant command
+                .register(new DisenchantCommand()) //disenchant command
                 .register(muteCmd) //mute command
                 .register(new UnbanCommand()) //unban command
                 .register(unmuteCmd) //unmute command
@@ -1271,6 +1358,16 @@ public final class OreoEssentials extends JavaPlugin {
                 new fr.elias.oreoEssentials.listeners.VisitorGuardListener(visitorService),
                 this
         );
+        // Sit command + listener (fully controlled by settings.yml)
+        if (settingsConfig.sitEnabled()) {
+            this.commands.register(new SitCommand());
+            getServer().getPluginManager().registerEvents(new SitListener(), this);
+            getLogger().info("[Sit] Enabled — /sit dynamically registered.");
+        } else {
+            getLogger().info("[Sit] Disabled by settings.yml — /sit not registered at all.");
+        }
+
+
 
         var gmCmd = new fr.elias.oreoEssentials.commands.core.admins.GamemodeCommand(visitorService);
         this.getCommands().register(gmCmd);
@@ -1290,6 +1387,10 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("warp").setTabCompleter(new WarpTabCompleter(warpService));
         if (getCommand("enchant") != null)
             getCommand("enchant").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.EnchantTabCompleter());
+        if (getCommand("disenchant") != null)
+            getCommand("disenchant").setTabCompleter(
+                    new fr.elias.oreoEssentials.commands.completion.EnchantTabCompleter()
+            );
         if (getCommand("mute") != null)
             getCommand("mute").setTabCompleter(muteCmd);
         if (getCommand("unban") != null)
@@ -1355,13 +1456,26 @@ public final class OreoEssentials extends JavaPlugin {
         this.deathMessages = new fr.elias.oreoEssentials.events.DeathMessageService(getDataFolder());
 
         // --- Playtime (per-server) + Rewards
+// --- Playtime (per-server) + Rewards
         this.playtimeTracker = new fr.elias.oreoEssentials.playtime.PlaytimeTracker(this);
 
         this.playtimeRewards = new fr.elias.oreoEssentials.playtime.PlaytimeRewardsService(
                 this,
                 playtimeTracker
         );
-        this.playtimeRewards.init(); // loads config, registers listeners, starts scheduler
+
+        // Let the service load its own file first
+        this.playtimeRewards.init();
+
+        // Now override with settings.yml toggle
+        if (!settingsConfig.playtimeRewardsEnabled()) {
+            // turns it off (cancels tasks + listeners and writes settings.enable=false)
+            this.playtimeRewards.setEnabled(false);
+            getLogger().info("[Prewards] Disabled by settings.yml (playtime-rewards.enabled=false).");
+        } else {
+            getLogger().info("[Prewards] Enabled by settings.yml.");
+        }
+
         var prewardsCmd = new fr.elias.oreoEssentials.playtime.PrewardsCommand(
                 this,
                 this.playtimeRewards
@@ -1391,58 +1505,61 @@ public final class OreoEssentials extends JavaPlugin {
             getCommand("oevents").setTabCompleter(eventCmd);
         }
 
-        // --- OreoHolograms (NEW MODULE) ---
-        try {
-            // sanity check: Paper/Folia API (Display entities)
+// --- OreoHolograms (NEW MODULE, settings toggle) ---
+        if (settingsConfig.oreoHologramsEnabled()) {
             try {
-                Class.forName("org.bukkit.entity.Display");
-            } catch (ClassNotFoundException x) {
-                getLogger().warning("[OreoHolograms] Display entities are not available on this server implementation.");
-                getLogger().warning("[OreoHolograms] Please run Paper/Folia (or a fork). Holograms will be disabled.");
-                throw x;
+                // sanity check: requires Paper/Folia Display entities
+                try {
+                    Class.forName("org.bukkit.entity.Display");
+                } catch (ClassNotFoundException x) {
+                    getLogger().warning("[OreoHolograms] Display entities not available on this server. Requires Paper/Folia.");
+                    throw x;
+                }
+
+                this.oreoHolograms = new fr.elias.oreoEssentials.holograms.OreoHolograms(this);
+                this.oreoHolograms.load(); // loads & respawns holograms
+
+                // Command registration
+                fr.elias.oreoEssentials.holograms.OreoHologramCommand holoCmd =
+                        new fr.elias.oreoEssentials.holograms.OreoHologramCommand(this.oreoHolograms);
+
+                boolean registered = false;
+                if (getCommand("ohologram") != null) {
+                    getCommand("ohologram").setExecutor(holoCmd);
+                    getCommand("ohologram").setTabCompleter(holoCmd);
+                    registered = true;
+                }
+                if (getCommand("hologram") != null) {
+                    getCommand("hologram").setExecutor(holoCmd);
+                    getCommand("hologram").setTabCompleter(holoCmd);
+                    registered = true;
+                }
+                if (!registered) {
+                    getLogger().warning("[OreoHolograms] No command entry found. Add ohologram or hologram in plugin.yml.");
+                }
+
+                // Tick update
+                Bukkit.getScheduler().runTaskTimer(
+                        this,
+                        () -> {
+                            try { this.oreoHolograms.tickAll(); } catch (Throwable ignored) {}
+                        },
+                        20L, 20L
+                ); // every 1 second
+
+                getLogger().info("[OreoHolograms] Enabled from settings.yml.");
+            } catch (Throwable t) {
+                this.oreoHolograms = null;
+                getLogger().warning("[OreoHolograms] Failed to initialize: " + t.getMessage());
             }
-
-            this.oreoHolograms = new fr.elias.oreoEssentials.holograms.OreoHolograms(this);
-            this.oreoHolograms.load(); // loads & respawns holograms from storage
-
-            // Prefer the new command name: /ohologram
-            fr.elias.oreoEssentials.holograms.OreoHologramCommand holoCmd =
-                    new fr.elias.oreoEssentials.holograms.OreoHologramCommand(this.oreoHolograms);
-
-            boolean registered = false;
-            if (getCommand("ohologram") != null) {
-                getCommand("ohologram").setExecutor(holoCmd);
-                getCommand("ohologram").setTabCompleter(holoCmd);
-                registered = true;
-            }
-            // Keep legacy alias if present
-            if (getCommand("hologram") != null) {
-                getCommand("hologram").setExecutor(holoCmd);
-                getCommand("hologram").setTabCompleter(holoCmd);
-                registered = true;
-            }
-            if (!registered) {
-                getLogger().warning("[OreoHolograms] Neither 'ohologram' nor 'hologram' command found in plugin.yml; skipping registration.");
-            }
-
-            // Lightweight tick (text placeholders/intervals etc.)
-            Bukkit.getScheduler().runTaskTimer(
-                    this,
-                    () -> {
-                        try {
-                            this.oreoHolograms.tickAll();
-                        } catch (Throwable ignore) {}
-                    },
-                    20L,
-                    20L
-            ); // every second
-
-            getLogger().info("[OreoHolograms] Module loaded.");
-        } catch (Throwable t) {
-            // keep field null, avoid NPE on disable
+        } else {
+            // Fully disabled
+            unregisterCommandHard("ohologram");
+            unregisterCommandHard("hologram");
             this.oreoHolograms = null;
-            getLogger().warning("[OreoHolograms] Initialization failed: " + t.getMessage());
+            getLogger().info("[OreoHolograms] Disabled by settings.yml.");
         }
+
 
         // -------- PlaceholderAPI hook (optional; reflection) --------
         tryRegisterPlaceholderAPI();
@@ -1664,11 +1781,14 @@ public final class OreoEssentials extends JavaPlugin {
         return this.playtimeRewards;
     }
 
+
     // Playtime tracker getter (name expected by PlaceholderAPIHook)
     public fr.elias.oreoEssentials.playtime.PlaytimeTracker getPlaytimeTracker() {
         return this.playtimeTracker;
     }
-
+    public SettingsConfig getSettings() {
+        return settings;
+    }
     public EconomyBootstrap getEcoBootstrap() { return ecoBootstrap; }
     public Economy getVaultEconomy() { return vaultEconomy; }
 }

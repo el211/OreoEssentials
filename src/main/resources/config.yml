@@ -43,16 +43,6 @@ network:
   cross-server: true
   transport: "plugin_message"   # Server switching uses proxy plugin messaging
 
-
-# --- Cross-server feature toggles ---
-crossserverhomes: true
-crossserverwarps: true
-crossserverspawn: true
-crossservereconomy: true
-crossserverec: true # if true and storage is mongodb, /ec syncs across servers
-
-# --- Cross-server player state sync ---
-crossserverinv: true   # master on/off for the whole feature
 invsee:
   allow-edit-while-online-elsewhere: true
 
@@ -82,7 +72,6 @@ debug: false
 #---------------------------------------------------------------------
 
 bossbar:
-  enabled: true
   text: "<gradient:#FF1493:#00FF7F>Welcome</gradient> {player}"
   color: PURPLE         # WHITE, BLUE, GREEN, PINK, PURPLE, RED, YELLOW
   style: SEGMENTED_10   # SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12, SEGMENTED_20
@@ -97,7 +86,6 @@ bossbar:
 #---------------------------------------------------------------------
 #---------------------------------------------------------------------
 scoreboard:
-  enabled: true
   default-enabled: true
   update-ticks: 20
   title:
@@ -126,7 +114,6 @@ scoreboard:
 
 # -------- Economy (Vault-backed) --------
 economy:
-  enabled: true                 # false => no economy DB + no economy commands
   # none | json | mongodb | postgresql
   type: "json"
   baltop-size: 10
@@ -178,7 +165,6 @@ logging:
 
 # -------- Portals --------
 portals:
-  enabled: true
   cooldown_ms: 1000
   sound: "ENTITY_ENDERMAN_TELEPORT"
   particle: "PORTAL"
@@ -187,7 +173,6 @@ portals:
 
 # -------- JumpPads --------
 jumpads:
-  enabled: true
   default_power: 1.2
   default_upward: 1.0
   default_useLookDir: true
@@ -198,7 +183,6 @@ jumpads:
 
 
 playervaults:
-  enabled: true
   storage: auto                 # auto|yaml|mongodb  -> "auto" uses mongodb when essentials.storage=mongodb
   collection: "oreo_playervaults"
 
@@ -235,7 +219,6 @@ playervaults:
         vip: 6                  # VIP: 6 SLOTS in vault #2
 
 mobs:
-  show-healthmobs: true
   healthbar:
     update-interval-ticks: 5
     view-distance: 32.0
@@ -263,12 +246,6 @@ mobs:
     line-offset: 0.35
     y-offset: 0.5
     use-mythicmobs: true
-
-
-
-
-
-
 
 
 # -------- Join messages (Afelius) --------

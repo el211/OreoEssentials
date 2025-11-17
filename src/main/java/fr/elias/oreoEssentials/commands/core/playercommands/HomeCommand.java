@@ -1,3 +1,4 @@
+// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/HomeCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
@@ -6,6 +7,7 @@ import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.HomeTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.HomeService;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -40,14 +42,25 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
             List<String> names = crossServerNames(p.getUniqueId());
             if (names.isEmpty()) {
-                p.sendMessage(ChatColor.YELLOW + "You have no homes. Use " + ChatColor.AQUA + "/sethome <name>");
+                Lang.send(p, "home.no-homes",
+                        Map.of("sethome", "/sethome"),
+                        p
+                );
                 return true;
             }
+
             String list = names.stream()
                     .sorted(String.CASE_INSENSITIVE_ORDER)
                     .collect(Collectors.joining(ChatColor.GRAY + ", " + ChatColor.AQUA));
-            p.sendMessage(ChatColor.GOLD + "Homes: " + ChatColor.AQUA + list);
-            p.sendMessage(ChatColor.GRAY + "Tip: " + ChatColor.AQUA + "/" + label + " <name>" + ChatColor.GRAY + " to teleport.");
+
+            Lang.send(p, "home.list",
+                    Map.of("homes", list),
+                    p
+            );
+            Lang.send(p, "home.tip",
+                    Map.of("label", label),
+                    p
+            );
             return true;
         }
 
@@ -63,20 +76,35 @@ public class HomeCommand implements OreoCommand, TabCompleter {
         if (targetServer.equalsIgnoreCase(localServer)) {
             Location loc = homes.getHome(p.getUniqueId(), key);
             if (loc == null) {
-                p.sendMessage(ChatColor.RED + "Home not found: " + ChatColor.YELLOW + raw);
+                Lang.send(p, "home.not-found",
+                        Map.of("name", raw),
+                        p
+                );
                 suggestClosest(p, key);
                 return true;
             }
             p.teleport(loc);
-            p.sendMessage(ChatColor.GREEN + "Teleported to home " + ChatColor.AQUA + key + ChatColor.GREEN + ".");
+            Lang.send(p, "home.teleported",
+                    Map.of("name", key),
+                    p
+            );
             return true;
         }
 
         // Respect cross-server toggle for homes
         var cs = OreoEssentials.get().getCrossServerSettings();
         if (!cs.homes()) {
-            p.sendMessage(ChatColor.RED + "Cross-server homes are disabled by server config.");
-            p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/home " + key);
+            Lang.send(p, "home.cross-disabled",
+                    Collections.emptyMap(),
+                    p
+            );
+            Lang.send(p, "home.cross-disabled-tip",
+                    Map.of(
+                            "server", targetServer,
+                            "name", key
+                    ),
+                    p
+            );
             return true;
         }
 
@@ -95,19 +123,39 @@ public class HomeCommand implements OreoCommand, TabCompleter {
             PacketChannel targetChannel = PacketChannel.individual(targetServer);
             pm.sendPacket(targetChannel, pkt);
         } else {
-            p.sendMessage(ChatColor.RED + "Cross-server messaging is disabled. Ask an admin to enable RabbitMQ.");
-            p.sendMessage(ChatColor.GRAY + "You can still switch with " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " and run " + ChatColor.AQUA + "/home " + key);
+            Lang.send(p, "home.messaging-disabled",
+                    Collections.emptyMap(),
+                    p
+            );
+            Lang.send(p, "home.messaging-disabled-tip",
+                    Map.of(
+                            "server", targetServer,
+                            "name", key
+                    ),
+                    p
+            );
             return true;
         }
 
         // Switch via proxy
         boolean switched = sendPlayerToServer(p, targetServer);
         if (switched) {
-            p.sendMessage(ChatColor.YELLOW + "Sending you to " + ChatColor.AQUA + targetServer +
-                    ChatColor.YELLOW + "… you'll be teleported to home " + ChatColor.AQUA + key + ChatColor.YELLOW + " on arrival.");
+            Lang.send(p, "home.sending",
+                    Map.of(
+                            "server", targetServer,
+                            "name", key
+                    ),
+                    p
+            );
         } else {
-            p.sendMessage(ChatColor.RED + "Failed to switch you to " + targetServer + ".");
-            p.sendMessage(ChatColor.GRAY + "Make sure '" + targetServer + "' matches the server name in your proxy config.");
+            Lang.send(p, "home.switch-failed",
+                    Map.of("server", targetServer),
+                    p
+            );
+            Lang.send(p, "home.switch-failed-tip",
+                    Map.of("server", targetServer),
+                    p
+            );
         }
         return true;
     }
@@ -155,8 +203,14 @@ public class HomeCommand implements OreoCommand, TabCompleter {
                 .limit(5)
                 .collect(Collectors.toList());
         if (!suggestions.isEmpty()) {
-            p.sendMessage(ChatColor.GRAY + "Did you mean: " + ChatColor.AQUA +
-                    String.join(ChatColor.GRAY + ", " + ChatColor.AQUA, suggestions));
+            String joined = String.join(
+                    ChatColor.GRAY + ", " + ChatColor.AQUA,
+                    suggestions
+            );
+            Lang.send(p, "home.suggest",
+                    Map.of("suggestions", joined),
+                    p
+            );
         }
     }
 

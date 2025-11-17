@@ -1,5 +1,6 @@
 package fr.elias.oreoEssentials.jumpads;
 
+import fr.elias.oreoEssentials.OreoEssentials;
 import org.bukkit.*;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -54,7 +55,7 @@ public class JumpPadsManager {
         public String key() { return world.getName()+":"+x+":"+y+":"+z; }
     }
 
-    private final Plugin plugin;
+    private final OreoEssentials plugin;
     private final File file;
     private final FileConfiguration cfg;
 
@@ -74,12 +75,12 @@ public class JumpPadsManager {
     public final double defaultUpward;
     public final boolean defaultUseLookDir;
 
-    public JumpPadsManager(Plugin plugin) {
+    public JumpPadsManager(OreoEssentials plugin) {
         this.plugin = plugin;
 
         // read config (with sane defaults)
         FileConfiguration c = plugin.getConfig();
-        this.enabled = c.getBoolean("jumpads.enabled", true);
+        this.enabled = plugin.getSettings().jumpPadsEnabled();
         this.cooldownMs = c.getLong("jumpads.cooldown_ms", 800L);
         this.soundName = c.getString("jumpads.sound", "ENTITY_FIREWORK_ROCKET_LAUNCH");
         this.particleName = c.getString("jumpads.particle", "CLOUD");

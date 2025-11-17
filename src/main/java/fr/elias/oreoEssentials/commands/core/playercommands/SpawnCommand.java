@@ -1,3 +1,4 @@
+// File: src/main/java/fr/elias/oreoEssentials/commands/core/playercommands/SpawnCommand.java
 package fr.elias.oreoEssentials.commands.core.playercommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
@@ -7,8 +8,8 @@ import fr.elias.oreoEssentials.rabbitmq.packet.PacketManager;
 import fr.elias.oreoEssentials.rabbitmq.packet.impl.SpawnTeleportRequestPacket;
 import fr.elias.oreoEssentials.services.SpawnDirectory;
 import fr.elias.oreoEssentials.services.SpawnService;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -16,6 +17,7 @@ import org.bukkit.entity.Player;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class SpawnCommand implements OreoCommand {
@@ -49,17 +51,20 @@ public class SpawnCommand implements OreoCommand {
         if (targetServer.equalsIgnoreCase(localServer)) {
             Location l = spawn.getSpawn();
             if (l == null) {
-                p.sendMessage(ChatColor.RED + "Spawn is not set.");
+                Lang.send(p, "spawn.not-set", Map.of(), p);
                 log.warning("[SpawnCmd] Local spawn not set.");
                 return true;
             }
             try {
                 p.teleport(l);
-                p.sendMessage(ChatColor.GREEN + "Teleported to spawn.");
+                Lang.send(p, "spawn.teleported", Map.of(), p);
                 log.info("[SpawnCmd] Local teleport success. loc=" + l);
             } catch (Exception ex) {
                 log.warning("[SpawnCmd] Local teleport exception: " + ex.getMessage());
-                p.sendMessage(ChatColor.RED + "Teleport failed: " + ex.getMessage());
+                Lang.send(p, "spawn.teleport-failed",
+                        Map.of("error", ex.getMessage() == null ? "unknown" : ex.getMessage()),
+                        p
+                );
             }
             return true;
         }
@@ -67,8 +72,11 @@ public class SpawnCommand implements OreoCommand {
         // Respect cross-server toggle for spawn
         var cs = plugin.getCrossServerSettings();
         if (!cs.spawn()) {
-            p.sendMessage(ChatColor.RED + "Cross-server spawn is disabled by server config.");
-            p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/spawn");
+            Lang.send(p, "spawn.cross-disabled", Map.of(), p);
+            Lang.send(p, "spawn.cross-disabled-tip",
+                    Map.of("server", targetServer),
+                    p
+            );
             return true;
         }
 
@@ -89,17 +97,25 @@ public class SpawnCommand implements OreoCommand {
             PacketChannel ch = PacketChannel.individual(targetServer);
             pm.sendPacket(ch, pkt);
         } else {
-            p.sendMessage(ChatColor.RED + "Cross-server messaging is disabled.");
-            p.sendMessage(ChatColor.GRAY + "Use " + ChatColor.AQUA + "/server " + targetServer + ChatColor.GRAY + " then run " + ChatColor.AQUA + "/spawn");
+            Lang.send(p, "spawn.messaging-disabled", Map.of(), p);
+            Lang.send(p, "spawn.messaging-disabled-tip",
+                    Map.of("server", targetServer),
+                    p
+            );
             return true;
         }
 
         if (sendPlayerToServer(p, targetServer)) {
-            p.sendMessage(ChatColor.YELLOW + "Sending you to " + ChatColor.AQUA + targetServer +
-                    ChatColor.YELLOW + "… you'll be teleported to spawn on arrival.");
+            Lang.send(p, "spawn.sending",
+                    Map.of("server", targetServer),
+                    p
+            );
             log.info("[SpawnCmd] Proxy switch initiated. player=" + p.getUniqueId() + " to=" + targetServer);
         } else {
-            p.sendMessage(ChatColor.RED + "Failed to switch you to " + targetServer + ".");
+            Lang.send(p, "spawn.switch-failed",
+                    Map.of("server", targetServer),
+                    p
+            );
             log.warning("[SpawnCmd] Proxy switch failed to " + targetServer + " (check Velocity/Bungee server name match).");
         }
         return true;
