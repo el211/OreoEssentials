@@ -7,6 +7,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 public class ClearCommand implements OreoCommand {
     @Override public String name() { return "clear"; }
@@ -44,5 +46,25 @@ public class ClearCommand implements OreoCommand {
         t.sendMessage(ChatColor.YELLOW + "Your inventory was cleared by " + sender.getName() + ".");
         sender.sendMessage(ChatColor.GREEN + "Cleared " + t.getName() + "'s inventory.");
         return true;
+    }
+
+    @Override
+    public List<String> tabComplete(CommandSender sender, String alias, String[] args) {
+        // /clear <player>
+        if (args.length == 1) {
+            if (!sender.hasPermission("oreo.clear.others")) {
+                return List.of();
+            }
+
+            String prefix = args[0].toLowerCase(Locale.ROOT);
+
+            return Bukkit.getOnlinePlayers().stream()
+                    .map(Player::getName)
+                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(prefix))
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .collect(Collectors.toList());
+        }
+
+        return List.of();
     }
 }

@@ -6,6 +6,7 @@ import fr.elias.oreoEssentials.playervaults.PlayerVaultsConfig;
 import fr.elias.oreoEssentials.playervaults.PlayerVaultsService;
 import fr.elias.oreoEssentials.playtime.PlaytimeRewardsService;
 import fr.elias.oreoEssentials.playtime.PlaytimeTracker;
+import fr.elias.oreoEssentials.util.Lang;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.OfflinePlayer;
@@ -96,6 +97,27 @@ public class PlaceholderAPIHook extends PlaceholderExpansion {
             if (k == null) return "";
             long left = Math.max(0, km.getSecondsLeft(p, k));
             return left <= 0 ? "ready" : String.valueOf(left);
+        }
+        if (id.startsWith("kit_cooldown_formatted_")) {
+            Player p = player.getPlayer();
+            if (p == null) return "";
+            String kitId = id.substring("kit_cooldown_formatted_".length());
+            KitsManager km = kits();
+            if (km == null) return "";
+            Kit k = km.getKits().get(kitId.toLowerCase(Locale.ROOT));
+            if (k == null) return "";
+
+            long left = Math.max(0, km.getSecondsLeft(p, k));
+            if (left <= 0) {
+                // Texte quand le kit est prêt
+                // change "ready" si tu veux un autre mot
+                return "ready";
+                // ou par ex :
+                // return Lang.get("kits.placeholder.ready", "ready");
+            }
+
+            // Temps formaté, genre "3m 25s" via ton utilitaire Lang.timeHuman
+            return Lang.timeHuman(left);
         }
 
         /* -------- PLAYTIME / PLAYTIME-REWARDS -------- */

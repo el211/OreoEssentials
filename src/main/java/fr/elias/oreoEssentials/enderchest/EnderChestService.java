@@ -2,6 +2,7 @@
 package fr.elias.oreoEssentials.enderchest;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -16,7 +17,7 @@ import java.util.*;
 
 public class EnderChestService {
 
-    public static final String TITLE = "§5Ender Chest";
+    public static final String TITLE = Lang.color(Lang.get("enderchest.gui.title", "&5Ender Chest"));
     private static final int MAX_SIZE = 54; // 6 rows * 9
 
     private final OreoEssentials plugin;
@@ -73,6 +74,13 @@ public class EnderChestService {
             storage.save(p.getUniqueId(), rowsForStorage, toSave);
         } catch (Throwable t) {
             plugin.getLogger().warning("[EC] Save failed for " + p.getUniqueId() + ": " + t.getMessage());
+            // Lang message: enderchest.storage.save-failed
+            fr.elias.oreoEssentials.util.Lang.send(
+                    p,
+                    "enderchest.storage.save-failed",
+                    null,
+                    p
+            );
         }
     }
     // in EnderChestService
@@ -119,14 +127,24 @@ public class EnderChestService {
         ItemStack b = new ItemStack(Material.BARRIER);
         ItemMeta m = b.getItemMeta();
         if (m != null) {
-            m.setDisplayName(ChatColor.RED + "Locked slot");
+            // 👇 THIS reads `enderchest.gui.locked-slot-name`
+            String name = Lang.get("enderchest.gui.locked-slot-name", "&cLocked slot");
+            m.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
+
+            // 👇 THIS reads `enderchest.gui.locked-slot-lore` (list)
+            List<String> rawLore = Lang.getList("enderchest.gui.locked-slot-lore");
             List<String> lore = new ArrayList<>();
-            lore.add(ChatColor.GRAY + "Slots available: " + ChatColor.AQUA + allowedSlots);
-            lore.add(ChatColor.DARK_GRAY + "Upgrade rank for more space.");
+            for (String line : rawLore) {
+                line = line.replace("%slots%", String.valueOf(allowedSlots)); // 👈 %slots% replaced here
+                lore.add(ChatColor.translateAlternateColorCodes('&', line));
+            }
             m.setLore(lore);
+
             m.getPersistentDataContainer().set(LOCK_KEY, PersistentDataType.INTEGER, 1);
             b.setItemMeta(m);
         }
         return b;
     }
+
+
 }

@@ -7,6 +7,8 @@ import fr.elias.oreoEssentials.enderchest.EnderChestService;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import fr.elias.oreoEssentials.util.Lang;
+import java.util.Map;
 
 import java.util.List;
 
@@ -30,10 +32,22 @@ public class EcCommand implements OreoCommand {
     public boolean execute(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player p)) return true;
 
+        // Open the EC
         p.openInventory(ecService.createVirtualEc(p));
+
+        // Use: enderchest.command.opened-self
+        Lang.send(
+                p,
+                "enderchest.command.opened-self",
+                null,
+                p
+        );
+
         if (!crossServer) {
             p.sendMessage(ChatColor.YELLOW + "Note: cross-server EC is disabled. This EC is local to this server.");
         }
         return true;
     }
+
+
 }

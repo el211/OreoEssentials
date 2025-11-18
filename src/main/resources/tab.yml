@@ -28,7 +28,7 @@ tab:
     fade-out: 10
 
   name-format:
-    # ❗ keep network OUT of here – this block is only for name rules
+    enabled: false            # ⬅️ turn this off if you want all players in all servers to show and download the velocity extension of oreoessentials
     use-rank-formats: true
     rank-key: "%luckperms_primary_group%"
     pattern: "&7[%luckperms_prefix%&7]&r %nick_or_name%"

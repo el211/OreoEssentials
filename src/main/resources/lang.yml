@@ -372,3 +372,50 @@ warps:
   set: "%prefix%&aWarp &b%warp% &aset."
   deleted: "%prefix%&aWarp &b%warp% &aremoved."
   not-found: "%prefix%&cWarp not found: &e%warp%&c."
+
+
+enderchest:
+  # Command-related messages for /ec or /enderchest
+  command:
+    usage: "%prefix%&eUsage: &f/%label% &7[player]"
+    self-no-permission: "%prefix%&cYou don't have permission to open the ender chest."
+    others-no-permission: "%prefix%&cYou don't have permission to open other players' ender chests."
+    target-not-found: "%prefix%&cPlayer not found: &e%target%&c."
+    opened-self: "%prefix%&aOpened your virtual ender chest."
+    opened-other: "%prefix%&aOpened &b%target%&a's virtual ender chest."
+
+  # GUI / slots info
+  gui:
+    title: "&5Ender Chest"
+    locked-slot-name: "&cLocked slot"
+    locked-slot-lore:
+      - "&7Slots available: &b%slots%"
+      - "&8Upgrade your rank for more space."
+
+    # Optional hint when clicking a locked slot (if you send a chat message in the listener)
+    locked-click: "%prefix%&cThis slot is locked.&7 Upgrade your rank to unlock more ender chest space."
+
+  # Storage / technical error messages (if you ever want to surface them to players)
+  storage:
+    load-failed: "%prefix%&cFailed to load your ender chest.&7 Please try again later."
+    save-failed: "%prefix%&cFailed to save your ender chest.&7 Your items should still be safe, but contact staff if this keeps happening."
+modgui:
+  main:
+    player:
+      name: "&ePlayer moderation"
+      lore:
+        - "&7Ban, mute, kick, heal, feed, kill,"
+        - "&7invsee/ecsee, gm, freeze, vanish…"
+    world:
+      name: "&aWorld moderation"
+      lore:
+        - "&7Choose a world to manage time/weather/spawn,"
+        - "&7border, gamerules, per-world whitelist/mobs"
+    server:
+      name: "&cServer moderation"
+      lore:
+        - "&7Difficulty, whitelist, default gm, quick spawns"
+    titles:
+      player: "&8Player moderation"
+      world: "&8Select World"
+      server: "&8Server moderation"

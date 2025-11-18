@@ -27,6 +27,9 @@ public final class Lang {
     public static String get(String path, String def) {
         return cfg.getString(path, def);
     }
+    public static java.util.List<String> getList(String path) {
+        return cfg.getStringList(path);
+    }
 
     public static String msg(String path, Map<String, String> vars, Player papiFor) {
         String raw = get(path, "");
