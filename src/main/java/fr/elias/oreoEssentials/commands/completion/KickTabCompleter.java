@@ -42,7 +42,7 @@ public class KickTabCompleter implements TabCompleter {
         PlayerDirectory dir = plugin.getPlayerDirectory();
         if (dir != null) {
             try {
-                List<String> names = dir.suggestOnlineNames(want, 50);
+                Collection<String> names = dir.suggestOnlineNames(want, 50); // ← changed type here
                 if (names != null) {
                     for (String n : names) {
                         if (n != null && n.toLowerCase(Locale.ROOT).startsWith(want)) {
