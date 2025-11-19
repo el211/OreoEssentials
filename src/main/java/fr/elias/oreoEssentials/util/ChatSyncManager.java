@@ -100,6 +100,23 @@ public class ChatSyncManager {
             Bukkit.getLogger().warning("[OreoEssentials] ChatSync MUTE broadcast failed: " + e.getMessage());
         }
     }
+    public void broadcastChatControl(String type, String value, String actorName) {
+        if (!enabled) return;
+
+        try {
+            // CTRL;;CHAT;;type;;serverId;;b64(value);;b64(actor)
+            String payload = "CTRL;;CHAT;;"
+                    + nullSafe(type)
+                    + ";;" + SERVER_ID
+                    + ";;" + b64(nullSafe(value))
+                    + ";;" + b64(nullSafe(actorName));
+
+            rabbitChannel.basicPublish(EXCHANGE_NAME, "", null,
+                    payload.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("[OreoEssentials] ChatSync CHAT_CONTROL broadcast failed: " + e.getMessage());
+        }
+    }
 
     // in ChatSyncManager (interface/class you own)
     public void publishChannelMessage(UUID senderId, String server, String senderName, String channel, String message) {
@@ -162,14 +179,87 @@ public class ChatSyncManager {
                 String msg = new String(delivery.getBody(), StandardCharsets.UTF_8);
 
                 // ---- Control messages (mute/unmute) ----
+// ---- Control messages (mute/unmute + chat control) ----
                 if (msg.startsWith("CTRL;;")) {
-                    // We expect either:
-                    // CTRL;;UNMUTE;;serverId;;playerUUID
-                    // CTRL;;MUTE;;serverId;;playerUUID;;untilMillis;;b64(reason);;b64(by)
-                    String[] p = msg.split(";;", 7);
+                    // Possible forms:
+                    // 1) CTRL;;UNMUTE;;serverId;;playerUUID
+                    // 2) CTRL;;MUTE;;serverId;;playerUUID;;untilMillis;;b64(reason);;b64(by)
+                    // 3) CTRL;;CHAT;;type;;serverId;;b64(value);;b64(actor)
+                    String[] p = msg.split(";;", 8);
+                    if (p.length < 2) return;
+
+                    String action = p[1]; // "MUTE", "UNMUTE" or "CHAT";
+
+                    // ======== CHAT CONTROL (GLOBAL_MUTE, SLOWMODE, CLEAR_CHAT) ========
+// ======== CHAT CONTROL (GLOBAL_MUTE, SLOWMODE, CLEAR_CHAT) ========
+                    if ("CHAT".equalsIgnoreCase(action)) {
+                        if (p.length < 6) return;
+
+                        String type     = p[2];              // e.g. "GLOBAL_MUTE", "SLOWMODE", "CLEAR_CHAT"
+                        String originId = p[3];              // server UUID as string (can ignore if you want)
+                        String valueB64 = p[4];
+                        String actorB64 = p[5];
+
+                        String value;
+                        String actor;
+                        try {
+                            value = new String(Base64.getDecoder().decode(valueB64), StandardCharsets.UTF_8);
+                        } catch (Exception ex) {
+                            value = "";
+                        }
+                        try {
+                            actor = new String(Base64.getDecoder().decode(actorB64), StandardCharsets.UTF_8);
+                        } catch (Exception ex) {
+                            actor = "Unknown";
+                        }
+
+                        // make final/effectively-final copies for lambda
+                        final String fType  = type;
+                        final String fValue = value;
+                        final String fActor = actor;
+
+                        // Apply on main thread using ModGuiService
+                        Bukkit.getScheduler().runTask(OreoEssentials.get(), () -> {
+                            var plugin = OreoEssentials.get();
+                            var svc = plugin.getModGuiService();
+                            if (svc == null) return;
+
+                            switch (fType.toUpperCase()) {
+                                case "CLEAR_CHAT" -> {
+                                    for (int i = 0; i < 200; i++) {
+                                        Bukkit.broadcastMessage("");
+                                    }
+                                    Bukkit.broadcastMessage("§cChat has been cleared by §e" + fActor);
+                                }
+                                case "GLOBAL_MUTE" -> {
+                                    boolean muted = Boolean.parseBoolean(fValue);
+                                    svc.setChatMuted(muted);
+                                    Bukkit.broadcastMessage(muted
+                                            ? "§cGlobal chat has been muted by §e" + fActor
+                                            : "§aGlobal chat has been unmuted.");
+                                }
+                                case "SLOWMODE" -> {
+                                    int seconds;
+                                    try {
+                                        seconds = Integer.parseInt(fValue);
+                                    } catch (NumberFormatException ex) {
+                                        seconds = 0;
+                                    }
+                                    svc.setSlowmodeSeconds(Math.max(0, seconds));
+                                    Bukkit.broadcastMessage("§eSlowmode is now §6" + seconds + "s §7(network).");
+                                }
+                                default -> {
+                                    // unknown type, ignore
+                                }
+                            }
+                        });
+                        return;
+                    }
+
+
+                    // ======== LEGACY MUTE / UNMUTE CONTROL ========
                     if (p.length >= 4) {
-                        String action = p[1];     // "MUTE" or "UNMUTE"
-                        String originServer = p[2]; // can be ignored (idempotent)
+                        String originServer = p[2]; // still unused
                         String uuidStr = p[3];
 
                         try {
@@ -190,8 +280,9 @@ public class ChatSyncManager {
                             /* bad payload */
                         }
                     }
-                    return; // do not fall through to chat handling
+                    return; // do not fall through to normal chat handling
                 }
+
 
                 // ---- Chat messages ----
                 String[] split = msg.split(";;", 4);

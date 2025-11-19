@@ -419,3 +419,28 @@ modgui:
       player: "&8Player moderation"
       world: "&8Select World"
       server: "&8Server moderation"
+  ecsee:
+    target-offline: "%prefix%&cTarget went offline."
+    title: "&bEditing EnderChest of &e%target%"
+freeze:
+  frozen: "%prefix%&cYou have been frozen for &e%seconds%s&c."
+  unfrozen: "%prefix%&aYou are no longer frozen."
+  expired: "%prefix%&aFreeze expired."
+  actionbar-staff: "&c[Frozen] &f%target% &7(%seconds%s)"
+playerinspect:
+  target-offline: "&cThat player is not online on the network."
+  head-name: "&b%player% &7(&e%server%&7)"
+  lore:
+    health: "&7Health: &c%current%&7/&c%max%"
+    health-na: "&7Health: &fN/A"
+    food: "&7Food: &e%food%"
+    food-na: "&7Food: &fN/A"
+    gamemode: "&7Gamemode: &f%gm%"
+    world: "&7World: &a%world%"
+    location: "&7Location: &f%x% %y% %z%"
+    location-na: "&7Location: &fREMOTE"
+    ping: "&7Ping: &f%ping%"
+    ping-na: "&7Ping: &fN/A"
+    tps: "&7TPS: &f%tps%"
+    tps-na: "&7TPS: &fN/A"
+

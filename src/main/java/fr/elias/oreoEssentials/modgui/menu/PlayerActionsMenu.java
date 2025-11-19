@@ -1,15 +1,26 @@
 package fr.elias.oreoEssentials.modgui.menu;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.modgui.ecsee.EcSeeMenu;
+import fr.elias.oreoEssentials.modgui.inspect.PlayerInspectMenu;
+import fr.elias.oreoEssentials.modgui.ip.IpAltsMenu;
+import fr.elias.oreoEssentials.modgui.notes.NotesChatListener;
+import fr.elias.oreoEssentials.modgui.notes.PlayerNotesManager;
+import fr.elias.oreoEssentials.modgui.notes.PlayerNotesMenu;
 import fr.elias.oreoEssentials.modgui.util.ItemBuilder;
 import fr.minuskube.inv.ClickableItem;
+import fr.minuskube.inv.SmartInventory;
 import fr.minuskube.inv.content.InventoryContents;
 import fr.minuskube.inv.content.InventoryProvider;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
+import fr.minuskube.inv.InventoryListener;
+import org.bukkit.inventory.Inventory;
+import fr.elias.oreoEssentials.modgui.invsee.InvSeeMenu;
 
 import java.util.UUID;
 
@@ -18,7 +29,8 @@ public class PlayerActionsMenu implements InventoryProvider {
     private final UUID target;
     /** Optional back action supplied by caller (can be null). */
     private final Runnable onBack;
-
+    private PlayerNotesManager notesManager;
+    private NotesChatListener notesChat;
     public PlayerActionsMenu(OreoEssentials plugin, UUID target) {
         this(plugin, target, null);
     }
@@ -71,13 +83,34 @@ public class PlayerActionsMenu implements InventoryProvider {
                 e -> runPlayer(p, "kill " + name))
         );
         c.set(2, 4, ClickableItem.of(
-                new ItemBuilder(Material.CHEST).name("&bInvsee").build(),
-                e -> runPlayer(p, "invsee " + name))
-        );
+                new ItemBuilder(Material.CHEST)
+                        .name("&bInvsee (network)")
+                        .lore("&7View and edit inventory",
+                                "&7across all servers via RabbitMQ.")
+                        .build(),
+                e -> InvSeeMenu.open(plugin, p, target)
+        ));
+
         c.set(2, 5, ClickableItem.of(
-                new ItemBuilder(Material.ENDER_CHEST).name("&bEcSee").build(),
-                e -> runPlayer(p, "ecsee " + name))
-        );
+                new ItemBuilder(Material.ENDER_CHEST).name("&bEcSee (logged)").build(),
+                e -> {
+                    SmartInventory.builder()
+                            .manager(plugin.getInvManager())
+                            .provider(new EcSeeMenu(plugin, target))
+                            .title("§8EnderChest: " + name)
+                            .size(6, 9)
+                            .closeable(true)
+                            .listener(new InventoryListener<>(InventoryCloseEvent.class, ev -> {
+                                Inventory inv = ev.getInventory();              // inventory that was just closed
+                                Player staff = (Player) ev.getPlayer();         // viewer who edited
+                                // target may be on another server; EcSeeMenu.syncAndLog uses cross-server EC storage
+                                EcSeeMenu.syncAndLog(plugin, staff, target, inv);
+                            }))
+                            .build()
+                            .open(p);
+                }
+        ));
+
         c.set(2, 6, ClickableItem.of(
                 new ItemBuilder(Material.CLOCK).name("&9Freeze 60s").build(),
                 e -> runConsole("freeze " + name + " 60"))
@@ -98,6 +131,89 @@ public class PlayerActionsMenu implements InventoryProvider {
                         .lore("&7Add your own stats view here")
                         .build()
         ));
+        // between other c.set(...) in row 3 for example
+        c.set(3, 4, ClickableItem.of(
+                new ItemBuilder(Material.CLOCK).name("&9Freeze 60s / Unfreeze").build(),
+                e -> {
+                    var fm = plugin.getFreezeManager();
+                    if (fm == null) return;
+                    Player t = Bukkit.getPlayer(target);
+                    if (t == null) {
+                        p.sendMessage("§cTarget is offline.");
+                        return;
+                    }
+                    if (fm.isFrozen(target)) {
+                        fm.unfreeze(t);
+                        p.sendMessage("§aUnfroze §f" + t.getName());
+                    } else {
+                        fm.freeze(t, p, 60L);
+                        p.sendMessage("§cFroze §f" + t.getName() + " §cfor §e60s");
+                    }
+                }
+        ));
+        // Notes button, for example row 4,col 2
+        c.set(4, 2, ClickableItem.of(
+                new ItemBuilder(Material.WRITABLE_BOOK)
+                        .name("&ePlayer notes")
+                        .lore("&7View / add staff notes.")
+                        .build(),
+                e -> SmartInventory.builder()
+                        .manager(plugin.getInvManager())
+                        .provider(new PlayerNotesMenu(plugin,
+                                plugin.getNotesManager(),
+                                plugin.getNotesChat(),
+                                target))
+                        .title("§8Notes: " + name)
+                        .size(6, 9)
+                        .build()
+                        .open(p)
+        ));
+        c.set(4, 6, ClickableItem.of(
+                new ItemBuilder(Material.COMPASS)
+                        .name("&eIP & Alts")
+                        .lore("&7View last IP and potential alts.")
+                        .build(),
+                e -> fr.minuskube.inv.SmartInventory.builder()
+                        .manager(plugin.getInvManager())
+                        .provider(new IpAltsMenu(plugin, plugin.getIpTracker(), target))
+                        .title("§8IP & Alts: " + name)
+                        .size(6, 9)
+                        .build()
+                        .open(p)
+        ));
+        c.set(3, 4, ClickableItem.of(
+                new ItemBuilder(Material.SPYGLASS)
+                        .name("&bLive inspector")
+                        .lore("&7View live stats (health, ping, TPS...)")
+                        .build(),
+                e -> fr.minuskube.inv.SmartInventory.builder()
+                        .manager(plugin.getInvManager())
+                        .provider(new PlayerInspectMenu(plugin, target))
+                        .title("§8Inspect: " + name)
+                        .size(6, 9)
+                        .build()
+                        .open(p)
+        ));
+        c.set(2, 5, ClickableItem.of(
+                new ItemBuilder(Material.ENDER_CHEST).name("&bEcSee (logged)").build(),
+                e -> {
+                    SmartInventory.builder()
+                            .manager(plugin.getInvManager())
+                            .provider(new EcSeeMenu(plugin, target))
+                            .title("§8EnderChest: " + name)
+                            .size(6, 9) // full 54 slots
+                            .closeable(true)
+                            .listener(new InventoryListener<>(InventoryCloseEvent.class, ev -> {
+                                Inventory inv = ev.getInventory();
+                                Player staff = (Player) ev.getPlayer();
+                                EcSeeMenu.syncAndLog(plugin, staff, target, inv);
+                            }))
+                            .build()
+                            .open(p);
+                }
+        ));
+
+
     }
 
     private void runPlayer(Player sender, String cmd) {

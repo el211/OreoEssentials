@@ -95,6 +95,9 @@ public class SettingsConfig {
 
     // Sit
     public boolean sitEnabled() { return isEnabled("sit"); }
+    public boolean getBoolean(String path, boolean def) {
+        return cfg.getBoolean(path, def);
+    }
 
     // Playtime Rewards
     public boolean playtimeRewardsEnabled() { return isEnabled("playtime-rewards"); }

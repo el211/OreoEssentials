@@ -29,7 +29,12 @@ public class ModGuiConfig {
             cfg = new YamlConfiguration();
         }
         // ensure sections
-        if (!cfg.isConfigurationSection("worlds")) cfg.createSection("worlds");
+        if (!cfg.isConfigurationSection("worlds")) {
+            cfg.createSection("worlds");
+        }
+        if (!cfg.isConfigurationSection("world-tweaks")) {
+            cfg.createSection("world-tweaks");
+        }
         saveSilently();
     }
 
@@ -49,7 +54,9 @@ public class ModGuiConfig {
     public Set<UUID> worldWhitelist(World w) {
         List<String> list = cfg.getStringList(wKey(w) + ".whitelist.players");
         Set<UUID> out = new HashSet<>();
-        for (String s : list) try { out.add(UUID.fromString(s)); } catch (Exception ignored) {}
+        for (String s : list) {
+            try { out.add(UUID.fromString(s)); } catch (Exception ignored) {}
+        }
         return out;
     }
     public void addWorldWhitelist(World w, UUID id) {
@@ -90,4 +97,100 @@ public class ModGuiConfig {
         cfg.set(wKey(w) + ".gamerules." + key, value);
         saveSilently();
     }
+
+    // -------- Dimension tweaks (Nether / End etc.) --------
+    public boolean tweak(World world, String key, boolean def) {
+        String path = "world-tweaks." + world.getName() + "." + key;
+        return cfg.getBoolean(path, def);
+    }
+
+    public void setTweak(World world, String key, boolean value) {
+        String path = "world-tweaks." + world.getName() + "." + key;
+        cfg.set(path, value);
+        saveSilently();
+    }
+
+    // Convenience wrappers
+
+    public boolean netherAllowWater(World w) {
+        return tweak(w, "allow-water", false);
+    }
+    public void setNetherAllowWater(World w, boolean v) {
+        setTweak(w, "allow-water", v);
+    }
+
+    public boolean netherAllowBeds(World w) {
+        return tweak(w, "allow-beds", false);
+    }
+    public void setNetherAllowBeds(World w, boolean v) {
+        setTweak(w, "allow-beds", v);
+    }
+
+    public boolean netherNoFireDamage(World w) {
+        return tweak(w, "no-fire-damage", false);
+    }
+    public void setNetherNoFireDamage(World w, boolean v) {
+        setTweak(w, "no-fire-damage", v);
+    }
+
+    public boolean netherNoGhastGrief(World w) {
+        return tweak(w, "no-ghast-grief", false);
+    }
+    public void setNetherNoGhastGrief(World w, boolean v) {
+        setTweak(w, "no-ghast-grief", v);
+    }
+
+    public boolean endVoidTeleport(World w) {
+        return tweak(w, "void-teleport", false);
+    }
+    public void setEndVoidTeleport(World w, boolean v) {
+        setTweak(w, "void-teleport", v);
+    }
+
+    public boolean endNoEndermanGrief(World w) {
+        return tweak(w, "no-enderman-grief", false);
+    }
+    public void setEndNoEndermanGrief(World w, boolean v) {
+        setTweak(w, "no-enderman-grief", v);
+    }
+
+    public boolean endNoDragonGrief(World w) {
+        return tweak(w, "no-dragon-grief", false);
+    }
+    public void setEndNoDragonGrief(World w, boolean v) {
+        setTweak(w, "no-dragon-grief", v);
+    }
+    // generic world flag
+    public boolean worldFlag(World w, String key, boolean def) {
+        return cfg.getBoolean(wKey(w) + ".flags." + key, def);
+    }
+    public void setWorldFlag(World w, String key, boolean value) {
+        cfg.set(wKey(w) + ".flags." + key, value);
+        saveSilently();
+    }
+
+    // Elytra
+    public boolean disableElytra(World w) { return worldFlag(w, "disable-elytra", false); }
+    public void setDisableElytra(World w, boolean v) { setWorldFlag(w, "disable-elytra", v); }
+
+    // Tridents
+    public boolean disableTrident(World w) { return worldFlag(w, "disable-trident", false); }
+    public void setDisableTrident(World w, boolean v) { setWorldFlag(w, "disable-trident", v); }
+
+    // PvP
+    public boolean pvpEnabled(World w) { return !worldFlag(w, "disable-pvp", false); }
+    public void setPvpEnabled(World w, boolean enabled) { setWorldFlag(w, "disable-pvp", !enabled); }
+
+    public boolean disableProjectilePvp(World w) { return worldFlag(w, "disable-projectile-pvp", false); }
+    public void setDisableProjectilePvp(World w, boolean v) { setWorldFlag(w, "disable-projectile-pvp", v); }
+
+    // Theme
+    public String worldTheme(World w) {
+        return cfg.getString(wKey(w) + ".theme", "DEFAULT");
+    }
+    public void setWorldTheme(World w, String theme) {
+        cfg.set(wKey(w) + ".theme", theme.toUpperCase(Locale.ROOT));
+        saveSilently();
+    }
+
 }

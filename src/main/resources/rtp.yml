@@ -17,6 +17,20 @@ unsafe-blocks:
   - CACTUS
   - MAGMA_BLOCK
 
+# ✅ NEW: cross-server RTP
+cross-server:
+  enabled: true
+
+  # World -> server mapping.
+  # This is where that world "lives" (Bungee / Velocity server name).
+  world-servers:
+    world: survival1
+    world_nether: survival2
+    world_the_end: survival3
+
+  # Optional: default target world if player is in a non-RTP world
+  default-target-world: world
+
 # per-world overrides (optional)
 worlds:
   world:

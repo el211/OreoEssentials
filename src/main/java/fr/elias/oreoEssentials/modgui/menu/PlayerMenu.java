@@ -1,57 +1,146 @@
+// package: fr.elias.oreoEssentials.modgui.menu
 package fr.elias.oreoEssentials.modgui.menu;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.modgui.util.ItemBuilder;
+import fr.elias.oreoEssentials.playerdirectory.PlayerDirectory;
 import fr.minuskube.inv.ClickableItem;
 import fr.minuskube.inv.SmartInventory;
 import fr.minuskube.inv.content.InventoryContents;
 import fr.minuskube.inv.content.InventoryProvider;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.meta.SkullMeta;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public class PlayerMenu implements InventoryProvider {
+
     private final OreoEssentials plugin;
 
-    public PlayerMenu(OreoEssentials plugin) { this.plugin = plugin; }
+    public PlayerMenu(OreoEssentials plugin) {
+        this.plugin = plugin;
+    }
 
     @Override
     public void init(Player p, InventoryContents c) {
-        List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
-        players.sort(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER));
+        PlayerDirectory dir = plugin.getPlayerDirectory();
+
+        // ─────────────────────────────────────────
+        // Fallback: directory not available → local only
+        // ─────────────────────────────────────────
+        if (dir == null) {
+            List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+            players.sort(Comparator.comparing(Player::getName, String.CASE_INSENSITIVE_ORDER));
+
+            int row = 1, col = 1;
+            for (Player target : players) {
+                var skull = new ItemBuilder(Material.PLAYER_HEAD)
+                        .name("§b" + target.getName())
+                        .lore("§7(LOCAL ONLY) Click for actions")
+                        .build();
+
+                if (skull.getItemMeta() instanceof SkullMeta sm) {
+                    sm.setOwningPlayer(target);
+                    skull.setItemMeta(sm);
+                }
+
+                c.set(row, col, ClickableItem.of(skull, e ->
+                        SmartInventory.builder()
+                                .manager(plugin.getInvManager())
+                                .id("modgui-player-" + target.getUniqueId())
+                                .provider(new PlayerActionsMenu(plugin, target.getUniqueId()))
+                                .title("§8Player: " + target.getName())
+                                .size(6, 9)
+                                .build()
+                                .open(p)
+                ));
+
+                if (++col >= 8) {
+                    col = 1;
+                    row++;
+                    if (row >= 5) break;
+                }
+            }
+            return;
+        }
+
+        // ─────────────────────────────────────────
+        // Network-wide listing using PlayerDirectory
+        // ─────────────────────────────────────────
+        Collection<UUID> online = dir.onlinePlayers();
+
+        // Build a small DTO list with name + server for sorting / display
+        class Entry {
+            final UUID uuid;
+            final String name;
+            final String server;
+            Entry(UUID uuid, String name, String server) {
+                this.uuid = uuid;
+                this.name = name;
+                this.server = server;
+            }
+        }
+
+        List<Entry> entries = online.stream()
+                .map(uuid -> {
+                    String name = dir.lookupNameByUuid(uuid);
+                    if (name == null || name.isBlank()) {
+                        name = uuid.toString().substring(0, 8);
+                    }
+                    String server = dir.getCurrentOrLastServer(uuid);
+                    if (server == null || server.isBlank()) server = "unknown";
+                    return new Entry(uuid, name, server);
+                })
+                .sorted(Comparator.comparing(e -> e.name, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
 
         int row = 1, col = 1;
-        for (Player target : players) {
+        for (Entry entry : entries) {
+            if (row >= 5) break;
+
+            OfflinePlayer op = Bukkit.getOfflinePlayer(entry.uuid);
+
             var skull = new ItemBuilder(Material.PLAYER_HEAD)
-                    .name("&b" + target.getName())
-                    .lore("&7Click for actions")
+                    .name("§b" + entry.name)
+                    .lore(
+                            "§7Server: §f" + entry.server,
+                            "§7Click for actions."
+                    )
                     .build();
 
             if (skull.getItemMeta() instanceof SkullMeta sm) {
-                sm.setOwningPlayer(target); // Player implements OfflinePlayer
+                sm.setOwningPlayer(op);
                 skull.setItemMeta(sm);
             }
 
+            UUID targetUuid = entry.uuid;
+            String displayName = entry.name;
+            String serverName = entry.server;
+
             c.set(row, col, ClickableItem.of(skull, e ->
                     SmartInventory.builder()
-                            .manager(plugin.getInvManager())               // ✅ REQUIRED
-                            .id("modgui-player-" + target.getUniqueId())   // unique-ish per entry
-                            .provider(new PlayerActionsMenu(plugin, target.getUniqueId()))
-                            .title("§8Player: " + target.getName())
+                            .manager(plugin.getInvManager())
+                            .id("modgui-player-" + targetUuid)
+                            .provider(new PlayerActionsMenu(plugin, targetUuid))
+                            .title("§8Player: " + displayName + " §7(" + serverName + ")")
                             .size(6, 9)
                             .build()
                             .open(p)
             ));
 
-            if (++col >= 8) { col = 1; row++; if (row >= 5) break; }
+            if (++col >= 8) {
+                col = 1;
+                row++;
+            }
         }
     }
 
     @Override
-    public void update(Player player, InventoryContents contents) {}
+    public void update(Player player, InventoryContents contents) {
+        // no live updates needed for now
+    }
 }

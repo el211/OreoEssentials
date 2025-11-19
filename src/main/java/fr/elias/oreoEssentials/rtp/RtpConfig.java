@@ -1,11 +1,10 @@
-// File: src/main/java/fr/elias/oreoEssentials/rtp/RtpConfig.java
 package fr.elias.oreoEssentials.rtp;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import org.bukkit.World;
-import org.bukkit.entity.Player;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 
 import java.io.File;
 import java.util.*;
@@ -16,12 +15,17 @@ public final class RtpConfig {
     private File file;
     private volatile FileConfiguration cfg;
 
-    // Master toggle (NEW)
+    // Master toggle
     private volatile boolean enabled = true;
 
     // cached lookups
     private Set<String> allowedWorlds = Collections.emptySet();
     private Set<String> unsafeBlocks  = Collections.emptySet();
+
+    // ✅ NEW: cross-server RTP
+    private boolean crossServerEnabled = false;
+    private Map<String, String> worldServers = Collections.emptyMap(); // world -> server
+    private String defaultTargetWorld; // optional
 
     public RtpConfig(OreoEssentials plugin) {
         this.plugin = plugin;
@@ -38,7 +42,7 @@ public final class RtpConfig {
             cfg = new YamlConfiguration();
         }
 
-        // NEW: master toggle (defaults to true)
+        // Master toggle (defaults to true)
         enabled = cfg.getBoolean("enabled", true);
 
         // refresh caches
@@ -47,6 +51,29 @@ public final class RtpConfig {
 
         List<String> ub = cfg.getStringList("unsafe-blocks");
         unsafeBlocks = new HashSet<>(ub == null ? Collections.emptyList() : ub);
+
+        // ✅ NEW: cross-server section
+        var cs = cfg.getConfigurationSection("cross-server");
+        if (cs != null) {
+            crossServerEnabled = cs.getBoolean("enabled", false);
+            defaultTargetWorld = cs.getString("default-target-world", null);
+
+            Map<String, String> ws = new HashMap<>();
+            var wsSec = cs.getConfigurationSection("world-servers");
+            if (wsSec != null) {
+                for (String worldName : wsSec.getKeys(false)) {
+                    String serverName = wsSec.getString(worldName);
+                    if (serverName != null && !serverName.isBlank()) {
+                        ws.put(worldName, serverName);
+                    }
+                }
+            }
+            worldServers = ws;
+        } else {
+            crossServerEnabled = false;
+            defaultTargetWorld = null;
+            worldServers = Collections.emptyMap();
+        }
     }
 
     /** Persist ONLY the toggle so we don't rewrite the user's YAML layout. */
@@ -62,9 +89,9 @@ public final class RtpConfig {
 
     /* ----------------- Basic getters ----------------- */
 
-    public boolean isEnabled() { return enabled; }                         // NEW
-    public void setEnabled(boolean v) { this.enabled = v; }                // NEW
-    public boolean toggleEnabled() { this.enabled = !this.enabled; return this.enabled; } // NEW
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean v) { this.enabled = v; }
+    public boolean toggleEnabled() { this.enabled = !this.enabled; return this.enabled; }
 
     public int attempts() { return cfg.getInt("attempts", 30); }
     public int minY()     { return cfg.getInt("min-y", 50); }
@@ -78,6 +105,52 @@ public final class RtpConfig {
         return allowedWorlds.isEmpty() || allowedWorlds.contains(w.getName());
     }
 
+    /* ----------------- ✅ Cross-server helpers ----------------- */
+
+    public boolean isCrossServerEnabled() {
+        return crossServerEnabled;
+    }
+
+    /** Returns the server name hosting this world, or null if unknown. */
+    public String serverForWorld(String worldName) {
+        if (worldName == null) return null;
+        return worldServers.get(worldName);
+    }
+
+    /** Returns the default target world for RTP, or null if not configured. */
+    public String getDefaultTargetWorld() {
+        return defaultTargetWorld;
+    }
+
+    /** All configured world -> server mappings (read-only copy). */
+    public Map<String, String> worldServerMappings() {
+        return Collections.unmodifiableMap(worldServers);
+    }
+
+    /**
+     * Decide the *logical* target world for this player:
+     * - if current world is allowed: keep it
+     * - else, if default-target-world is set and allowed: use that
+     * - else, null (no valid world)
+     */
+    public String chooseTargetWorld(Player p) {
+        String current = p.getWorld().getName();
+
+        if (isWorldAllowed(p.getWorld())) {
+            return current;
+        }
+
+        if (defaultTargetWorld != null && !defaultTargetWorld.isBlank()) {
+            if (allowedWorlds.isEmpty() || allowedWorlds.contains(defaultTargetWorld)) {
+                return defaultTargetWorld;
+            }
+        }
+
+        return null;
+    }
+
+    /* ----------------- Radius logic (unchanged) ----------------- */
+
     /**
      * Get the best radius for a player, honoring per-world overrides and tier permissions.
      * Falls back to global "default" when no world override applies.
@@ -87,12 +160,8 @@ public final class RtpConfig {
         if (tierPermissionKeys == null || tierPermissionKeys.isEmpty()) {
             hasTier = p::hasPermission;
         } else {
-            // In case you pass pre-known permission keys (e.g. "oreo.tier.vip", "oreo.tier.mvp")
-            Set<String> keys = new HashSet<>(tierPermissionKeys);
-            hasTier = p::hasPermission; // still rely on real permissions
-            // (Keeping behavior consistent—if you wanted to strictly check only those keys, swap to:
-            // hasTier = keys::contains;
-            // But the original code suggests real permission checks.)
+            // Could restrict to these keys, but we keep real permission checks as before
+            hasTier = p::hasPermission;
         }
 
         // Check per-world section first
@@ -112,7 +181,7 @@ public final class RtpConfig {
         return bestRadiusFor(hasTier);
     }
 
-    /** Backward-compatible global best-radius calculator (what you already had). */
+    /** Backward-compatible global best-radius calculator. */
     public int bestRadiusFor(Predicate<String> hasTierPerm) {
         int best = cfg.getInt("default", 200);
         for (String key : cfg.getKeys(false)) {
@@ -126,13 +195,14 @@ public final class RtpConfig {
     }
 
     private boolean isNonTierKey(String key) {
-        return "enabled".equalsIgnoreCase(key)          // NEW
+        return "enabled".equalsIgnoreCase(key)
                 || "default".equalsIgnoreCase(key)
                 || "attempts".equalsIgnoreCase(key)
                 || "unsafe-blocks".equalsIgnoreCase(key)
                 || "allowed-worlds".equalsIgnoreCase(key)
                 || "min-y".equalsIgnoreCase(key)
                 || "max-y".equalsIgnoreCase(key)
-                || "worlds".equalsIgnoreCase(key);
+                || "worlds".equalsIgnoreCase(key)
+                || "cross-server".equalsIgnoreCase(key);
     }
 }

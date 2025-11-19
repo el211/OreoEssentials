@@ -73,8 +73,10 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
             return true;
         }
 
-        boolean crossServerInv   = plugin.getConfig().getBoolean("crossserverinv", false);
-        boolean allowRemoteEdits = plugin.getConfig().getBoolean("invsee.allow-edit-while-online-elsewhere", true);
+        boolean crossServerInv = plugin.getSettings().getBoolean(
+                "features.cross-server.invsee",
+                plugin.getConfig().getBoolean("crossserverinv", false)
+        );        boolean allowRemoteEdits = plugin.getConfig().getBoolean("invsee.allow-edit-while-online-elsewhere", true);
         InvBridge bridge = plugin.getInvBridge(); // may be null if Rabbit disabled
 
         Player liveHere = Bukkit.getPlayer(targetId);

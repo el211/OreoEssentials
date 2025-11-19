@@ -2,6 +2,7 @@
 package fr.elias.oreoEssentials.chat;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.modgui.ModGuiService;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
 import fr.elias.oreoEssentials.util.DiscordWebhook;
@@ -60,8 +61,40 @@ public class AsyncChatListener implements Listener {
             return;
         }
 
-
         final Player player = event.getPlayer();
+
+        // ---------------- ModGUI chat controls ----------------
+        ModGuiService svc = OreoEssentials.get().getModGuiService();
+
+        // GLOBAL MUTE
+        if (svc != null && svc.chatMuted()) {
+            player.sendMessage("§cChat is currently muted.");
+            event.setCancelled(true);
+            return;
+        }
+
+        // SLOWMODE PER-PLAYER
+        if (svc != null && svc.getSlowmodeSeconds() > 0) {
+            if (!svc.canSendMessage(player.getUniqueId())) {
+                long left = svc.getRemainingSlowmode(player.getUniqueId());
+                player.sendMessage("§cYou must wait §e" + left + "s §cbefore chatting again.");
+                event.setCancelled(true);
+                return;
+            }
+            svc.recordMessage(player.getUniqueId());
+        }
+
+        // STAFF CHAT (bypass normal public chat; only staff see it)
+        if (svc != null && svc.isStaffChatEnabled(player.getUniqueId())) {
+            for (Player p2 : Bukkit.getOnlinePlayers()) {
+                if (p2.hasPermission("oreo.staffchat")) {
+                    p2.sendMessage("§b[StaffChat] §f" + player.getName() + ": §7" + event.getMessage());
+                }
+            }
+            event.setCancelled(true);
+            return;
+        }
+        // -----------------------------------------------------
 
         // Extra guard: if muted, do not format/relay/broadcast here either
         if (muteService != null && muteService.isMuted(player.getUniqueId())) {
@@ -96,8 +129,7 @@ public class AsyncChatListener implements Listener {
         // Optional cross-server sync (RabbitMQ) — include sender UUID
         try {
             if (syncManager != null) {
-                // Requires ChatSyncManager.publishMessage(UUID playerId, String serverName, String playerName, String message)
-        // NEW ✅ send full formatted message INCLUDING gradients/hex
+                // send full formatted message INCLUDING gradients/hex
                 syncManager.publishMessage(
                         player.getUniqueId(),
                         Bukkit.getServer().getName(),

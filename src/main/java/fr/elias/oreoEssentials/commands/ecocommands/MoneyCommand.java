@@ -1,6 +1,9 @@
 package fr.elias.oreoEssentials.commands.ecocommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.commands.OreoCommand; // NEW
+import java.util.List;                                // NEW
+
 import fr.elias.oreoEssentials.util.Async;
 import fr.elias.oreoEssentials.util.Lang;
 import net.milkbowl.vault.economy.Economy;
@@ -18,7 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-public class MoneyCommand implements CommandExecutor {
+public class MoneyCommand implements CommandExecutor, OreoCommand { // UPDATED
 
     private final OreoEssentials plugin;
     private final Economy vault; // may be null
@@ -264,4 +267,46 @@ public class MoneyCommand implements CommandExecutor {
             return Double.parseDouble(raw);
         } catch (Exception e) { return null; }
     }
+
+    // =========================
+    // OreoCommand implementation
+    // =========================
+
+    @Override
+    public String name() {
+        // Command label handled by CommandManager -> /money
+        return "money";
+    }
+
+    @Override
+    public List<String> aliases() {
+        // Match your plugin.yml aliases if you have them
+        return List.of("bal");
+    }
+
+    @Override
+    public String permission() {
+        // Base permission for viewing (you already use oreo.money.give/take/set inside)
+        return "oreo.money";
+    }
+
+    @Override
+    public String usage() {
+        // Shown by your CommandManager if needed
+        return "[player|give|take|set]";
+    }
+
+    @Override
+    public boolean playerOnly() {
+        // /money can be used from console too (for admin subcommands)
+        return false;
+    }
+
+    @Override
+    public boolean execute(CommandSender sender, String label, String[] args) {
+        // Delegate to the existing Bukkit onCommand implementation
+        return onCommand(sender, null, label, args);
+    }
 }
+
+

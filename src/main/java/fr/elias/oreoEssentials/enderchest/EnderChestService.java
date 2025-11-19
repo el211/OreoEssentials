@@ -145,6 +145,18 @@ public class EnderChestService {
         }
         return b;
     }
+    // EnderChestService.java
+    public int resolveSlotsOffline(UUID uuid) {
+        // Try to infer from stored data (up to 6 rows = 54 slots)
+        ItemStack[] stored = storage.load(uuid, 6);
+        if (stored == null) {
+            // Fallback: default config slots
+            return Math.max(1, Math.min(config.getDefaultSlots(), MAX_SIZE));
+        }
+        int slots = Math.min(stored.length, MAX_SIZE);
+        if (slots <= 0) slots = config.getDefaultSlots();
+        return Math.max(1, Math.min(slots, MAX_SIZE));
+    }
 
 
 }

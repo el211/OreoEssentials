@@ -4,6 +4,7 @@ import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.modgui.ModGuiService;
 import fr.elias.oreoEssentials.modgui.util.ItemBuilder;
 import fr.minuskube.inv.ClickableItem;
+import fr.minuskube.inv.SmartInventory;
 import fr.minuskube.inv.content.InventoryContents;
 import fr.minuskube.inv.content.InventoryProvider;
 import org.bukkit.Bukkit;
@@ -104,6 +105,51 @@ public class ServerMenu implements InventoryProvider {
         c.set(3, 6, ClickableItem.of(
                 new ItemBuilder(Material.BLAZE_ROD).name("&6Spawn: 3 Blazes").build(),
                 e -> spawn(p, c, EntityType.BLAZE, 3)));
+        // Performance / TPS dashboard
+        c.set(0, 4, ClickableItem.of(
+                new ItemBuilder(Material.COMPARATOR)
+                        .name("&cTPS & Performance")
+                        .lore("&7View TPS per world, CPU and RAM.")
+                        .build(),
+                e -> SmartInventory.builder()
+                        .manager(plugin.getInvManager())
+                        .provider(new TpsDashboardMenu(plugin))
+                        .title("§8TPS & Performance")
+                        .size(6, 9)
+                        .build()
+                        .open(p)
+        ));
+
+// Chat moderation
+        c.set(4, 1, ClickableItem.of(
+                new ItemBuilder(Material.OAK_SIGN)
+                        .name("&eChat moderation")
+                        .lore("&7Mute, clear, slowmode, staff chat...")
+                        .build(),
+                e -> SmartInventory.builder()
+                        .manager(plugin.getInvManager())
+                        .provider(new ChatModerationMenu(plugin))
+                        .title("§8Chat moderation")
+                        .size(3, 9)
+                        .build()
+                        .open(p)
+        ));
+
+// Perf tools
+        c.set(4, 7, ClickableItem.of(
+                new ItemBuilder(Material.LAVA_BUCKET)
+                        .name("&6Performance tools")
+                        .lore("&7Kill mobs/items, purge TNT, etc.")
+                        .build(),
+                e -> SmartInventory.builder()
+                        .manager(plugin.getInvManager())
+                        .provider(new PerfToolsMenu(plugin))
+                        .title("§8Performance tools")
+                        .size(3, 9)
+                        .build()
+                        .open(p)
+        ));
+
     }
 
     private String colorizeDifficulty(Difficulty d) {

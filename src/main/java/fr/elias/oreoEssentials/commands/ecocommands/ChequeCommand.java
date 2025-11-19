@@ -1,6 +1,7 @@
 package fr.elias.oreoEssentials.commands.ecocommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.util.Async;
 import fr.elias.oreoEssentials.util.Lang;
 import net.milkbowl.vault.economy.Economy;
@@ -23,7 +24,7 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.*;
 
-public class ChequeCommand implements CommandExecutor, Listener {
+public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
 
     private final OreoEssentials plugin;
     private final Economy vault; // may be null
@@ -238,4 +239,44 @@ public class ChequeCommand implements CommandExecutor, Listener {
     private String currencySymbol() {
         return Lang.get("economy.currency.symbol", "$");
     }
+    // =========================
+    // OreoCommand implementation
+    // =========================
+
+    @Override
+    public String name() {
+        // base label for this command
+        return "cheque";
+    }
+
+    @Override
+    public List<String> aliases() {
+        // no extra aliases (plugin.yml doesn't define any)
+        return List.of();
+    }
+
+    @Override
+    public String permission() {
+        // matches plugin.yml base permission
+        return "oreo.cheque.create";
+    }
+
+    @Override
+    public String usage() {
+        // generic usage shown by CommandManager
+        return "<create|redeem> [amount]";
+    }
+
+    @Override
+    public boolean playerOnly() {
+        // console is not supported (you already check instanceof Player)
+        return true;
+    }
+
+    @Override
+    public boolean execute(CommandSender sender, String label, String[] args) {
+        // delegate to the existing Bukkit onCommand implementation
+        return onCommand(sender, null, label, args);
+    }
+
 }

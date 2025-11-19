@@ -6,10 +6,10 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.UpdateOptions;
 import org.bson.Document;
-
+import java.util.regex.Pattern;
+import static com.mongodb.client.model.Filters.*;
 import java.time.Instant;
-import java.util.Locale;
-import java.util.UUID;
+import java.util.*;
 
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Updates.*;
@@ -145,4 +145,48 @@ public class PlayerDirectory {
                 new UpdateOptions().upsert(true)
         );
     }
+    // inside PlayerDirectory
+    public Collection<String> suggestOnlineNames(String prefix, int limit) {
+        if (limit <= 0) limit = 50;
+
+        String want = (prefix == null) ? "" : prefix.toLowerCase(Locale.ROOT);
+        List<String> out = new ArrayList<>();
+
+        // Filter: must have a non-empty currentServer (i.e. online somewhere)
+        // and optionally prefix match on nameLower
+        var filter = want.isEmpty()
+                ? and(ne("currentServer", null), ne("currentServer", ""))
+                : and(
+                regex("nameLower", "^" + Pattern.quote(want)),  // startsWith (case-insensitive index)
+                ne("currentServer", null),
+                ne("currentServer", "")
+        );
+
+        for (Document doc : coll.find(filter)
+                .projection(new Document("name", 1)) // only need the name
+                .limit(limit)) {
+
+            String name = doc.getString("name");
+            if (name != null && !name.isBlank()) {
+                out.add(name);
+            }
+        }
+
+        // Clean & pretty ordering
+        out.sort(String.CASE_INSENSITIVE_ORDER);
+        return out;
+    }
+    public Collection<UUID> onlinePlayers() {
+        List<UUID> out = new ArrayList<>();
+        for (Document doc : coll.find(
+                and(ne("currentServer", null), ne("currentServer", ""))
+        ).projection(new Document("uuid", 1))) {
+            String raw = doc.getString("uuid");
+            try { out.add(UUID.fromString(raw)); } catch (Exception ignored) {}
+        }
+        return out;
+    }
+
+
+
 }

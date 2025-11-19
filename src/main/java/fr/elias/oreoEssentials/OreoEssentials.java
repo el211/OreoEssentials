@@ -8,6 +8,7 @@ import fr.elias.oreoEssentials.clearlag.ClearLagManager;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
 // Core commands (essentials-like)
+import fr.elias.oreoEssentials.commands.completion.TpaTabCompleter;
 import fr.elias.oreoEssentials.commands.core.playercommands.*;
 import fr.elias.oreoEssentials.commands.core.admins.*;
 import fr.elias.oreoEssentials.commands.core.moderation.*;
@@ -24,6 +25,11 @@ import fr.elias.oreoEssentials.config.SettingsConfig;
 import fr.elias.oreoEssentials.customcraft.CustomCraftingService;
 import fr.elias.oreoEssentials.homes.TeleportBroker;
 import fr.elias.oreoEssentials.kits.KitsManager;
+import fr.elias.oreoEssentials.modgui.freeze.FreezeManager;
+import fr.elias.oreoEssentials.modgui.ip.IpTracker;
+import fr.elias.oreoEssentials.modgui.notes.NotesChatListener;
+import fr.elias.oreoEssentials.modgui.notes.PlayerNotesManager;
+import fr.elias.oreoEssentials.modgui.world.WorldTweaksListener;
 import fr.elias.oreoEssentials.rabbitmq.channel.PacketChannel;
 import fr.elias.oreoEssentials.services.*;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
@@ -105,8 +111,10 @@ public final class OreoEssentials extends JavaPlugin {
     private MongoClient homesMongoClient;
     private fr.elias.oreoEssentials.config.SettingsConfig settingsConfig;
     public fr.elias.oreoEssentials.config.SettingsConfig getSettingsConfig() { return settingsConfig; }
-
+    private PlayerNotesManager notesManager;
+    private NotesChatListener notesChat;
     private fr.elias.oreoEssentials.daily.DailyMongoStore dailyStore;
+    private FreezeManager freezeManager;
 
     private EconomyBootstrap ecoBootstrap;
     // add near other services
@@ -121,6 +129,9 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.portals.PortalsManager portals;
     private fr.elias.oreoEssentials.jumpads.JumpPadsManager jumpPads;
     private fr.elias.oreoEssentials.playervaults.PlayerVaultsConfig playerVaultsConfig;
+    // Field at top of class:
+    private fr.elias.oreoEssentials.modgui.ModGuiService modGuiService;
+    public fr.elias.oreoEssentials.modgui.ModGuiService getModGuiService() { return modGuiService; }
 
     private ConfigService configService;
     private StorageApi storage;
@@ -176,7 +187,7 @@ public final class OreoEssentials extends JavaPlugin {
     // Playtime Rewards
     private fr.elias.oreoEssentials.playtime.PlaytimeRewardsService playtimeRewards;
     public fr.elias.oreoEssentials.playtime.PlaytimeRewardsService getPlaytimeRewards() { return playtimeRewards; }
-
+    private IpTracker ipTracker;
     private SettingsConfig settings;
 
     // Toggles
@@ -256,6 +267,9 @@ public final class OreoEssentials extends JavaPlugin {
         final String localServerName = configService.serverName(); // unified server id
 
         this.killallLogger = new KillallLogger(this);
+
+        // -------- Commands (manager then registrations) --------
+        this.commands = new CommandManager(this);
 
         getLogger().info(
                 "[BOOT] storage=" + essentialsStorage
@@ -392,34 +406,33 @@ public final class OreoEssentials extends JavaPlugin {
                         20L * 300   // every 5 min
                 );
 
-                // Register money/pay/cheque commands NOW
-                if (getCommand("money") != null) {
-                    getCommand("money").setExecutor(new MoneyCommand(this));
-                    getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
+                // Register money/pay/cheque commands NOW via CommandManager
+                if (this.database != null) {
+                    var moneyCmd  = new MoneyCommand(this);
+                    var payCmd    = new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
+                    var chequeCmd = new fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand(this);
+
+                    this.commands
+                            .register(moneyCmd)
+                            .register(payCmd)
+                            .register(chequeCmd);
+
+                    // Optional: keep extra tab-completers if they are NOT inside the command classes
+                    if (getCommand("money") != null) {
+                        getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
+                    }
+                    if (getCommand("pay") != null) {
+                        getCommand("pay").setTabCompleter(
+                                new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
+                        );
+                    }
+                    if (getCommand("cheque") != null) {
+                        getCommand("cheque").setTabCompleter(
+                                new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter()
+                        );
+                    }
                 }
 
-                if (getCommand("pay") != null) {
-                    var payCmd = new fr.elias.oreoEssentials.commands.ecocommands.PayCommand();
-                    getCommand("pay").setExecutor((sender, cmd, label, args) ->
-                            payCmd.execute(sender, label, args)
-                    );
-                    getCommand("pay").setTabCompleter(
-                            new fr.elias.oreoEssentials.commands.ecocommands.completion.PayTabCompleter(this)
-                    );
-                } else {
-                    getLogger().warning("[ECON] Command 'pay' not found in plugin.yml; skipping registration.");
-                }
-
-                if (getCommand("cheque") != null) {
-                    getCommand("cheque").setExecutor(
-                            new fr.elias.oreoEssentials.commands.ecocommands.ChequeCommand(this)
-                    );
-                    getCommand("cheque").setTabCompleter(
-                            new fr.elias.oreoEssentials.commands.ecocommands.completion.ChequeTabCompleter()
-                    );
-                } else {
-                    getLogger().warning("[ECON] Command 'cheque' not found in plugin.yml; skipping registration.");
-                }
 
             } else {
                 getLogger().warning("[ECON] Enabled but no database selected/connected; economy commands unavailable.");
@@ -490,12 +503,22 @@ public final class OreoEssentials extends JavaPlugin {
         this.invManager = new InventoryManager(this);
         this.invManager.init();
         // --- Server Management GUI (ModGUI) ---
+// --- Server Management GUI (ModGUI) ---
         try {
-            var modGui = new fr.elias.oreoEssentials.modgui.ModGuiService(this);
+            this.modGuiService = new fr.elias.oreoEssentials.modgui.ModGuiService(this);
             getLogger().info("[ModGUI] Server management GUI ready (/modgui).");
+
+            // World tweaks (Nether/End, Elytra, Trident, PvP per world, etc.)
+            new WorldTweaksListener(this);  // self-registers in constructor
         } catch (Throwable t) {
             getLogger().warning("[ModGUI] Failed to init: " + t.getMessage());
+            this.modGuiService = null;
         }
+
+        notesManager = new PlayerNotesManager(this);
+        notesChat = new NotesChatListener(this, notesManager);
+        ipTracker = new IpTracker(this);
+
         // --- Trade (/trade) ---
         this.tradeConfig = new fr.elias.oreoEssentials.trade.TradeConfig(this);
 
@@ -548,6 +571,7 @@ public final class OreoEssentials extends JavaPlugin {
                 new fr.elias.oreoEssentials.customcraft.CustomCraftingListener(customCraftingService),
                 this
         );
+        this.freezeManager = new FreezeManager(this);
 
         // -------- Daily (Mongo) + rewards.yml loader (NEW) --------
         var dailyCfg = new fr.elias.oreoEssentials.daily.DailyConfig(this);
@@ -1163,22 +1187,23 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             getLogger().info("[Vaults] PlayerVaults disabled by config or storage unavailable.");
         }
-
-
-        // -------- Commands (manager then registrations) --------
-        this.commands = new CommandManager(this);
-        // ---- RTP config
         // Initialize RTP config (constructor calls reload())
-            this.rtpConfig = new RtpConfig(this);
+        // ---- RTP config (local + cross-server aware)
+        this.rtpConfig = new RtpConfig(this); // loads rtp.yml
 
-            if (settingsConfig.rtpEnabled() && this.rtpConfig.isEnabled()) {
-                this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
-                getLogger().info("[RTP] Enabled — /rtp registered.");
-            } else {
-                unregisterCommandHard("rtp");
-                unregisterCommandHard("wild");
-                getLogger().info("[RTP] Disabled (rtp.yml or settings.yml).");
-            }
+        if (!settingsConfig.rtpEnabled()) {
+            unregisterCommandHard("rtp");
+            unregisterCommandHard("wild");
+            getLogger().info("[RTP] Disabled by settings.yml.");
+        } else if (!this.rtpConfig.isEnabled()) {
+            unregisterCommandHard("rtp");
+            unregisterCommandHard("wild");
+            getLogger().info("[RTP] Disabled by rtp.yml (enabled=false).");
+        } else {
+            this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
+            getLogger().info("[RTP] Enabled — /rtp registered.");
+        }
+
 
         // --- BossBar (controlled by config: bossbar.enabled)
         if (settingsConfig.bossbarEnabled()) {
@@ -1311,8 +1336,14 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
         }
+
+        // Shared network-wide player completer for /tpa and /tp
+        TpaTabCompleter tpaTpCompleter = new TpaTabCompleter(this);
         if (getCommand("tpa") != null) {
-            getCommand("tpa").setTabCompleter(new fr.elias.oreoEssentials.commands.completion.TpaTabCompleter(this));
+            getCommand("tpa").setTabCompleter(tpaTpCompleter);
+        }
+        if (getCommand("tp") != null) {
+            getCommand("tp").setTabCompleter(tpaTpCompleter);
         }
 
         if (getCommand("balance") != null) {
@@ -1573,9 +1604,7 @@ public final class OreoEssentials extends JavaPlugin {
     }
 
     private void registerAllPacketsDeterministically(PacketManager pm) {
-        // Keep this exact order on all nodes – never branch on config
-
-        // --- Core/Generic packets (you subscribe handlers for these) ---
+        // --- Core/Generic packets ---
         pm.registerPacket(
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket::new
@@ -1589,7 +1618,13 @@ public final class OreoEssentials extends JavaPlugin {
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.PlayerQuitPacket::new
         );
 
-        // --- Trade packets (grouped and ordered) ---
+        // 🔵 ADD THIS BLOCK (new)
+        pm.registerPacket(
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.CrossInvPacket.class,
+                fr.elias.oreoEssentials.rabbitmq.packet.impl.CrossInvPacket::new
+        );
+
+        // --- Trade packets ---
         pm.registerPacket(
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket.class,
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket::new
@@ -1619,13 +1654,11 @@ public final class OreoEssentials extends JavaPlugin {
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeClosePacket::new
         );
 
-        // --- TPA packets (always register, even if feature disabled) ---
-        // --- TP packets (admin cross-server /tp) ---
+        // --- TP / TPA packets ---
         pm.registerPacket(
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.tp.TpJumpPacket.class,
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.tp.TpJumpPacket::new
         );
-
         pm.registerPacket(
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket.class,
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaBringPacket::new
@@ -1643,6 +1676,7 @@ public final class OreoEssentials extends JavaPlugin {
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.TpaAcceptPacket::new
         );
     }
+
 
 
 
@@ -1706,7 +1740,10 @@ public final class OreoEssentials extends JavaPlugin {
     }
 
     /* ----------------------------- Getters ----------------------------- */
-
+    public IpTracker getIpTracker() { return ipTracker; }
+    public FreezeManager getFreezeManager() { return freezeManager; }
+    public PlayerNotesManager getNotesManager() { return notesManager; }
+    public NotesChatListener getNotesChat() { return notesChat; }
     public ConfigService getConfigService() { return configService; }
     public StorageApi getStorage() { return storage; }
     public SpawnService getSpawnService() { return spawnService; }
@@ -1779,6 +1816,31 @@ public final class OreoEssentials extends JavaPlugin {
     // Playtime Rewards service getter (name expected by PlaceholderAPIHook)
     public fr.elias.oreoEssentials.playtime.PlaytimeRewardsService getPlaytimeRewardsService() {
         return this.playtimeRewards;
+    }
+    /**
+     * Safe helper for logging / cross-server tags.
+     * Tries configService.serverName(), then Bukkit server name, then "UNKNOWN".
+     */
+    public String getServerNameSafe() {
+        try {
+            if (configService != null) {
+                String name = configService.serverName();
+                if (name != null && !name.isBlank()) {
+                    return name;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            String bukkitName = getServer().getName();
+            if (bukkitName != null && !bukkitName.isBlank()) {
+                return bukkitName;
+            }
+        } catch (Throwable ignored) {
+        }
+
+        return "UNKNOWN";
     }
 
 

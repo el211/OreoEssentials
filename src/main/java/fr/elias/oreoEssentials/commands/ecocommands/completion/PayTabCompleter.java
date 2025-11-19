@@ -22,32 +22,31 @@ public class PayTabCompleter implements TabCompleter {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
 
-            // Online players on this server
-            List<String> suggestions = Bukkit.getOnlinePlayers().stream()
-                    .map(p -> p.getName())
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toCollection(ArrayList::new));
+            Set<String> suggestions = new HashSet<>();
 
-            // Plus cached offline/cross-server names
-            OfflinePlayerCache cache = plugin.getOfflinePlayerCache();
-            if (cache != null) {
-                for (String n : cache.getNames()) {
-                    if (n != null && !suggestions.contains(n)) suggestions.add(n);
-                }
+            // 1) Local online
+            Bukkit.getOnlinePlayers().forEach(p -> suggestions.add(p.getName()));
+
+            // 2) Network online via PlayerDirectory
+            var dir = plugin.getPlayerDirectory(); // <-- whatever getter you use
+            if (dir != null) {
+                suggestions.addAll(dir.suggestOnlineNames(prefix, 80));
             }
 
             return suggestions.stream()
                     .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(prefix))
                     .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
         if (args.length == 2) {
             return List.of("10", "50", "100", "250", "1000").stream()
                     .filter(s -> s.startsWith(args[1]))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
-        return Collections.emptyList();
+        return List.of();
     }
+
+
 }
