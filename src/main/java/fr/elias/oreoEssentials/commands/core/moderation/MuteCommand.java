@@ -1,9 +1,10 @@
-// File: src/main/java/fr/elias/oreoEssentials/commands/core/MuteCommand.java
+// File: src/main/java/fr/elias/oreoEssentials/commands/core/moderation/MuteCommand.java
 package fr.elias.oreoEssentials.commands.core.moderation;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.integration.DiscordModerationNotifier;
+import fr.elias.oreoEssentials.playerdirectory.PlayerDirectory;
 import fr.elias.oreoEssentials.services.chatservices.MuteService;
 import fr.elias.oreoEssentials.util.ChatSyncManager;
 import org.bukkit.Bukkit;
@@ -38,9 +39,26 @@ public class MuteCommand implements OreoCommand, org.bukkit.command.TabCompleter
             return true;
         }
 
-        OfflinePlayer target = Bukkit.getOfflinePlayer(args[0]);
+        String targetArg = args[0];
+
+        // First: try normal Bukkit offline lookup
+        OfflinePlayer target = Bukkit.getOfflinePlayer(targetArg);
+
+        // If Bukkit has no record, try PlayerDirectory to resolve UUID by name
+        if ((target == null || (target.getName() == null && !target.hasPlayedBefore()))) {
+            PlayerDirectory dir = OreoEssentials.get().getPlayerDirectory();
+            if (dir != null) {
+                try {
+                    UUID id = dir.lookupUuidByName(targetArg);
+                    if (id != null) {
+                        target = Bukkit.getOfflinePlayer(id);
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+
         if (target == null || (target.getName() == null && !target.hasPlayedBefore())) {
-            sender.sendMessage(ChatColor.RED + "Player not found: " + args[0]);
+            sender.sendMessage(ChatColor.RED + "Player not found: " + targetArg);
             return true;
         }
 
@@ -95,17 +113,46 @@ public class MuteCommand implements OreoCommand, org.bukkit.command.TabCompleter
                                       String label,
                                       String[] args) {
         if (!sender.hasPermission(permission())) return Collections.emptyList();
+
+        // Arg 1: player name (local + cross-server)
         if (args.length == 1) {
-            return Bukkit.getOnlinePlayers().stream()
-                    .map(p -> p.getName())
-                    .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .collect(Collectors.toList());
+            final String want = args[0].toLowerCase(Locale.ROOT);
+            Set<String> out = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+            // 1) Local online players
+            Bukkit.getOnlinePlayers().forEach(p -> {
+                String n = p.getName();
+                if (n != null && n.toLowerCase(Locale.ROOT).startsWith(want)) {
+                    out.add(n);
+                }
+            });
+
+            // 2) Network-wide via PlayerDirectory
+            PlayerDirectory dir = OreoEssentials.get().getPlayerDirectory();
+            if (dir != null) {
+                try {
+                    Collection<String> names = dir.suggestOnlineNames(want, 50);
+                    if (names != null) {
+                        for (String n : names) {
+                            if (n != null && n.toLowerCase(Locale.ROOT).startsWith(want)) {
+                                out.add(n);
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            return out.stream().limit(50).collect(Collectors.toList());
         }
+
+        // Arg 2: duration presets
         if (args.length == 2) {
+            String partial = args[1].toLowerCase(Locale.ROOT);
             return List.of("30s", "1m", "5m", "10m", "30m", "1h", "2h", "1d").stream()
-                    .filter(s -> s.startsWith(args[1].toLowerCase(Locale.ROOT))).toList();
+                    .filter(s -> s.toLowerCase(Locale.ROOT).startsWith(partial))
+                    .toList();
         }
+
         return Collections.emptyList();
     }
 }

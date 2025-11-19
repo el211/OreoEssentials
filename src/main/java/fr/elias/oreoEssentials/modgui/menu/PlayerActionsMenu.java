@@ -55,8 +55,16 @@ public class PlayerActionsMenu implements InventoryProvider {
 
         c.set(1, 2, ClickableItem.of(
                 new ItemBuilder(Material.BARRIER).name("&cBan").lore("&7Temp example: 1d (reason: ModGUI)").build(),
-                e -> runConsole("ban " + name + " 1d ModGUI"))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
+                        return;
+                    }
+                    bridge.ban(target, name, "1d ModGUI");
+                }
+        ));
+
         c.set(1, 3, ClickableItem.of(
                 new ItemBuilder(Material.PAPER).name("&eMute").lore("&7Example: 10m (reason: ModGUI)").build(),
                 e -> runConsole("mute " + name + " 10m ModGUI"))
@@ -67,21 +75,53 @@ public class PlayerActionsMenu implements InventoryProvider {
         );
         c.set(1, 5, ClickableItem.of(
                 new ItemBuilder(Material.OAK_DOOR).name("&6Kick").build(),
-                e -> kick(name, "Kicked by staff via ModGUI"))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
+                        return;
+                    }
+                    bridge.kick(target, name, "Kicked by staff via ModGUI");
+                }
+        ));
+        // HEAL
         c.set(1, 6, ClickableItem.of(
                 new ItemBuilder(Material.TOTEM_OF_UNDYING).name("&aHeal").build(),
-                e -> runPlayer(p, "heal " + name))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        // fallback: local only
+                        runPlayer(p, "heal " + name);
+                        return;
+                    }
+                    bridge.heal(target, name);
+                }
+        ));
 
+        // FEED
         c.set(2, 2, ClickableItem.of(
                 new ItemBuilder(Material.COOKED_BEEF).name("&eFeed").build(),
-                e -> runPlayer(p, "feed " + name))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        runPlayer(p, "feed " + name);
+                        return;
+                    }
+                    bridge.feed(target, name);
+                }
+        ));
+
         c.set(2, 3, ClickableItem.of(
                 new ItemBuilder(Material.IRON_SWORD).name("&cKill").build(),
-                e -> runPlayer(p, "kill " + name))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
+                        return;
+                    }
+                    bridge.kill(target, name);
+                }
+        ));
         c.set(2, 4, ClickableItem.of(
                 new ItemBuilder(Material.CHEST)
                         .name("&bInvsee (network)")
@@ -113,17 +153,41 @@ public class PlayerActionsMenu implements InventoryProvider {
 
         c.set(2, 6, ClickableItem.of(
                 new ItemBuilder(Material.CLOCK).name("&9Freeze 60s").build(),
-                e -> runConsole("freeze " + name + " 60"))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
+                        return;
+                    }
+                    bridge.freezeToggle(target, name, 60L);
+                }
+        ));
+
 
         c.set(3, 3, ClickableItem.of(
                 new ItemBuilder(Material.ENDER_EYE).name("&5Vanish toggle").build(),
-                e -> runPlayer(p, "vanish " + name))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
+                        return;
+                    }
+                    bridge.vanishToggle(target, name);
+                }
+        ));
+
         c.set(3, 5, ClickableItem.of(
                 new ItemBuilder(Material.NETHER_STAR).name("&dGamemode cycle (S/C/SP)").build(),
-                e -> cycleGamemode(name))
-        );
+                e -> {
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
+                        return;
+                    }
+                    bridge.gamemodeCycle(target, name);
+                }
+        ));
+
 
         c.set(4, 4, ClickableItem.empty(
                 new ItemBuilder(Material.BOOK)
@@ -135,22 +199,15 @@ public class PlayerActionsMenu implements InventoryProvider {
         c.set(3, 4, ClickableItem.of(
                 new ItemBuilder(Material.CLOCK).name("&9Freeze 60s / Unfreeze").build(),
                 e -> {
-                    var fm = plugin.getFreezeManager();
-                    if (fm == null) return;
-                    Player t = Bukkit.getPlayer(target);
-                    if (t == null) {
-                        p.sendMessage("§cTarget is offline.");
+                    var bridge = plugin.getModBridge();
+                    if (bridge == null) {
+                        p.sendMessage("§cCross-server mod bridge is not available.");
                         return;
                     }
-                    if (fm.isFrozen(target)) {
-                        fm.unfreeze(t);
-                        p.sendMessage("§aUnfroze §f" + t.getName());
-                    } else {
-                        fm.freeze(t, p, 60L);
-                        p.sendMessage("§cFroze §f" + t.getName() + " §cfor §e60s");
-                    }
+                    bridge.freezeToggle(target, name, 60L);
                 }
         ));
+
         // Notes button, for example row 4,col 2
         c.set(4, 2, ClickableItem.of(
                 new ItemBuilder(Material.WRITABLE_BOOK)

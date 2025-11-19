@@ -249,31 +249,70 @@ public class InvseeCommand implements OreoCommand, TabCompleter {
     }
 
     /** Minimal, API-safe resolver: exact online → UUID string → plugin resolver. */
+    /** Minimal, API-safe resolver: exact online → UUID string → PlayerDirectory → fallback. */
     private static UUID resolveTargetId(String arg) {
+        // 1) Exact online name on this server
         Player p = Bukkit.getPlayerExact(arg);
         if (p != null) return p.getUniqueId();
 
-        // Try parsing as UUID
-        try { return UUID.fromString(arg); } catch (IllegalArgumentException ignored) {}
+        // 2) Try parsing as UUID
+        try {
+            return UUID.fromString(arg);
+        } catch (IllegalArgumentException ignored) { }
 
-        // Add this block to check the global player directory (MongoDB)
-        UUID global = OreoEssentials.get().getPlayerDirectory().lookupUuidByName(arg);
-        if (global != null) return global;
+        // 3) Network-wide via PlayerDirectory (Mongo-backed)
+        try {
+            var plugin = OreoEssentials.get();
+            var dir = plugin.getPlayerDirectory();
+            if (dir != null) {
+                UUID global = dir.lookupUuidByName(arg);
+                if (global != null) return global;
+            }
+        } catch (Throwable ignored) { }
 
-        // Final fallback: your old resolver (Floodgate, etc)
+        // 4) Final fallback: your old resolver (Floodgate, etc.)
         return fr.elias.oreoEssentials.util.Uuids.resolve(arg);
     }
 
+
     @Override
-    public List<String> onTabComplete(CommandSender sender, org.bukkit.command.Command cmd, String alias, String[] args) {
-        if (args.length == 1) {
-            String p = args[0].toLowerCase(Locale.ROOT);
-            return Bukkit.getOnlinePlayers().stream()
-                    .map(Player::getName)
-                    .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(p))
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .collect(Collectors.toList());
+    public List<String> onTabComplete(CommandSender sender,
+                                      org.bukkit.command.Command cmd,
+                                      String alias,
+                                      String[] args) {
+        if (args.length != 1) return List.of();
+
+        String partial = args[0];
+        String want = partial.toLowerCase(Locale.ROOT);
+
+        Set<String> out = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+        // 1) Local online players
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            String n = p.getName();
+            if (n != null && n.toLowerCase(Locale.ROOT).startsWith(want)) {
+                out.add(n);
+            }
         }
-        return List.of();
+
+        // 2) Network-wide via PlayerDirectory.suggestOnlineNames()
+        var plugin = OreoEssentials.get();
+        var dir = plugin.getPlayerDirectory();
+        if (dir != null) {
+            try {
+                var names = dir.suggestOnlineNames(want, 50);
+                if (names != null) {
+                    for (String n : names) {
+                        if (n != null && n.toLowerCase(Locale.ROOT).startsWith(want)) {
+                            out.add(n);
+                        }
+                    }
+                }
+            } catch (Throwable ignored) { }
+        }
+
+        // limit to 50 suggestions to keep tab output sane
+        return out.stream().limit(50).toList();
     }
+
 }

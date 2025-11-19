@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 public class KickCommand implements OreoCommand {
 
@@ -27,29 +28,74 @@ public class KickCommand implements OreoCommand {
             return true;
         }
 
-        Player p = Bukkit.getPlayerExact(args[0]);
-        if (p == null) {
-            sender.sendMessage(ChatColor.RED + "Player not found.");
-            return true;
-        }
-
+        String arg = args[0];
         String reason = args.length >= 2
                 ? String.join(" ", Arrays.copyOfRange(args, 1, args.length))
                 : "Kicked by an operator.";
 
-        // Kick
-        p.kickPlayer(ChatColor.RED + reason);
+        OreoEssentials plugin = OreoEssentials.get();
+        var dir = plugin.getPlayerDirectory();
+        var bridge = plugin.getModBridge();
 
-        // Feedback
-        sender.sendMessage(ChatColor.GREEN + "Kicked " + ChatColor.AQUA + p.getName()
-                + ChatColor.GREEN + ". Reason: " + ChatColor.YELLOW + reason);
+        // 1) LOCAL ONLINE first
+        Player local = Bukkit.getPlayerExact(arg);
+        if (local != null && local.isOnline()) {
+            local.kickPlayer(ChatColor.RED + reason);
 
-        // Discord notification
-        DiscordModerationNotifier mod = OreoEssentials.get().getDiscordMod();
-        if (mod != null && mod.isEnabled()) {
-            mod.notifyKick(p.getName(), p.getUniqueId(), reason, sender.getName());
+            sender.sendMessage(ChatColor.GREEN + "Kicked " + ChatColor.AQUA + local.getName()
+                    + ChatColor.GREEN + ". Reason: " + ChatColor.YELLOW + reason);
+
+            notifyDiscord(local.getName(), local.getUniqueId(), reason, sender.getName());
+            return true;
         }
 
+        // 2) NETWORK-wide UUID lookup
+        UUID uuid = null;
+
+        try {
+            if (dir != null) uuid = dir.lookupUuidByName(arg);
+        } catch (Throwable ignored) { }
+
+        // Fallback: try parsing UUID
+        if (uuid == null) {
+            try { uuid = UUID.fromString(arg); } catch (Throwable ignored) { }
+        }
+
+        if (uuid == null) {
+            sender.sendMessage(ChatColor.RED + "Player not found.");
+            return true;
+        }
+
+        // 3) Name lookup
+        String targetName = arg;
+        try {
+            if (dir != null) {
+                String n = dir.lookupNameByUuid(uuid);
+                if (n != null && !n.isBlank()) targetName = n;
+            }
+        } catch (Throwable ignored) { }
+
+        // 4) CROSS-SERVER KICK via ModBridge
+        if (bridge != null) {
+            bridge.kick(uuid, targetName, reason);
+
+            sender.sendMessage(ChatColor.GREEN + "Kick request sent for "
+                    + ChatColor.AQUA + targetName + ChatColor.GREEN + " (cross-server).");
+
+            notifyDiscord(targetName, uuid, reason, sender.getName());
+            return true;
+        }
+
+        // 5) If no bridge, fail safely
+        sender.sendMessage(ChatColor.RED + "Target is not on this server and cross-server mod bridge is unavailable.");
         return true;
     }
+
+    private void notifyDiscord(String name, UUID uuid, String reason, String actor) {
+        DiscordModerationNotifier mod = OreoEssentials.get().getDiscordMod();
+        if (mod != null && mod.isEnabled()) {
+            mod.notifyKick(name, uuid, reason, actor);
+        }
+    }
+
 }

@@ -75,19 +75,51 @@ public class UnmuteCommand implements OreoCommand, org.bukkit.command.TabComplet
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, org.bukkit.command.Command command, String label, String[] args) {
-        if (!sender.hasPermission(permission())) return Collections.emptyList();
+    public List<String> onTabComplete(CommandSender sender,
+                                      org.bukkit.command.Command command,
+                                      String label,
+                                      String[] args) {
+
+        if (!sender.hasPermission(permission()))
+            return Collections.emptyList();
+
         if (args.length == 1) {
-            // Suggest currently-muted players by name (best-effort)
-            return mutes.allMuted().stream()
-                    .map(uuid -> {
-                        var op = Bukkit.getOfflinePlayer(uuid);
-                        return op != null && op.getName() != null ? op.getName() : uuid.toString();
-                    })
-                    .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT)))
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .collect(Collectors.toList());
+            String want = args[0].toLowerCase(Locale.ROOT);
+            Set<String> out = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+            // -------------------------------
+            // 1) Add currently-muted players
+            // -------------------------------
+            for (UUID uuid : mutes.allMuted()) {
+                var op = Bukkit.getOfflinePlayer(uuid);
+                String name = (op != null && op.getName() != null) ? op.getName() : uuid.toString();
+
+                if (name.toLowerCase(Locale.ROOT).startsWith(want)) {
+                    out.add(name);
+                }
+            }
+
+            // ------------------------------------------
+            // 2) Add cross-server online players (Mongo)
+            // ------------------------------------------
+            var dir = OreoEssentials.get().getPlayerDirectory();
+            if (dir != null) {
+                try {
+                    Collection<String> names = dir.suggestOnlineNames(want, 50);
+                    if (names != null) {
+                        for (String n : names) {
+                            if (n != null && n.toLowerCase(Locale.ROOT).startsWith(want)) {
+                                out.add(n);
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            return out.stream().limit(50).toList();
         }
+
         return Collections.emptyList();
     }
+
 }

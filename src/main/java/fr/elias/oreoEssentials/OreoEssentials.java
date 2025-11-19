@@ -8,6 +8,7 @@ import fr.elias.oreoEssentials.clearlag.ClearLagManager;
 import fr.elias.oreoEssentials.commands.CommandManager;
 
 // Core commands (essentials-like)
+import fr.elias.oreoEssentials.commands.completion.KickTabCompleter;
 import fr.elias.oreoEssentials.commands.completion.TpaTabCompleter;
 import fr.elias.oreoEssentials.commands.core.playercommands.*;
 import fr.elias.oreoEssentials.commands.core.admins.*;
@@ -70,7 +71,7 @@ import fr.elias.oreoEssentials.listeners.*;
 
 // Offline cache
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
-
+import  fr.elias.oreoEssentials.cross.ModBridge ;
 // RabbitMQ
 import fr.elias.oreoEssentials.rabbitmq.PacketChannels;
 import fr.elias.oreoEssentials.rabbitmq.handler.PlayerJoinPacketHandler;
@@ -162,6 +163,7 @@ public final class OreoEssentials extends JavaPlugin {
     private fr.elias.oreoEssentials.bossbar.BossBarService bossBarService;
     public fr.elias.oreoEssentials.bossbar.BossBarService getBossBarService() { return bossBarService; }
     // top-level fields
+    private ModBridge modBridge;
 
 
     // Economy / messaging stack
@@ -1008,8 +1010,6 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[RABBIT] Disabled.");
         }
 
-
-        // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
         // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
         if (packetManager != null && packetManager.isInitialized() && invSyncEnabled) {
             this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(
@@ -1021,6 +1021,18 @@ public final class OreoEssentials extends JavaPlugin {
         } else {
             this.invBridge = null;
             getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable or crossserverinv=false).");
+        }
+        // ---- Cross-server Moderation Bridge (kill/kick/ban via Rabbit) ----
+        if (packetManager != null && packetManager.isInitialized()) {
+            this.modBridge = new ModBridge(
+                    this,
+                    packetManager,
+                    configService.serverName()
+            );
+            getLogger().info("[MOD-BRIDGE] Cross-server moderation bridge ready.");
+        } else {
+            this.modBridge = null;
+            getLogger().info("[MOD-BRIDGE] Cross-server moderation bridge disabled (PacketManager unavailable).");
         }
 
         // ---- Cross-server Trade broker (only if Rabbit AND tradeService AND enabled in settings) ----
@@ -1336,6 +1348,7 @@ public final class OreoEssentials extends JavaPlugin {
         if (getCommand("oeserver") != null) {
             getCommand("oeserver").setTabCompleter(new ServerProxyCommand(proxyMessenger));
         }
+        getCommand("kick").setTabCompleter(new KickTabCompleter(this));
 
         // Shared network-wide player completer for /tpa and /tp
         TpaTabCompleter tpaTpCompleter = new TpaTabCompleter(this);
@@ -1843,7 +1856,9 @@ public final class OreoEssentials extends JavaPlugin {
         return "UNKNOWN";
     }
 
-
+    public ModBridge getModBridge() {
+        return modBridge;
+    }
     // Playtime tracker getter (name expected by PlaceholderAPIHook)
     public fr.elias.oreoEssentials.playtime.PlaytimeTracker getPlaytimeTracker() {
         return this.playtimeTracker;
