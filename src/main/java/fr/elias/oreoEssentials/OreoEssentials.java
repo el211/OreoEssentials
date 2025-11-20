@@ -1256,9 +1256,14 @@ public final class OreoEssentials extends JavaPlugin {
             unregisterCommandHard("wild");
             getLogger().info("[RTP] Disabled by rtp.yml (enabled=false).");
         } else {
-            this.commands.register(new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand());
-            getLogger().info("[RTP] Enabled — /rtp registered.");
+            // Use a single instance for executor + tab-completer
+            var rtpCmd = new fr.elias.oreoEssentials.commands.core.playercommands.RtpCommand();
+            this.commands.register(rtpCmd);
+
+
+            getLogger().info("[RTP] Enabled — /rtp registered with tab-completion.");
         }
+
 
 
         // --- BossBar (controlled by config: bossbar.enabled)

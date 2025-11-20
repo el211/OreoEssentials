@@ -3,27 +3,52 @@ package fr.elias.oreoEssentials.commands.core.playercommands;
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
 import fr.elias.oreoEssentials.rtp.RtpConfig;
-import org.bukkit.*;
+import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class RtpCommand implements OreoCommand {
 
-    @Override public String name() { return "rtp"; }
-    @Override public List<String> aliases() { return List.of("randomtp"); }
-    @Override public String permission() { return "oreo.rtp"; }
-    @Override public String usage() { return "[world]"; }
-    @Override public boolean playerOnly() { return true; }
+    @Override
+    public String name() {
+        return "rtp";
+    }
+
+    @Override
+    public List<String> aliases() {
+        return List.of("randomtp");
+    }
+
+    @Override
+    public String permission() {
+        return "oreo.rtp";
+    }
+
+    @Override
+    public String usage() {
+        return "[world]";
+    }
+
+    @Override
+    public boolean playerOnly() {
+        return true;
+    }
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player p)) return true;
+        if (!(sender instanceof Player p)) {
+            return true;
+        }
 
         OreoEssentials plugin = OreoEssentials.get();
         RtpConfig cfg = plugin.getRtpConfig();
@@ -62,14 +87,9 @@ public class RtpCommand implements OreoCommand {
         boolean sameServer   = (targetServer == null) || targetServer.equalsIgnoreCase(localServer);
 
         if (crossEnabled && !sameServer) {
-            // ✅ Cross-server mode:
-            // Here we only switch the player to the correct server.
-            // Then you can either:
-            //  - let them run /rtp again there, OR
-            //  - add a small join-listener on that server to auto-rtp once.
+            // Cross-server mode: switch to the right server
             p.sendMessage("§7Switching you to §b" + targetServer
                     + "§7 for random teleport in §b" + targetWorldName + "§7…");
-            // Simple, generic way: rely on Bungee/Velocity /server command
             p.performCommand("server " + targetServer);
             return true;
         }
@@ -88,8 +108,7 @@ public class RtpCommand implements OreoCommand {
         }
 
         // 4) Compute radius using per-world + tier permissions
-        Collection<String> tiers = List.of("oreo.tier.vip", "oreo.tier.mvp");
-        int radius = cfg.radiusFor(p, tiers);
+        int radius = cfg.radiusFor(p, null);
 
         // Center: if same world, use player's position; else use world spawn
         Location center = (world.equals(p.getWorld()))
@@ -97,7 +116,7 @@ public class RtpCommand implements OreoCommand {
                 : world.getSpawnLocation();
 
         p.sendMessage("§7Trying random teleport in §b" + world.getName()
-                + "§7 up to §b" + radius + "§7 blocks…");
+                + "§7 jusqu’à §b" + radius + "§7 blocs…");
 
         Location dest = findSafeLocation(world, center, radius, cfg);
         if (dest == null) {
@@ -127,36 +146,81 @@ public class RtpCommand implements OreoCommand {
         for (int i = 0; i < attempts; i++) {
             double angle = rnd.nextDouble(0, Math.PI * 2);
             double dist = rnd.nextDouble(0, Math.max(1, radius));
+
             int x = center.getBlockX() + (int) Math.round(Math.cos(angle) * dist);
             int z = center.getBlockZ() + (int) Math.round(Math.sin(angle) * dist);
 
             Chunk chunk = world.getChunkAt(new Location(world, x, 0, z));
-            if (!chunk.isLoaded()) chunk.load(true);
+            if (!chunk.isLoaded()) {
+                chunk.load(true);
+            }
 
-            // scan downward to find ground
+            // Scan downward to find ground
             int y = Math.min(maxY, world.getMaxHeight() - 1);
-            while (y > minY && world.getBlockAt(x, y, z).isEmpty()) y--;
+            while (y > minY && world.getBlockAt(x, y, z).isEmpty()) {
+                y--;
+            }
 
-            if (y <= minY) continue;
+            if (y <= minY) {
+                continue;
+            }
 
             Block feet = world.getBlockAt(x, y + 1, z);
             Block head = world.getBlockAt(x, y + 2, z);
             Block ground = world.getBlockAt(x, y, z);
 
-            if (!feet.isEmpty() || !head.isEmpty()) continue;
+            if (!feet.isEmpty() || !head.isEmpty()) {
+                continue;
+            }
 
             String groundType = ground.getType().name();
-            if (unsafe.contains(groundType)) continue;
+            if (unsafe.contains(groundType)) {
+                continue;
+            }
 
-            // avoid liquids
-            if (ground.isLiquid()) continue;
+            // Avoid liquids
+            if (ground.isLiquid()) {
+                continue;
+            }
 
-            // found a spot
+            // Found a spot
             Location tp = new Location(world, x + 0.5, y + 1.0, z + 0.5);
             tp.setYaw(ThreadLocalRandom.current().nextFloat() * 360f);
-            tp.setPitch(0);
+            tp.setPitch(0f);
             return tp;
         }
         return null;
+    }
+
+    @Override
+    public List<String> tabComplete(CommandSender sender, String alias, String[] args) {
+        // Only tab-complete first argument: [world]
+        if (args.length != 1) {
+            return List.of();
+        }
+
+        String input = args[0].toLowerCase(Locale.ROOT);
+        OreoEssentials plugin = OreoEssentials.get();
+        RtpConfig cfg = plugin.getRtpConfig();
+
+        Set<String> suggestions = new HashSet<>();
+
+        // Allowed worlds: if empty, propose all loaded worlds
+        Set<String> allowed = cfg.allowedWorlds();
+        if (allowed.isEmpty()) {
+            for (World w : Bukkit.getWorlds()) {
+                suggestions.add(w.getName());
+            }
+        } else {
+            suggestions.addAll(allowed);
+        }
+
+        // Add cross-server mapped worlds
+        suggestions.addAll(cfg.worldServerMappings().keySet());
+
+        return suggestions.stream()
+                .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(input))
+                .sorted()
+                .toList();
     }
 }

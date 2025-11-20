@@ -2,6 +2,8 @@ package fr.elias.oreoEssentials.commands.core.admins;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.config.SettingsConfig;
+import fr.elias.oreoEssentials.tab.TabListManager;
 import fr.elias.oreoEssentials.util.Lang;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -24,6 +26,27 @@ public final class ReloadAllCommand implements OreoCommand {
         final long start = System.currentTimeMillis();
 
         int ok = 0, skip = 0;
+
+        // 0) settings.yml
+        try {
+            // reload settings.yml
+            plugin.getSettingsConfig().reload();
+
+            // rebuild CrossServerSettings from fresh settings.yml
+            fr.elias.oreoEssentials.config.CrossServerSettings cross =
+                    fr.elias.oreoEssentials.config.CrossServerSettings.load(plugin);
+
+            // re-assign into OreoEssentials.crossServerSettings via reflection
+            var f = OreoEssentials.class.getDeclaredField("crossServerSettings");
+            f.setAccessible(true);
+            f.set(plugin, cross);
+
+            sender.sendMessage(col("&a✔ Reloaded &fsettings.yml &7(+ cross-server settings)"));
+            ok++;
+        } catch (Throwable t) {
+            sender.sendMessage(col("&e• Skipped settings.yml / cross-server: &7" + t.getMessage()));
+            skip++;
+        }
 
         // 1) Main config.yml
         try {
@@ -56,13 +79,9 @@ public final class ReloadAllCommand implements OreoCommand {
 
         // 4) Tab list
         try {
-            Object tab = plugin.getTabListManager();
+            TabListManager tab = plugin.getTabListManager();
             if (tab != null) {
-                if (!callNoArgs(tab, "reload")) {
-                    boolean a = callNoArgs(tab, "stop");
-                    boolean b = callNoArgs(tab, "start");
-                    if (!a && !b) throw new IllegalStateException("no reload/stop/start available");
-                }
+                tab.reload(); // stop + load tab.yml + start
                 sender.sendMessage(col("&a✔ Reloaded &ftab.yml"));
                 ok++;
             } else {
@@ -166,30 +185,24 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&e• Skipped discord integration (no reload hook)"));
             skip++;
         }
-        // Health bars (mobs)
-        try {
-            // Re-register the listener based on fresh config
-            var core = OreoEssentials.get(); // your plugin instance
 
-            // Soft-hook UltimateChristmas again on reload
+        // 11) Health bars (mobs)
+        try {
+            var core = OreoEssentials.get();
+
             fr.elias.ultimateChristmas.UltimateChristmas xmasHook = null;
             try {
                 org.bukkit.plugin.Plugin maybe = core.getServer().getPluginManager().getPlugin("UltimateChristmas");
                 if (maybe instanceof fr.elias.ultimateChristmas.UltimateChristmas uc && maybe.isEnabled()) {
                     xmasHook = uc;
                 }
-            } catch (Throwable ignored) {
-                // UltimateChristmas not present, that's fine
-            }
+            } catch (Throwable ignored) {}
 
-            // create new listener with BOTH args
             var hbl = new fr.elias.oreoEssentials.mobs.HealthBarListener(core, xmasHook);
 
             if (hbl.isEnabled()) {
-                // register events with Bukkit
                 Bukkit.getPluginManager().registerEvents(hbl, core);
 
-                // reflect-set OreoEssentials.healthBarListener = hbl;
                 var f = OreoEssentials.class.getDeclaredField("healthBarListener");
                 f.setAccessible(true);
                 f.set(core, hbl);
@@ -198,7 +211,6 @@ public final class ReloadAllCommand implements OreoCommand {
             } else {
                 sender.sendMessage(col("&e• Mob health bars disabled by config"));
 
-                // reflect-set OreoEssentials.healthBarListener = null;
                 var f = OreoEssentials.class.getDeclaredField("healthBarListener");
                 f.setAccessible(true);
                 f.set(core, null);
@@ -208,12 +220,11 @@ public final class ReloadAllCommand implements OreoCommand {
             sender.sendMessage(col("&e• Skipped mob health bars: &7" + t.getMessage()));
         }
 
-
-        // PlayerVaults
+        // 12) PlayerVaults
         try {
-            var pv = plugin.getPlayervaultsService(); // make sure this getter name matches your plugin
+            var pv = plugin.getPlayervaultsService();
             if (pv != null) {
-                pv.reload(); // re-read config + rebind storage (Mongo/YAML)
+                pv.reload();
                 sender.sendMessage(col("&a✔ Reloaded &fplayervaults &7(" + pvStorageName(pv) + ")"));
                 ok++;
             } else {
@@ -223,7 +234,6 @@ public final class ReloadAllCommand implements OreoCommand {
         } catch (Throwable t) {
             sender.sendMessage(col("&c✘ Failed reloading playervaults: &7" + t.getMessage()));
         }
-
 
         long took = System.currentTimeMillis() - start;
         sender.sendMessage(col("&7Reload complete: &a" + ok + " OK&7, &e" + skip + " skipped&7. (&f" + took + " ms&7)"));
@@ -246,9 +256,7 @@ public final class ReloadAllCommand implements OreoCommand {
         return ChatColor.translateAlternateColorCodes('&', s);
     }
 
-    // tiny helper for a nicer message
     private static String pvStorageName(fr.elias.oreoEssentials.playervaults.PlayerVaultsService svc) {
-        // best-effort hint; avoids adding getters on storage
         try {
             var f = svc.getClass().getDeclaredField("storage");
             f.setAccessible(true);
@@ -263,4 +271,3 @@ public final class ReloadAllCommand implements OreoCommand {
         }
     }
 }
-//

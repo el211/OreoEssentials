@@ -1,10 +1,10 @@
-// package: fr.elias.oreoEssentials.modgui.invsee
+// File: src/main/java/fr/elias/oreoEssentials/modgui/invsee/InvSeeMenu.java
 package fr.elias.oreoEssentials.modgui.invsee;
 
 import fr.elias.oreoEssentials.OreoEssentials;
+import fr.elias.oreoEssentials.cross.InvseeService;
 import fr.elias.oreoEssentials.modgui.util.ItemBuilder;
 import fr.elias.oreoEssentials.services.InventoryService;
-import fr.elias.oreoEssentials.cross.InvseeService;
 import fr.minuskube.inv.ClickableItem;
 import fr.minuskube.inv.InventoryListener;
 import fr.minuskube.inv.SmartInventory;
@@ -23,6 +23,15 @@ import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+/**
+ * ModGUI InvSee menu:
+ * - Uses InvseeService.requestSnapshot(...) to get the best possible snapshot
+ *   (online on this server, or persisted via InventoryService).
+ * - On close, rebuilds a Snapshot from the GUI and calls
+ *   InvseeService.applySnapshotFromGui(...) which:
+ *     * applies to online player if present
+ *     * saves via InventoryService for cross-server / next-login sync
+ */
 public class InvSeeMenu implements InventoryProvider {
 
     private final OreoEssentials plugin;
@@ -35,11 +44,12 @@ public class InvSeeMenu implements InventoryProvider {
 
     /**
      * Helper to open with a close listener that pushes changes
-     * back to the *live* player across the network using InvseeService.
+     * back to the player via InvseeService (local + cross-server safe).
      */
     public static void open(OreoEssentials plugin, Player viewer, UUID targetId) {
         OfflinePlayer op = Bukkit.getOfflinePlayer(targetId);
-        String targetName = (op.getName() != null ? op.getName() : targetId.toString().substring(0, 8));
+        String targetName =
+                (op.getName() != null ? op.getName() : targetId.toString().substring(0, 8));
 
         plugin.getLogger().info("[INVSEE-DEBUG] open(): viewer=" + viewer.getName()
                 + " targetId=" + targetId + " targetName=" + targetName);
@@ -63,7 +73,7 @@ public class InvSeeMenu implements InventoryProvider {
     }
 
     @Override
-    public void init(Player viewer, InventoryContents c) {
+    public void init(Player viewer, InventoryContents contents) {
         plugin.getLogger().info("[INVSEE-DEBUG] init(): viewer=" + viewer.getName()
                 + " targetId=" + targetId + " on server=" + plugin.getServerNameSafe());
 
@@ -75,35 +85,38 @@ public class InvSeeMenu implements InventoryProvider {
             return;
         }
 
-        // Ask InvseeService for the *best* snapshot it can get (local or remote).
+        // Ask InvseeService for the *best* snapshot it can get (online local or persisted).
         InventoryService.Snapshot snap = invsee.requestSnapshot(targetId);
         if (snap == null) {
             plugin.getLogger().warning("[INVSEE-DEBUG] init(): requestSnapshot returned NULL for targetId=" + targetId);
             viewer.closeInventory();
             viewer.sendMessage("§cCould not fetch inventory. " +
-                    "Player may be offline or on an unreachable server.");
+                    "Player may be offline or has no stored inventory.");
             return;
         }
 
-        plugin.getLogger().info("[INVSEE-DEBUG] init(): got snapshot for targetId=" + targetId
-                + " contentsLen=" + (snap.contents == null ? "null" : snap.contents.length)
-                + " armorLen=" + (snap.armor == null ? "null" : snap.armor.length)
-                + " offhand=" + (snap.offhand == null ? "null" : snap.offhand.getType().name()));
-
+        // Safety: ensure arrays are non-null and sized for our layout.
         if (snap.contents == null) snap.contents = new ItemStack[41];
         if (snap.armor == null)    snap.armor    = new ItemStack[4];
 
-        // Layout inside the 6x9 GUI:
+        plugin.getLogger().info("[INVSEE-DEBUG] init(): got snapshot for targetId=" + targetId
+                + " contentsLen=" + snap.contents.length
+                + " armorLen=" + snap.armor.length
+                + " offhand=" + (snap.offhand == null ? "null" : snap.offhand.getType().name()));
 
-        // 1) Main contents
+        // --- Layout inside the 6x9 GUI ---
+
+        // 1) Main contents (0..40 => rows 0..4 + row5 col0..4)
         for (int i = 0; i < 41; i++) {
             int row = i / 9;
             int col = i % 9;
             ItemStack it = snap.contents[i];
 
-            c.set(row, col, ClickableItem.of(
+            contents.set(row, col, ClickableItem.of(
                     (it == null ? new ItemStack(Material.AIR) : it),
-                    e -> {} // editing is handled by SmartInvs
+                    e -> {
+                        // SmartInvs handles visual changes; we only sync on close.
+                    }
             ));
         }
 
@@ -114,9 +127,11 @@ public class InvSeeMenu implements InventoryProvider {
             int col = raw % 9;
 
             ItemStack it = (snap.armor.length > i ? snap.armor[i] : null);
-            c.set(row, col, ClickableItem.of(
+            contents.set(row, col, ClickableItem.of(
                     (it == null ? new ItemStack(Material.AIR) : it),
-                    e -> {}
+                    e -> {
+                        // Visual only, real sync on close.
+                    }
             ));
         }
 
@@ -127,21 +142,26 @@ public class InvSeeMenu implements InventoryProvider {
             int col = raw % 9;
 
             ItemStack off = snap.offhand;
-            c.set(row, col, ClickableItem.of(
+            contents.set(row, col, ClickableItem.of(
                     (off == null ? new ItemStack(Material.AIR) : off),
-                    e -> {}
+                    e -> {
+                        // Visual only, real sync on close.
+                    }
             ));
         }
 
-        // Label/description item
+        // 4) Label / description item (slot 53 => row 5, col 8)
         OfflinePlayer op = Bukkit.getOfflinePlayer(targetId);
-        String targetName = (op.getName() != null ? op.getName() : targetId.toString().substring(0, 8));
+        String targetName =
+                (op.getName() != null ? op.getName() : targetId.toString().substring(0, 8));
 
-        c.set(5, 8, ClickableItem.empty(
+        contents.set(5, 8, ClickableItem.empty(
                 new ItemBuilder(Material.BOOK)
                         .name("§bEditing inventory of §e" + targetName)
-                        .lore("§7Changes will be pushed to",
-                                "§7the live player across the network.")
+                        .lore(
+                                "§7Changes will be pushed to",
+                                "§7the live player / stored snapshot."
+                        )
                         .build()
         ));
 
@@ -151,12 +171,12 @@ public class InvSeeMenu implements InventoryProvider {
 
     @Override
     public void update(Player player, InventoryContents contents) {
-        // No live animation needed
+        // No periodic animation required.
     }
 
     /**
      * Read the GUI back into an InventoryService.Snapshot
-     * and push it via InvseeService.
+     * and push it via InvseeService.applySnapshotFromGui(...).
      */
     public static void syncAndApply(OreoEssentials plugin,
                                     Player viewer,
@@ -176,26 +196,27 @@ public class InvSeeMenu implements InventoryProvider {
         snap.contents = new ItemStack[41];
         snap.armor    = new ItemStack[4];
 
-        // contents 0..40 from slots 0..40
-        for (int i = 0; i < 41; i++) {
+        // 1) Contents 0..40 from slots 0..40
+        for (int i = 0; i < 41 && i < inv.getSize(); i++) {
             ItemStack it = inv.getItem(i);
             snap.contents[i] = (it == null || it.getType() == Material.AIR) ? null : it.clone();
         }
 
-        // armor from slots 45..48
+        // 2) Armor from slots 45..48
         for (int i = 0; i < 4; i++) {
             int raw = 45 + i;
+            if (raw >= inv.getSize()) break;
             ItemStack it = inv.getItem(raw);
             snap.armor[i] = (it == null || it.getType() == Material.AIR) ? null : it.clone();
         }
 
-        // offhand from slot 49
-        {
+        // 3) Offhand from slot 49
+        if (49 < inv.getSize()) {
             ItemStack it = inv.getItem(49);
             snap.offhand = (it == null || it.getType() == Material.AIR) ? null : it.clone();
         }
 
-        // ---- SAFETY: don't push a fully empty snapshot (likely request failure) ----
+        // ---- SAFETY: don't push a fully empty snapshot (likely request failure / empty GUI) ----
         boolean allEmpty = true;
         int nonEmptyContents = 0;
         int nonEmptyArmor = 0;
@@ -233,7 +254,7 @@ public class InvSeeMenu implements InventoryProvider {
         if (allEmpty) {
             plugin.getLogger().warning("[INVSEE-DEBUG] syncAndApply(): snapshot fully empty, NOT applying. targetId=" + targetId);
             viewer.sendMessage("§cNot applying an empty inventory snapshot " +
-                    "(remote inventory probably failed to load).");
+                    "(inventory probably failed to load).");
             return;
         }
 
@@ -256,7 +277,7 @@ public class InvSeeMenu implements InventoryProvider {
             OfflinePlayer op = Bukkit.getOfflinePlayer(targetId);
             String targetName = (op.getName() != null ? op.getName() : targetId.toString());
 
-            var file = new java.io.File(plugin.getDataFolder(), "playeractions.log");
+            java.io.File file = new java.io.File(plugin.getDataFolder(), "playeractions.log");
             try (PrintWriter out = new PrintWriter(new FileWriter(file, true))) {
                 out.println(LocalDateTime.now() + " [INVSEE] "
                         + staff.getName() + " edited inventory of " + targetName);

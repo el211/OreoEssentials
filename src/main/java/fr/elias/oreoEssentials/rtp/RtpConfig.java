@@ -156,43 +156,54 @@ public final class RtpConfig {
      * Falls back to global "default" when no world override applies.
      */
     public int radiusFor(Player p, Collection<String> tierPermissionKeys) {
-        Predicate<String> hasTier;
-        if (tierPermissionKeys == null || tierPermissionKeys.isEmpty()) {
-            hasTier = p::hasPermission;
-        } else {
-            // Could restrict to these keys, but we keep real permission checks as before
-            hasTier = p::hasPermission;
-        }
+        // We ignore tierPermissionKeys for now and always check real permission nodes.
+        Predicate<String> hasPerm = p::hasPermission;
 
         // Check per-world section first
         String worldKey = "worlds." + p.getWorld().getName();
         if (cfg.isConfigurationSection(worldKey)) {
             int worldDefault = cfg.getInt(worldKey + ".default", cfg.getInt("default", 200));
             int best = worldDefault;
+
             for (String key : cfg.getConfigurationSection(worldKey).getKeys(false)) {
                 if ("default".equalsIgnoreCase(key)) continue;
+
                 int val = cfg.getInt(worldKey + "." + key, -1);
-                if (val > 0 && hasTier.test(key)) best = Math.max(best, val);
+                if (val <= 0) continue;
+
+                // 🔴 IMPORTANT: keys like "vip" → permission "oreo.tier.vip"
+                String permNode = "oreo.tier." + key;
+                if (hasPerm.test(permNode) && val > best) {
+                    best = val;
+                }
             }
             return best;
         }
 
         // Fallback: global section
-        return bestRadiusFor(hasTier);
+        return bestRadiusFor(permNode -> p.hasPermission(permNode));
     }
+
 
     /** Backward-compatible global best-radius calculator. */
     public int bestRadiusFor(Predicate<String> hasTierPerm) {
         int best = cfg.getInt("default", 200);
+
         for (String key : cfg.getKeys(false)) {
             if (isNonTierKey(key)) continue;
+
             int val = cfg.getInt(key, -1);
-            if (val > 0 && hasTierPerm.test(key)) {
-                if (val > best) best = val;
+            if (val <= 0) continue;
+
+            // 🔴 IMPORTANT: keys like "vip" → permission "oreo.tier.vip"
+            String permNode = "oreo.tier." + key;
+            if (hasTierPerm.test(permNode) && val > best) {
+                best = val;
             }
         }
         return best;
     }
+
 
     private boolean isNonTierKey(String key) {
         return "enabled".equalsIgnoreCase(key)
