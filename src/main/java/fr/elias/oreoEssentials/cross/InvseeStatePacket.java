@@ -1,0 +1,72 @@
+// File: src/main/java/fr/elias/oreoEssentials/cross/InvseeStatePacket.java
+package fr.elias.oreoEssentials.cross;
+
+import fr.elias.oreoEssentials.rabbitmq.packet.Packet;
+import fr.elias.oreoEssentials.rabbitmq.stream.FriendlyByteInputStream;
+import fr.elias.oreoEssentials.rabbitmq.stream.FriendlyByteOutputStream;
+
+import java.util.UUID;
+
+/**
+ * Owner node -> viewer node: sends a snapshot of target's inventory contents.
+ */
+public final class InvseeStatePacket extends Packet {
+
+    private UUID targetId;
+    private UUID viewerId;
+    private byte[] contentsBytes; // encoded ItemStack[]
+
+    public InvseeStatePacket() {
+    }
+
+    public InvseeStatePacket(UUID targetId, UUID viewerId, byte[] contentsBytes) {
+        this.targetId = targetId;
+        this.viewerId = viewerId;
+        this.contentsBytes = (contentsBytes == null ? new byte[0] : contentsBytes);
+    }
+
+    public UUID getTargetId() {
+        return targetId;
+    }
+
+    public UUID getViewerId() {
+        return viewerId;
+    }
+
+    public byte[] getContentsBytes() {
+        return contentsBytes;
+    }
+
+    @Override
+    protected void write(FriendlyByteOutputStream out) {
+        out.writeUUID(targetId);
+        out.writeUUID(viewerId);
+        writeBlob(out, contentsBytes);
+    }
+
+    @Override
+    protected void read(FriendlyByteInputStream in) {
+        targetId = in.readUUID();
+        viewerId = in.readUUID();
+        contentsBytes = readBlob(in);
+    }
+
+    /* --- helpers (same pattern as TradeStatePacket) --- */
+
+    private static void writeBlob(FriendlyByteOutputStream out, byte[] data) {
+        int n = (data == null ? 0 : data.length);
+        out.writeInt(n);
+        for (int i = 0; i < n; i++) {
+            out.writeByte(data[i]);
+        }
+    }
+
+    private static byte[] readBlob(FriendlyByteInputStream in) {
+        int n = Math.max(0, in.readInt());
+        byte[] b = new byte[n];
+        for (int i = 0; i < n; i++) {
+            b[i] = in.readByte();
+        }
+        return b;
+    }
+}

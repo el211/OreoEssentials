@@ -176,9 +176,14 @@ public final class OreoEssentials extends JavaPlugin {
     // PlayerVaults
     private fr.elias.oreoEssentials.playervaults.PlayerVaultsService playervaultsService;
     public fr.elias.oreoEssentials.playervaults.PlayerVaultsService getPlayervaultsService() { return playervaultsService; }
-    // Cross-server inventory bridge (invsee/ecsee)
-    private fr.elias.oreoEssentials.cross.InvBridge invBridge;
-    public fr.elias.oreoEssentials.cross.InvBridge getInvBridge() { return invBridge; }
+    // Cross-server Invsee (live inventory viewer)
+    private fr.elias.oreoEssentials.cross.InvseeService invseeService;
+    private fr.elias.oreoEssentials.cross.InvseeCrossServerBroker invseeBroker;
+
+    public fr.elias.oreoEssentials.cross.InvseeService getInvseeService() {
+        return invseeService;
+    }
+
     private KillallLogger killallLogger;
     // Interactive Commands
     private fr.elias.oreoEssentials.ic.ICManager icManager;
@@ -929,9 +934,10 @@ public final class OreoEssentials extends JavaPlugin {
         this.warpService  = new WarpService(storage, this.warpDirectory);
         this.homeService  = new HomeService(this.storage, this.configService, this.homeDirectory);
 
-        // -------- RabbitMQ (optional cross-server signaling) --------
+// -------- RabbitMQ (optional cross-server signaling) --------
         if (rabbitEnabled) {
             RabbitMQSender rabbit = new RabbitMQSender(getConfig().getString("rabbitmq.uri"));
+
             // Make sure OfflinePlayerCache exists before any packet handlers / consumers start
             if (this.offlinePlayerCache == null) {
                 this.offlinePlayerCache = new OfflinePlayerCache();
@@ -946,6 +952,33 @@ public final class OreoEssentials extends JavaPlugin {
                     getLogger().info("[RABBIT] Packet registry checksum=" + packetManager.registryChecksum());
                 } catch (Throwable ignored) {}
 
+// ---- Cross-server Invsee broker + service ----
+                if (invSyncEnabled) {
+                    try {
+                        this.invseeBroker = new fr.elias.oreoEssentials.cross.InvseeCrossServerBroker(
+                                this,
+                                packetManager,
+                                localServerName,
+                                null // temp, we set the real service just after
+                        );
+                        this.invseeService = new fr.elias.oreoEssentials.cross.InvseeService(
+                                this,
+                                invseeBroker
+                        );
+                        this.invseeBroker.setService(invseeService); // ★ IMPORTANT ★
+
+                        getLogger().info("[INVSEE] Cross-server Invsee broker + service ready.");
+                    } catch (Throwable t) {
+                        this.invseeBroker = null;
+                        this.invseeService = null;
+                        getLogger().warning("[INVSEE] Failed to initialize cross-server Invsee: " + t.getMessage());
+                    }
+                } else {
+                    this.invseeBroker = null;
+                    this.invseeService = null;
+                    getLogger().info("[INVSEE] Cross-server Invsee disabled (invSyncEnabled=false).");
+                }
+
 
                 // now you can subscribe channels & handlers safely
                 packetManager.subscribeChannel(PacketChannels.GLOBAL);
@@ -954,12 +987,30 @@ public final class OreoEssentials extends JavaPlugin {
                 );
                 getLogger().info("[RABBIT] Subscribed to individual channel for this server: " + localServerName);
 
+                // --- Invsee packets (only if broker is active) ---
+                if (this.invseeBroker != null) {
+                    packetManager.subscribe(
+                            fr.elias.oreoEssentials.cross.InvseeOpenRequestPacket.class,
+                            (channel, pkt) -> invseeBroker.handleOpenRequest(pkt)
+                    );
+                    packetManager.subscribe(
+                            fr.elias.oreoEssentials.cross.InvseeStatePacket.class,
+                            (channel, pkt) -> invseeBroker.handleState(pkt)
+                    );
+                    packetManager.subscribe(
+                            fr.elias.oreoEssentials.cross.InvseeEditPacket.class,
+                            (channel, pkt) -> invseeBroker.handleEdit(pkt)
+                    );
+                    getLogger().info("[INVSEE] Subscribed Invsee packets on RabbitMQ.");
+                }
+
                 // your existing generic packet subscriptions...
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
                         new RemoteMessagePacketHandler()
                 );
-                // Subscription (add near your other trade subscriptions)
+
+                // --- Trade packets ---
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStartPacket.class,
                         (fr.elias.oreoEssentials.rabbitmq.packet.event.PacketSubscriber<
@@ -983,7 +1034,6 @@ public final class OreoEssentials extends JavaPlugin {
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeStatePacket.class,
                         new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeStatePacketHandler(this)
                 );
-
                 packetManager.subscribe(
                         fr.elias.oreoEssentials.rabbitmq.packet.impl.trade.TradeConfirmPacket.class,
                         new fr.elias.oreoEssentials.rabbitmq.handler.trade.TradeConfirmPacketHandler(this)
@@ -1005,24 +1055,17 @@ public final class OreoEssentials extends JavaPlugin {
             } else {
                 getLogger().severe("[RABBIT] Connect failed; continuing without messaging.");
                 this.packetManager = null;
+                this.invseeBroker = null;
+                this.invseeService = null;
             }
         } else {
             getLogger().info("[RABBIT] Disabled.");
+            this.packetManager = null;
+            this.invseeBroker = null;
+            this.invseeService = null;
         }
 
-        // ---- Cross-server InvBridge (only if Rabbit is available AND feature is enabled) ----
-        if (packetManager != null && packetManager.isInitialized() && invSyncEnabled) {
-            this.invBridge = new fr.elias.oreoEssentials.cross.InvBridge(
-                    this,
-                    packetManager,
-                    configService.serverName()
-            );
-            getLogger().info("[INV-BRIDGE] Cross-server bridge ready.");
-        } else {
-            this.invBridge = null;
-            getLogger().info("[INV-BRIDGE] Disabled (PacketManager unavailable or crossserverinv=false).");
-        }
-        // ---- Cross-server Moderation Bridge (kill/kick/ban via Rabbit) ----
+// ---- Cross-server Moderation Bridge (kill/kick/ban via Rabbit) ----
         if (packetManager != null && packetManager.isInitialized()) {
             this.modBridge = new ModBridge(
                     this,
@@ -1035,7 +1078,7 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[MOD-BRIDGE] Cross-server moderation bridge disabled (PacketManager unavailable).");
         }
 
-        // ---- Cross-server Trade broker (only if Rabbit AND tradeService AND enabled in settings) ----
+// ---- Cross-server Trade broker (only if Rabbit AND tradeService AND enabled in settings) ----
         if (packetManager != null
                 && packetManager.isInitialized()
                 && this.tradeService != null
@@ -1052,6 +1095,7 @@ public final class OreoEssentials extends JavaPlugin {
             this.tradeBroker = null;
             getLogger().info("[TRADE] Cross-server trade broker disabled (PacketManager unavailable, trade disabled, or settings.yml).");
         }
+
 
         // -------- Cross-server teleport brokers --------
         if (packetManager != null && packetManager.isInitialized()) {
@@ -1618,6 +1662,7 @@ public final class OreoEssentials extends JavaPlugin {
 
     private void registerAllPacketsDeterministically(PacketManager pm) {
         // --- Core/Generic packets ---
+
         pm.registerPacket(
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket.class,
                 fr.elias.oreoEssentials.rabbitmq.packet.impl.SendRemoteMessagePacket::new
@@ -1633,9 +1678,18 @@ public final class OreoEssentials extends JavaPlugin {
 
         // 🔵 ADD THIS BLOCK (new)
         pm.registerPacket(
-                fr.elias.oreoEssentials.rabbitmq.packet.impl.CrossInvPacket.class,
-                fr.elias.oreoEssentials.rabbitmq.packet.impl.CrossInvPacket::new
+                fr.elias.oreoEssentials.cross.InvseeOpenRequestPacket.class,
+                fr.elias.oreoEssentials.cross.InvseeOpenRequestPacket::new
         );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.cross.InvseeStatePacket.class,
+                fr.elias.oreoEssentials.cross.InvseeStatePacket::new
+        );
+        pm.registerPacket(
+                fr.elias.oreoEssentials.cross.InvseeEditPacket.class,
+                fr.elias.oreoEssentials.cross.InvseeEditPacket::new
+        );
+
 
         // --- Trade packets ---
         pm.registerPacket(
@@ -1699,7 +1753,50 @@ public final class OreoEssentials extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        Bukkit.getScheduler().cancelTasks(this);
+        getLogger().info("[SHUTDOWN] OreoEssentials disabling…");
+
+        // -------------------------------------------------
+        // 1) Sauvegarder tous les inventaires en ligne
+        //    (très important avec Velocity / restart brutal)
+        // -------------------------------------------------
+        try {
+            fr.elias.oreoEssentials.services.InventoryService invSvc =
+                    org.bukkit.Bukkit.getServicesManager().load(
+                            fr.elias.oreoEssentials.services.InventoryService.class
+                    );
+
+            if (invSvc != null) {
+                int online = org.bukkit.Bukkit.getOnlinePlayers().size();
+                getLogger().info("[SHUTDOWN] Saving inventories of " + online + " online players...");
+
+                for (org.bukkit.entity.Player p : org.bukkit.Bukkit.getOnlinePlayers()) {
+                    try {
+                        fr.elias.oreoEssentials.services.InventoryService.Snapshot snap =
+                                new fr.elias.oreoEssentials.services.InventoryService.Snapshot();
+
+                        snap.contents = p.getInventory().getContents();
+                        snap.armor    = p.getInventory().getArmorContents();
+                        snap.offhand  = p.getInventory().getItemInOffHand();
+
+                        invSvc.save(p.getUniqueId(), snap);
+                        getLogger().info("[SHUTDOWN] Saved inventory for " + p.getName());
+                    } catch (Exception ex) {
+                        getLogger().warning("[SHUTDOWN] Failed to save inventory for "
+                                + p.getName() + ": " + ex.getMessage());
+                    }
+                }
+            } else {
+                getLogger().info("[SHUTDOWN] No InventoryService registered; skipping inventory save.");
+            }
+        } catch (Throwable t) {
+            getLogger().warning("[SHUTDOWN] Error while saving inventories on shutdown: " + t.getMessage());
+        }
+
+        // -------------------------------------------------
+        // 2) Cancel des tâches et shutdown des services
+        // -------------------------------------------------
+        org.bukkit.Bukkit.getScheduler().cancelTasks(this);
+
         try { if (teleportService != null) teleportService.shutdown(); } catch (Exception ignored) {}
         try { if (storage != null) { storage.flush(); storage.close(); } } catch (Exception ignored) {}
         try { if (database != null) database.close(); } catch (Exception ignored) {}
@@ -1719,17 +1816,12 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (dailyStore != null) dailyStore.close(); } catch (Exception ignored) {}
         try { if (tradeService != null) tradeService.cancelAll(); } catch (Throwable ignored) {}
 
-
         dailyStore = null;
-
-
-
         this.healthBarListener = null;
-
-
 
         getLogger().info("OreoEssentials disabled.");
     }
+
 
 
     /* ----------------------------- Helpers ----------------------------- */

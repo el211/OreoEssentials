@@ -2,9 +2,9 @@
 package fr.elias.oreoEssentials.modgui.invsee;
 
 import fr.elias.oreoEssentials.OreoEssentials;
-import fr.elias.oreoEssentials.cross.InvBridge;
 import fr.elias.oreoEssentials.modgui.util.ItemBuilder;
 import fr.elias.oreoEssentials.services.InventoryService;
+import fr.elias.oreoEssentials.cross.InvseeService;
 import fr.minuskube.inv.ClickableItem;
 import fr.minuskube.inv.InventoryListener;
 import fr.minuskube.inv.SmartInventory;
@@ -35,7 +35,7 @@ public class InvSeeMenu implements InventoryProvider {
 
     /**
      * Helper to open with a close listener that pushes changes
-     * back to the *live* player across the network using InvBridge.
+     * back to the *live* player across the network using InvseeService.
      */
     public static void open(OreoEssentials plugin, Player viewer, UUID targetId) {
         OfflinePlayer op = Bukkit.getOfflinePlayer(targetId);
@@ -67,20 +67,20 @@ public class InvSeeMenu implements InventoryProvider {
         plugin.getLogger().info("[INVSEE-DEBUG] init(): viewer=" + viewer.getName()
                 + " targetId=" + targetId + " on server=" + plugin.getServerNameSafe());
 
-        InvBridge bridge = plugin.getInvBridge();
-        if (bridge == null) {
-            plugin.getLogger().warning("[INVSEE-DEBUG] init(): InvBridge is null, aborting.");
+        InvseeService invsee = plugin.getInvseeService();
+        if (invsee == null) {
+            plugin.getLogger().warning("[INVSEE-DEBUG] init(): InvseeService is null, aborting.");
             viewer.closeInventory();
-            viewer.sendMessage("§cCross-server inventory bridge is not available.");
+            viewer.sendMessage("§cCross-server invsee service is not available.");
             return;
         }
 
-        // Request live snapshot from whoever *currently* has the player.
-        InventoryService.Snapshot snap = bridge.requestLiveInv(targetId);
+        // Ask InvseeService for the *best* snapshot it can get (local or remote).
+        InventoryService.Snapshot snap = invsee.requestSnapshot(targetId);
         if (snap == null) {
-            plugin.getLogger().warning("[INVSEE-DEBUG] init(): requestLiveInv returned NULL for targetId=" + targetId);
+            plugin.getLogger().warning("[INVSEE-DEBUG] init(): requestSnapshot returned NULL for targetId=" + targetId);
             viewer.closeInventory();
-            viewer.sendMessage("§cCould not fetch live inventory. " +
+            viewer.sendMessage("§cCould not fetch inventory. " +
                     "Player may be offline or on an unreachable server.");
             return;
         }
@@ -156,7 +156,7 @@ public class InvSeeMenu implements InventoryProvider {
 
     /**
      * Read the GUI back into an InventoryService.Snapshot
-     * and push it via InvBridge.applyLiveInv.
+     * and push it via InvseeService.
      */
     public static void syncAndApply(OreoEssentials plugin,
                                     Player viewer,
@@ -165,10 +165,10 @@ public class InvSeeMenu implements InventoryProvider {
         plugin.getLogger().info("[INVSEE-DEBUG] syncAndApply(): viewer=" + viewer.getName()
                 + " targetId=" + targetId + " invSize=" + inv.getSize());
 
-        InvBridge bridge = plugin.getInvBridge();
-        if (bridge == null) {
-            plugin.getLogger().warning("[INVSEE-DEBUG] syncAndApply(): InvBridge is null, aborting.");
-            viewer.sendMessage("§cCannot apply inventory changes: InvBridge unavailable.");
+        InvseeService invsee = plugin.getInvseeService();
+        if (invsee == null) {
+            plugin.getLogger().warning("[INVSEE-DEBUG] syncAndApply(): InvseeService is null, aborting.");
+            viewer.sendMessage("§cCannot apply inventory changes: invsee service unavailable.");
             return;
         }
 
@@ -237,8 +237,8 @@ public class InvSeeMenu implements InventoryProvider {
             return;
         }
 
-        boolean ok = bridge.applyLiveInv(targetId, snap);
-        plugin.getLogger().info("[INVSEE-DEBUG] syncAndApply(): applyLiveInv returned " + ok
+        boolean ok = invsee.applySnapshotFromGui(viewer.getUniqueId(), targetId, snap);
+        plugin.getLogger().info("[INVSEE-DEBUG] syncAndApply(): applySnapshotFromGui returned " + ok
                 + " for targetId=" + targetId);
 
         if (!ok) {

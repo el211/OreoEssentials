@@ -13,6 +13,7 @@ import fr.elias.oreoEssentials.services.InventoryService;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import java.util.function.Consumer;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -331,7 +332,45 @@ public final class InvBridge {
                 + " len=" + clamp.length + " rows=" + rows + " on server=" + thisServer);
         return applyRemote(target, Kind.EC, payload, clamp.length, rows);
     }
+    public void requestLiveInvAsync(UUID target, Consumer<InventoryService.Snapshot> callback) {
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            InventoryService.Snapshot result = null;
 
+            try {
+                // On ne touche PAS à Bukkit ici, on utilise juste la couche Rabbit
+                SnapshotResponse resp = requestSnapshot(target, Kind.INV, 0);
+                if (resp != null && resp.ok && resp.blob != null) {
+                    ItemStack[] flat = BukkitSerialization.fromBytes(resp.blob, ItemStack[].class);
+                    if (flat != null) {
+                        result = InvLayouts.fromFlat(flat);
+                    }
+                }
+            } catch (Throwable t) {
+                plugin.getLogger().warning("[INV-DEBUG] requestLiveInvAsync error for " + target + ": " + t.getMessage());
+            }
+
+            InventoryService.Snapshot finalResult = result;
+            Bukkit.getScheduler().runTask(plugin, () -> callback.accept(finalResult));
+        });
+    }
+
+    public void applyLiveInvAsync(UUID target,
+                                  InventoryService.Snapshot snap,
+                                  Consumer<Boolean> callback) {
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            boolean ok = false;
+            try {
+                ItemStack[] flat = InvLayouts.toFlat(snap);
+                byte[] payload = BukkitSerialization.toBytes(flat);
+                ok = applyRemote(target, Kind.INV, payload, flat.length, 0);
+            } catch (Throwable t) {
+                plugin.getLogger().warning("[INV-DEBUG] applyLiveInvAsync error for " + target + ": " + t.getMessage());
+            }
+
+            boolean finalOk = ok;
+            Bukkit.getScheduler().runTask(plugin, () -> callback.accept(finalOk));
+        });
+    }
     /* ===================== request/response core ===================== */
 
     private SnapshotResponse requestSnapshot(UUID target, Kind kind, int ecRows) {
