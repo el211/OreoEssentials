@@ -23,64 +23,122 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class WarpCommand implements OreoCommand {
+
     private final WarpService warps;
 
-    public WarpCommand(WarpService warps) { this.warps = warps; }
+    public WarpCommand(WarpService warps) {
+        this.warps = warps;
+    }
 
     @Override public String name() { return "warp"; }
     @Override public List<String> aliases() { return List.of(); }
     @Override public String permission() { return "oreo.warp"; }
-    @Override public String usage() { return "<name>|list"; }
-    @Override public boolean playerOnly() { return true; }
+    @Override public String usage() { return "<name>|list [player]"; }
+
+    // ❗ IMPORTANT: allow console
+    @Override public boolean playerOnly() { return false; }
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
         final OreoEssentials plugin = OreoEssentials.get();
         final var log = plugin.getLogger();
-        if (!(sender instanceof Player p)) return true;
 
-        // /warp or /warp list => list warps
+        // Actor = the one running the command (may be null if console)
+        Player actor = (sender instanceof Player) ? (Player) sender : null;
+
+        // /warp or /warp list → list warps
         if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
             var list = warps.listWarps();
             if (list.isEmpty()) {
-                Lang.send(p, "warp.list-empty", Map.of(), p);
+                if (actor != null) {
+                    Lang.send(actor, "warp.list-empty", Map.of(), actor);
+                } else {
+                    sender.sendMessage("[Warp] No warps defined.");
+                }
             } else {
-                String joined = list.stream()
-                        .collect(Collectors.joining(", "));
-                Lang.send(p, "warp.list",
-                        Map.of("warps", joined),
-                        p
-                );
+                String joined = list.stream().collect(Collectors.joining(", "));
+                if (actor != null) {
+                    Lang.send(actor, "warp.list",
+                            Map.of("warps", joined),
+                            actor
+                    );
+                } else {
+                    sender.sendMessage("[Warp] Warps: " + joined);
+                }
             }
-            log.info("[WarpCmd] " + p.getName() + " requested warp list. Count=" + list.size());
+            log.info("[WarpCmd] " + sender.getName() + " requested warp list. Count=" + list.size());
             return true;
         }
 
-        final String raw = args[0];
-        final String warpName = raw.trim().toLowerCase(Locale.ROOT);
+        // ---- Parse warp + optional player ----
+        final String rawWarp = args[0];
+        final String warpName = rawWarp.trim().toLowerCase(Locale.ROOT);
 
-        // ---- PERMISSION GATE (works with/without directory) ----
-        if (!warps.canUse(p, warpName)) {
+        // Target player
+        Player target;
+        if (args.length >= 2) {
+            // /warp <warp> <player>
+            String targetName = args[1];
+            target = Bukkit.getPlayerExact(targetName);
+            if (target == null) {
+                sender.sendMessage("§cPlayer '" + targetName + "' is not online.");
+                return true;
+            }
+        } else {
+            // /warp <warp> → self only
+            if (actor == null) {
+                sender.sendMessage("§cUsage from console: /warp <warp> <player>");
+                return true;
+            }
+            target = actor;
+        }
+
+        // ---- Permission checks ----
+        // Base permission for actor (if actor exists)
+        if (actor != null && !actor.hasPermission("oreo.warp")) {
+            Lang.send(actor, "warp.no-permission", Map.of(), actor);
+            log.info("[WarpCmd] Denied (base perm) actor=" + actor.getName() + " warp=" + warpName);
+            return true;
+        }
+
+        // Check warp-specific permission for actor, if actor exists
+        if (actor != null && !warps.canUse(actor, warpName)) {
             String rp = warps.requiredPermission(warpName);
             if (rp == null || rp.isBlank()) {
-                Lang.send(p, "warp.no-permission", Map.of(), p);
+                Lang.send(actor, "warp.no-permission", Map.of(), actor);
             } else {
-                Lang.send(p, "warp.no-permission-with-node",
+                Lang.send(actor, "warp.no-permission-with-node",
                         Map.of("permission", rp),
-                        p
+                        actor
                 );
             }
-            log.info("[WarpCmd] Denied (perm) player=" + p.getName() + " warp=" + warpName + " reqPerm=" + rp);
+            log.info("[WarpCmd] Denied (warp perm) actor=" + actor.getName()
+                    + " target=" + target.getName()
+                    + " warp=" + warpName);
             return true;
         }
 
+        // Extra perm to warp other players
+        if (actor != null && !actor.equals(target) && !actor.hasPermission("oreo.warp.others")) {
+            actor.sendMessage("§cYou don't have permission to warp other players.");
+            log.info("[WarpCmd] Denied (others) actor=" + actor.getName()
+                    + " tried to warp " + target.getName() + " to " + warpName);
+            return true;
+        }
+
+        // Console: no specific permission checks (console is trusted)
+        // ----------------------------------------------
+
         // Resolve server owner for this warp
-        final String localServer = plugin.getConfigService().serverName();
+        final String localServer  = plugin.getConfigService().serverName();
         final WarpDirectory warpDir = plugin.getWarpDirectory();
         String targetServer = (warpDir != null ? warpDir.getWarpServer(warpName) : localServer);
         if (targetServer == null || targetServer.isBlank()) targetServer = localServer;
 
-        log.info("[WarpCmd] Player=" + p.getName() + " UUID=" + p.getUniqueId()
+        log.info("[WarpCmd] Sender=" + sender.getName()
+                + " actor=" + (actor == null ? "CONSOLE" : actor.getName())
+                + " target=" + target.getName()
+                + " UUID=" + target.getUniqueId()
                 + " warp=" + warpName
                 + " localServer=" + localServer
                 + " targetServer=" + targetServer
@@ -90,44 +148,62 @@ public class WarpCommand implements OreoCommand {
         if (targetServer.equalsIgnoreCase(localServer)) {
             Location l = warps.getWarp(warpName);
             if (l == null) {
-                Lang.send(p, "warp.not-found", Map.of(), p);
+                if (actor != null) {
+                    Lang.send(actor, "warp.not-found", Map.of(), actor);
+                } else {
+                    sender.sendMessage("§cWarp '" + warpName + "' not found on this server.");
+                }
                 log.warning("[WarpCmd] Local warp not found. warp=" + warpName);
                 return true;
             }
             try {
-                p.teleport(l);
-                Lang.send(p, "warp.teleported",
+                target.teleport(l);
+                // Message to target
+                Lang.send(target, "warp.teleported",
                         Map.of("warp", warpName),
-                        p
+                        target
                 );
-                log.info("[WarpCmd] Local teleport success. warp=" + warpName + " loc=" + l);
+                // Message to sender if different
+                if (!sender.equals(target)) {
+                    sender.sendMessage("§aTeleported §e" + target.getName()
+                            + "§a to warp §b" + warpName + "§a.");
+                }
+                log.info("[WarpCmd] Local teleport success. target=" + target.getName()
+                        + " warp=" + warpName + " loc=" + l);
             } catch (Exception ex) {
+                String err = (ex.getMessage() == null ? "unknown" : ex.getMessage());
+                if (actor != null) {
+                    Lang.send(actor, "warp.teleport-failed",
+                            Map.of("error", err),
+                            actor
+                    );
+                } else {
+                    sender.sendMessage("§cTeleport failed: " + err);
+                }
                 log.warning("[WarpCmd] Local teleport exception: " + ex.getMessage());
-                Lang.send(p, "warp.teleport-failed",
-                        Map.of("error", ex.getMessage() == null ? "unknown" : ex.getMessage()),
-                        p
-                );
             }
             return true;
         }
 
         // Respect cross-server toggle for warps
         var cs = plugin.getCrossServerSettings();
-        if (!cs.warps()) {
-            if (!targetServer.equalsIgnoreCase(localServer)) {
-                Lang.send(p, "warp.cross-disabled", Map.of(), p);
-                Lang.send(p, "warp.cross-disabled-tip",
+        if (!cs.warps() && !targetServer.equalsIgnoreCase(localServer)) {
+            if (actor != null) {
+                Lang.send(actor, "warp.cross-disabled", Map.of(), actor);
+                Lang.send(actor, "warp.cross-disabled-tip",
                         Map.of(
                                 "server", targetServer,
                                 "warp", warpName
                         ),
-                        p
+                        actor
                 );
-                return true;
+            } else {
+                sender.sendMessage("§cCross-server warps are disabled in config.");
             }
+            return true;
         }
 
-        // Remote warp: publish to the target server’s queue, then proxy-switch
+        // Remote warp: publish to the target server’s queue, then proxy-switch the TARGET player
         final PacketManager pm = plugin.getPacketManager();
         log.info("[WarpCmd] Remote warp. pm=" + (pm == null ? "null" : "ok")
                 + " pm.init=" + (pm != null && pm.isInitialized()));
@@ -135,45 +211,63 @@ public class WarpCommand implements OreoCommand {
         if (pm != null && pm.isInitialized()) {
             String requestId = UUID.randomUUID().toString();
             plugin.getLogger().info("[WARP/SEND] from=" + localServer
-                    + " player=" + p.getUniqueId()
+                    + " player=" + target.getUniqueId()
                     + " nameArg='" + warpName + "' -> targetServer=" + targetServer
                     + " requestId=" + requestId);
 
-            WarpTeleportRequestPacket pkt = new WarpTeleportRequestPacket(p.getUniqueId(), warpName, targetServer, requestId);
+            WarpTeleportRequestPacket pkt =
+                    new WarpTeleportRequestPacket(target.getUniqueId(), warpName, targetServer, requestId);
             PacketChannel ch = PacketChannel.individual(targetServer);
             pm.sendPacket(ch, pkt);
         } else {
-            Lang.send(p, "warp.messaging-disabled", Map.of(), p);
-            Lang.send(p, "warp.messaging-disabled-tip",
-                    Map.of(
-                            "server", targetServer,
-                            "warp", warpName
-                    ),
-                    p
-            );
+            if (actor != null) {
+                Lang.send(actor, "warp.messaging-disabled", Map.of(), actor);
+                Lang.send(actor, "warp.messaging-disabled-tip",
+                        Map.of(
+                                "server", targetServer,
+                                "warp", warpName
+                        ),
+                        actor
+                );
+            } else {
+                sender.sendMessage("§cCross-server messaging is disabled; cannot warp to " + targetServer + ".");
+            }
             return true;
         }
 
-        if (sendPlayerToServer(p, targetServer)) {
-            Lang.send(p, "warp.sending",
+        // Proxy switch for the TARGET player
+        if (sendPlayerToServer(target, targetServer)) {
+            // Message to target
+            Lang.send(target, "warp.sending",
                     Map.of(
                             "server", targetServer,
                             "warp", warpName
                     ),
-                    p
+                    target
             );
-            log.info("[WarpCmd] Proxy switch initiated. player=" + p.getUniqueId() + " to=" + targetServer);
+            // Message to sender if different
+            if (!sender.equals(target)) {
+                sender.sendMessage("§aSending §e" + target.getName()
+                        + "§a to §b" + targetServer + "§a (warp §e" + warpName + "§a).");
+            }
+            log.info("[WarpCmd] Proxy switch initiated. player=" + target.getUniqueId()
+                    + " to=" + targetServer);
         } else {
-            Lang.send(p, "warp.switch-failed",
-                    Map.of("server", targetServer),
-                    p
-            );
-            log.warning("[WarpCmd] Proxy switch failed to " + targetServer + " (check Velocity/Bungee server name match).");
+            if (actor != null) {
+                Lang.send(actor, "warp.switch-failed",
+                        Map.of("server", targetServer),
+                        actor
+                );
+            } else {
+                sender.sendMessage("§cProxy switch failed to " + targetServer + ".");
+            }
+            log.warning("[WarpCmd] Proxy switch failed to " + targetServer
+                    + " (check Velocity/Bungee server name match).");
         }
         return true;
     }
 
-    /** Bungee/Velocity plugin message switch */
+    /** Bungee/Velocity plugin message switch (for the TARGET player) */
     private boolean sendPlayerToServer(Player p, String serverName) {
         final var plugin = OreoEssentials.get();
         final var log = plugin.getLogger();
@@ -183,7 +277,8 @@ public class WarpCommand implements OreoCommand {
             out.writeUTF("Connect");
             out.writeUTF(serverName);
             p.sendPluginMessage(plugin, "BungeeCord", b.toByteArray());
-            log.info("[WarpCmd] Sent plugin message 'Connect' to proxy. server=" + serverName);
+            log.info("[WarpCmd] Sent plugin message 'Connect' to proxy. server=" + serverName
+                    + " player=" + p.getName());
             return true;
         } catch (Exception ex) {
             log.warning("[WarpCmd] Failed to send Connect plugin message: " + ex.getMessage());
