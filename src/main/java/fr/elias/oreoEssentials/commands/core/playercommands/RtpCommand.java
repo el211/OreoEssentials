@@ -59,25 +59,14 @@ public class RtpCommand implements OreoCommand {
         }
 
         // 1) Decide target world (optionally from argument)
-        String targetWorldName;
+        String requestedWorld = (args.length >= 1) ? args[0] : null;
+        String targetWorldName = cfg.chooseTargetWorld(p, requestedWorld);
 
-        if (args.length >= 1) {
-            String requested = args[0];
-            targetWorldName = requested;
-
-            Set<String> allowed = cfg.allowedWorlds();
-            if (!allowed.isEmpty() && !allowed.contains(targetWorldName)) {
-                p.sendMessage("§cRandom teleport is not allowed in world §e" + requested + "§c.");
-                return true;
-            }
-        } else {
-            // Let config pick best world based on current world + default-target-world
-            targetWorldName = cfg.chooseTargetWorld(p);
-            if (targetWorldName == null) {
-                p.sendMessage("§cNo valid world found for random teleport.");
-                return true;
-            }
+        if (targetWorldName == null) {
+            p.sendMessage("§cNo valid world found for random teleport.");
+            return true;
         }
+
 
         // 2) Cross-server decision
         String localServer  = plugin.getConfigService().serverName();

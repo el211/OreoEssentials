@@ -204,6 +204,22 @@ public final class RtpConfig {
         return best;
     }
 
+// Dans RtpConfig
+
+    /**
+     * Version qui priorise un monde demandé explicitement.
+     */
+    public String chooseTargetWorld(Player p, String requestedWorld) {
+        // 1) Si un monde est demandé
+        if (requestedWorld != null && !requestedWorld.isBlank()) {
+            if (allowedWorlds.isEmpty() || allowedWorlds.contains(requestedWorld)) {
+                return requestedWorld;
+            }
+        }
+
+        // 2) Sinon, fallback sur l’ancienne logique
+        return chooseTargetWorld(p);
+    }
 
     private boolean isNonTierKey(String key) {
         return "enabled".equalsIgnoreCase(key)
