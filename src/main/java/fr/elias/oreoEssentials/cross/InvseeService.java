@@ -163,7 +163,7 @@ public final class InvseeService {
         }
 
         // 3) Open GUI immediately with whatever we have
-        InvseeMenu menu = new InvseeMenu(plugin, this, sess);
+        InvseeMenu menu = new InvseeMenu(plugin, this, sess, viewer); // 🔹 add viewer here
         sess.setMenu(menu);
         menu.open(viewer);
 
@@ -175,7 +175,9 @@ public final class InvseeService {
                     + targetId + ", using local/offline snapshot only.");
         }
     }
-vate boolean isPlayerKnownOnNetwork(UUID targetId) {
+
+
+    private boolean isPlayerKnownOnNetwork(UUID targetId) {
         try {
             var dir = plugin.getPlayerDirectory();
             if (dir == null) return false;

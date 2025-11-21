@@ -3,43 +3,89 @@ package fr.elias.oreoEssentials.services;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
-import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Simple AFK service:
+ * - Tracks AFK players
+ * - Adds "[AFK]" prefix ONCE in tablist
+ * - Restores original tablist name when AFK is removed
+ */
 public class AfkService {
-    private final Set<UUID> afk = new HashSet<>();
 
-    public boolean isAfk(Player p) { return afk.contains(p.getUniqueId()); }
+    // Who is AFK right now
+    private final Set<UUID> afkPlayers = ConcurrentHashMap.newKeySet();
 
-    public boolean toggleAfk(Player p) {
-        if (isAfk(p)) {
-            afk.remove(p.getUniqueId());
-            applyTag(p, false);
-            return false;
+    // Original tablist names (before AFK)
+    private final Map<UUID, String> originalTabNames = new ConcurrentHashMap<>();
+
+    public boolean isAfk(Player player) {
+        return afkPlayers.contains(player.getUniqueId());
+    }
+
+    /**
+     * Toggle AFK state for a player.
+     *
+     * @return true if now AFK, false if no longer AFK.
+     */
+    public boolean toggleAfk(Player player) {
+        boolean nowAfk = !isAfk(player);
+        setAfk(player, nowAfk);
+        return nowAfk;
+    }
+
+    /**
+     * Explicitly set AFK state.
+     */
+    public void setAfk(Player player, boolean afk) {
+        UUID id = player.getUniqueId();
+
+        if (afk) {
+            // First time going AFK: store original tab name if not stored yet
+            originalTabNames.putIfAbsent(id, safeTabName(player));
+            afkPlayers.add(id);
         } else {
-            afk.add(p.getUniqueId());
-            applyTag(p, true);
-            return true;
+            afkPlayers.remove(id);
+        }
+
+        refreshTabName(player);
+    }
+
+    /**
+     * Should be called on quit to clean memory.
+     */
+    public void handleQuit(Player player) {
+        UUID id = player.getUniqueId();
+        afkPlayers.remove(id);
+        originalTabNames.remove(id);
+    }
+
+    /**
+     * Applies the correct tablist name according to AFK state.
+     */
+    private void refreshTabName(Player player) {
+        UUID id = player.getUniqueId();
+        String base = originalTabNames.getOrDefault(id, safeTabName(player));
+
+        if (afkPlayers.contains(id)) {
+            // ONE clean prefix, not stacking
+            player.setPlayerListName(ChatColor.GRAY + "[AFK] " + ChatColor.RESET + base);
+        } else {
+            player.setPlayerListName(base);
         }
     }
 
-    public void clearAfk(Player p) {
-        if (isAfk(p)) {
-            afk.remove(p.getUniqueId());
-            applyTag(p, false);
+    /**
+     * Some plugins / forks can return null for player list name.
+     */
+    private String safeTabName(Player player) {
+        String listName = player.getPlayerListName();
+        if (listName == null || listName.isEmpty()) {
+            return player.getName();
         }
-    }
-
-    private void applyTag(Player p, boolean on) {
-        try {
-            String base = ChatColor.stripColor(p.getPlayerListName());
-            if (base == null || base.isEmpty()) base = p.getName();
-            if (on) {
-                p.setPlayerListName("§7[AFK] §f" + base);
-            } else {
-                p.setPlayerListName(base);
-            }
-        } catch (Throwable ignored) {}
+        return listName;
     }
 }
