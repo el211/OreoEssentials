@@ -58,7 +58,8 @@ features:
     spawn: true
     economy: true
     enderchest: true
-    invsee: true      # 👈 NEW: enable cross-server /invsee
+    inventory: true
+    invsee: true
 
 
   tab:

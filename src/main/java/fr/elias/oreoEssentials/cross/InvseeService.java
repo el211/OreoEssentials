@@ -147,27 +147,46 @@ public final class InvseeService {
      */
     public void openLocalViewer(Player viewer, UUID targetId, String targetName) {
         if (viewer == null || targetId == null) return;
-        if (broker == null) {
-            viewer.sendMessage("§cCross-server invsee is not available (no broker).");
-            return;
-        }
 
-        // 1) demander au broker d'ouvrir côté owner
-        broker.requestOpen(viewer, targetId, targetName);
-
-        // 2) créer la session locale
+        // 1) Create / register session
         InvseeSession sess = new InvseeSession(targetId, viewer.getUniqueId());
         sess.setTargetName(targetName);
         sessions.put(viewer.getUniqueId(), sess);
 
-        // 3) ouvrir le GUI cross.InvseeMenu (live /invsee, pas le ModGUI)
-        InvseeMenu menu = new InvseeMenu(plugin, this, sess, viewer);
+        // 2) Prefill with best-effort snapshot (local or offline)
+        InventoryService.Snapshot initial = requestSnapshot(targetId); // uses invStorage + online player
+        if (initial != null && initial.contents != null) {
+            sess.setLastSnapshot(initial.contents);
+        } else {
+            // avoid NPE in menus depending on lastSnapshot
+            sess.setLastSnapshot(new ItemStack[0]);
+        }
+
+        // 3) Open GUI immediately with whatever we have
+        InvseeMenu menu = new InvseeMenu(plugin, this, sess);
         sess.setMenu(menu);
         menu.open(viewer);
 
-        plugin.getLogger().info("[INVSEE] openLocalViewer: viewer=" + viewer.getName()
-                + " target=" + targetName + " (" + targetId + ")");
+        // 4) Optionally ask the broker for a live owner snapshot (cross-server)
+        if (broker != null && plugin.isMessagingAvailable() && isPlayerKnownOnNetwork(targetId)) {
+            broker.requestOpen(viewer, targetId, targetName);
+        } else {
+            plugin.getLogger().info("[INVSEE] openLocalViewer: no live owner for "
+                    + targetId + ", using local/offline snapshot only.");
+        }
     }
+vate boolean isPlayerKnownOnNetwork(UUID targetId) {
+        try {
+            var dir = plugin.getPlayerDirectory();
+            if (dir == null) return false;
+            String server = dir.lookupCurrentServer(targetId);
+            return server != null && !server.isBlank();
+        } catch (Throwable t) {
+            plugin.getLogger().warning("[INVSEE] isPlayerKnownOnNetwork failed: " + t.getMessage());
+            return false;
+        }
+    }
+
 
     /**
      * Utilisé par cross.InvseeMenu quand le staff édite un slot.

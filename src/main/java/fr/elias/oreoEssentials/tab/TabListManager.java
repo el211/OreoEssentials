@@ -4,13 +4,15 @@ import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.config.SettingsConfig;
 import fr.elias.oreoEssentials.playerdirectory.PlayerDirectory;
 import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -84,12 +86,13 @@ public class TabListManager {
         this.settings = plugin.getSettingsConfig();
         this.playerDirectory = plugin.getPlayerDirectory();
 
+        // Initial load of tab.yml
         load();
 
         // Do NOT auto-start here — OreoEssentials controls start/stop using settings.yml
         // (features.tab.enabled). This class just handles logic.
 
-        // Title on join (still handled here)
+        // Title on join (handled here)
         if (titleEnabled && titleShowOnJoin) {
             Bukkit.getPluginManager().registerEvents(new org.bukkit.event.Listener() {
                 @org.bukkit.event.EventHandler
@@ -100,11 +103,15 @@ public class TabListManager {
         }
     }
 
+    /**
+     * (Re)load tab.yml into memory (no tasks started here).
+     */
     public void load() {
         file = new File(plugin.getDataFolder(), "tab.yml");
         if (!file.exists()) {
             plugin.saveResource("tab.yml", false);
         }
+
         cfg = YamlConfiguration.loadConfiguration(file);
 
         // Legacy flag (kept for compatibility but NOT used to toggle the feature)
@@ -120,13 +127,15 @@ public class TabListManager {
         footer = color(cfg.getString("tab.footer", ""));
         intervalTicks = Math.max(20, cfg.getInt("tab.interval-ticks", 200));
 
-        // --- NEW: network mode ---
+        // --- Network mode ---
         // tab.network.all-servers: true = use PlayerDirectory / network counts & list
         ConfigurationSection net = cfg.getConfigurationSection("tab.network");
         this.networkMode = net != null && net.getBoolean("all-servers", false);
-        plugin.getLogger().info("[TAB] Network mode: " + (networkMode ? "NETWORK_ALL (using PlayerDirectory if available)" : "LOCAL_ONLY"));
+        plugin.getLogger().info("[TAB] Network mode: " + (networkMode
+                ? "NETWORK_ALL (using PlayerDirectory if available)"
+                : "LOCAL_ONLY"));
 
-        // title
+        // --- Title ---
         ConfigurationSection t = cfg.getConfigurationSection("tab.title");
         titleEnabled = t != null && t.getBoolean("enabled", false);
         titleShowOnJoin = t != null && t.getBoolean("show-on-join", true);
@@ -136,7 +145,7 @@ public class TabListManager {
         titleStay = t != null ? t.getInt("stay", 60) : 60;
         titleOut = t != null ? t.getInt("fade-out", 10) : 10;
 
-        // name-format
+        // --- Name format ---
         ConfigurationSection nf = cfg.getConfigurationSection("tab.name-format");
         nameEnabled = nf != null && nf.getBoolean("enabled", true);
         useRankFormats = nf != null && nf.getBoolean("use-rank-formats", true);
@@ -154,13 +163,14 @@ public class TabListManager {
             }
         }
 
-        // per-world overrides
+        // --- Per-world overrides ---
         worldOverrides.clear();
         ConfigurationSection pw = cfg.getConfigurationSection("tab.per-world");
         if (pw != null) {
             for (String world : pw.getKeys(false)) {
                 ConfigurationSection w = pw.getConfigurationSection(world);
                 if (w == null) continue;
+
                 WorldOverrides o = new WorldOverrides();
                 o.usePapi = w.isSet("use-placeholderapi") ? w.getBoolean("use-placeholderapi") : null;
                 o.header = w.isSet("header") ? color(w.getString("header")) : null;
@@ -172,6 +182,7 @@ public class TabListManager {
                     no.enabled = wn.isSet("enabled") ? wn.getBoolean("enabled") : null;
                     no.useRankFormats = wn.isSet("use-rank-formats") ? wn.getBoolean("use-rank-formats") : null;
                     no.rankKey = wn.isSet("rank-key") ? wn.getString("rank-key") : null;
+
                     if (wn.isConfigurationSection("rank-formats")) {
                         Map<String, String> map = new HashMap<>();
                         for (String k : wn.getConfigurationSection("rank-formats").getKeys(false)) {
@@ -179,60 +190,72 @@ public class TabListManager {
                         }
                         no.rankFormats = map;
                     }
+
                     no.pattern = wn.isSet("pattern") ? wn.getString("pattern") : null;
                     no.enforceMax = wn.isSet("enforce-max-length") ? wn.getBoolean("enforce-max-length") : null;
                     no.maxLen = wn.isSet("max-length") ? wn.getInt("max-length") : null;
                     no.overflow = wn.isSet("overflow") ? wn.getString("overflow") : null;
                     o.name = no;
                 }
+
                 worldOverrides.put(world.toLowerCase(Locale.ROOT), o);
             }
         }
     }
 
     /**
-     * Called from OreoEssentials.onEnable() ONLY when features.tab.enabled=true in settings.yml.
+     * Start updating tab (called from OreoEssentials when features.tab.enabled = true).
      */
     public void start() {
         stop();
+
         task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
 
-                // per-world overrides
-                WorldOverrides o = worldOverrides.get(p.getWorld().getName().toLowerCase(Locale.ROOT));
-                boolean papi = (o != null && o.usePapi != null) ? (o.usePapi && hasPapi()) : usePapi;
+                World world = p.getWorld();
+                WorldOverrides o = worldOverrides.get(world.getName().toLowerCase(Locale.ROOT));
 
-                // header/footer
+                // PAPI toggle per world
+                boolean papi = (o != null && o.usePapi != null)
+                        ? (o.usePapi && hasPapi())
+                        : (usePapi && hasPapi());
+
+                // Header/footer (base + overrides)
                 String h = firstNonNull(o != null ? o.header : null, header);
                 String f = firstNonNull(o != null ? o.footer : null, footer);
 
-                // Apply internal network/local placeholders BEFORE PAPI
+                // Apply internal placeholders BEFORE PAPI
                 h = applyInternalPlaceholders(p, h);
                 f = applyInternalPlaceholders(p, f);
 
-                // Now let PlaceholderAPI do its thing
+                // Then PAPI
                 h = runPapiIf(papi, p, h);
                 f = runPapiIf(papi, p, f);
 
                 setTab(p, h, f);
 
-                // name format
+                // --- Name format ---
                 boolean nEnabled = (o != null && o.name != null && o.name.enabled != null)
-                        ? o.name.enabled : nameEnabled;
+                        ? o.name.enabled
+                        : nameEnabled;
                 if (!nEnabled) continue;
 
-                // resolve rank key (via PAPI)
                 boolean localUseRank = (o != null && o.name != null && o.name.useRankFormats != null)
-                        ? o.name.useRankFormats : useRankFormats;
+                        ? o.name.useRankFormats
+                        : useRankFormats;
 
                 String localRankKey = (o != null && o.name != null && o.name.rankKey != null)
-                        ? o.name.rankKey : rankKey;
+                        ? o.name.rankKey
+                        : rankKey;
 
                 String localPattern = (o != null && o.name != null && o.name.pattern != null)
-                        ? o.name.pattern : namePattern;
+                        ? o.name.pattern
+                        : namePattern;
 
-                Map<String, String> localRankFormats = (o != null && o.name != null && o.name.rankFormats != null)
-                        ? o.name.rankFormats : rankFormats;
+                Map<String, String> localRankFormats =
+                        (o != null && o.name != null && o.name.rankFormats != null)
+                                ? o.name.rankFormats
+                                : rankFormats;
 
                 // choose pattern
                 String patternToUse = localPattern;
@@ -248,7 +271,7 @@ public class TabListManager {
                 String nickOrName = safeNickOrName(p);
                 String rendered = patternToUse.replace("%nick_or_name%", nickOrName);
 
-                // Apply our internal placeholders in names too (if you want network counts in prefix)
+                // Apply internal placeholders in name too (for network counts etc.)
                 rendered = applyInternalPlaceholders(p, rendered);
 
                 // then PAPI
@@ -256,28 +279,63 @@ public class TabListManager {
 
                 // enforce max length
                 boolean enforce = (o != null && o.name != null && o.name.enforceMax != null)
-                        ? o.name.enforceMax : nameEnforceMax;
-                int maxLen = (o != null && o.name != null && o.name.maxLen != null)
-                        ? o.name.maxLen : nameMaxLen;
-                String ov = (o != null && o.name != null && o.name.overflow != null)
-                        ? o.name.overflow : (overflowMode == OverflowMode.ELLIPSIS ? "ELLIPSIS" : "TRIM");
-                OverflowMode mode = "ELLIPSIS".equalsIgnoreCase(ov) ? OverflowMode.ELLIPSIS : OverflowMode.TRIM;
+                        ? o.name.enforceMax
+                        : nameEnforceMax;
 
-                if (enforce) rendered = fitToMax(rendered, maxLen, mode);
+                int maxLen = (o != null && o.name != null && o.name.maxLen != null)
+                        ? o.name.maxLen
+                        : nameMaxLen;
+
+                String ov = (o != null && o.name != null && o.name.overflow != null)
+                        ? o.name.overflow
+                        : (overflowMode == OverflowMode.ELLIPSIS ? "ELLIPSIS" : "TRIM");
+
+                OverflowMode mode = "ELLIPSIS".equalsIgnoreCase(ov)
+                        ? OverflowMode.ELLIPSIS
+                        : OverflowMode.TRIM;
+
+                if (enforce) {
+                    rendered = fitToMax(rendered, maxLen, mode);
+                }
 
                 try {
                     p.setPlayerListName(rendered);
-                } catch (Throwable ignored) {}
+                } catch (Throwable ignored) {
+                }
             }
         }, 1L, intervalTicks);
     }
 
+    /**
+     * Stop the scheduler.
+     */
     public void stop() {
         if (task != null) {
             task.cancel();
             task = null;
         }
         titleShown.clear();
+    }
+
+    /**
+     * Public reload entrypoint used by /oereload (ReloadAllCommand).
+     * - Stop task
+     * - Reload tab.yml
+     * - Restart task
+     */
+    public void reload() {
+        stop();
+        load();
+
+        // optional: persist any defaults back to file
+        try {
+            cfg.save(file);
+        } catch (IOException ignored) {
+        }
+
+        // Always restart here; OreoEssentials already guards creation with features.tab.enabled
+        start();
+        plugin.getLogger().info("[TAB] tab.yml reloaded (via TabListManager.reload()).");
     }
 
     private void sendTitleOnce(Player p) {
@@ -288,12 +346,14 @@ public class TabListManager {
         String t = applyInternalPlaceholders(p, titleText);
         String s = applyInternalPlaceholders(p, titleSub);
 
-        t = runPapiIf(usePapi && hasPapi(), p, t);
-        s = runPapiIf(usePapi && hasPapi(), p, s);
+        boolean papi = usePapi && hasPapi();
+        t = runPapiIf(papi, p, t);
+        s = runPapiIf(papi, p, s);
 
         try {
             p.sendTitle(t, s, titleIn, titleStay, titleOut);
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {
+        }
         titleShown.add(p.getUniqueId());
     }
 
@@ -315,7 +375,8 @@ public class TabListManager {
     private void setTab(Player player, String header, String footer) {
         try {
             player.setPlayerListHeaderFooter(header, footer);
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {
+        }
     }
 
     private static String firstNonNull(String a, String b) {
@@ -331,7 +392,8 @@ public class TabListManager {
         try {
             String d = p.getDisplayName();
             if (d != null && !d.isEmpty()) return d;
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {
+        }
         return p.getName();
     }
 
@@ -392,7 +454,6 @@ public class TabListManager {
         if (networkMode && playerDirectory != null) {
             try {
                 // Try to use PlayerDirectory if it exposes a suitable API.
-                // You can adjust this to your real methods (e.g. playerDirectory.getOnlinePlayersSnapshot()).
                 // Reflection keeps this class from breaking if method names change.
                 Method m = playerDirectory.getClass().getMethod("snapshotOnline");
                 @SuppressWarnings("unchecked")
@@ -454,5 +515,10 @@ public class TabListManager {
             }
         }
         return null;
+    }
+
+    // Optional getter if you ever need direct access to the loaded config.
+    public FileConfiguration getConfig() {
+        return cfg;
     }
 }
