@@ -24,6 +24,9 @@ features:
     cooldown: false
     cooldown-amount: 5
 
+  web-profile:
+    enabled: true
+
   currency:
     enabled: true
   economy:

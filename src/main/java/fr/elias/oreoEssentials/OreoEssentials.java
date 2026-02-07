@@ -1,6 +1,7 @@
 package fr.elias.oreoEssentials;
 
 import com.google.gson.Gson;
+import fr.elias.oreoEssentials.commands.web.ProfileCreateCommand;
 import fr.elias.oreoEssentials.modules.afk.AfkListener;
 import fr.elias.oreoEssentials.modules.afk.rabbit.packets.AfkPoolEnterPacket;
 import fr.elias.oreoEssentials.modules.afk.rabbit.packets.AfkPoolExitPacket;
@@ -268,6 +269,7 @@ public final class OreoEssentials extends JavaPlugin {
     private TpaCrossServerBroker tpaBroker;
     public TpaCrossServerBroker getTpaBroker() { return tpaBroker; }
     private FreezeService freezeService;
+    private fr.elias.oreoEssentials.modules.web.WebApiServer webApiServer;
 
     private fr.elias.oreoEssentials.modules.kits.KitsManager kitsManager;
     private fr.elias.oreoEssentials.modules.tab.TabListManager tabListManager;
@@ -364,6 +366,10 @@ public final class OreoEssentials extends JavaPlugin {
     public void onLoad() {
         loadExternalLibraries();
     }
+    // OreoEssentials.java (dans les fields)
+    private fr.elias.oreoEssentials.modules.web.WebProfileService webProfileService;
+
+
 
     private void loadExternalLibraries() {
         try {
@@ -1131,6 +1137,7 @@ public final class OreoEssentials extends JavaPlugin {
 
                 }
             }
+
             case "json" -> {
                 this.storage        = new JsonStorage(this);
                 this.homeDirectory  = null;
@@ -1172,6 +1179,7 @@ public final class OreoEssentials extends JavaPlugin {
             }
 
         }
+        initWebProfileSystem();
 
         this.ecConfig = new fr.elias.oreoEssentials.modules.enderchest.EnderChestConfig(this);
 
@@ -2505,6 +2513,8 @@ public final class OreoEssentials extends JavaPlugin {
         try { if (shardsModule != null) shardsModule.disable(); } catch (Exception ignored) {}
         try { if (channelManager != null) channelManager.savePlayerData(); } catch (Exception ignored) {}
         try { if (autoRebootService != null) autoRebootService.stop(); } catch (Exception ignored) {}
+        if (this.webApiServer != null) this.webApiServer.stop();
+
         autoRebootService = null;
 
         try { if (tempFlyService != null) tempFlyService.shutdown(); } catch (Exception ignored) {}
@@ -2737,6 +2747,38 @@ public final class OreoEssentials extends JavaPlugin {
             }
         }
     }
+    private void initWebProfileSystem() {
+        if (!settingsConfig.webProfileEnabled()) {
+            this.webProfileService = null;
+            this.webApiServer = null;
+            getLogger().info("[WebProfile] Disabled (settings.yml).");
+            return;
+        }
+
+        if (this.homesMongoClient == null) {
+            this.webProfileService = null;
+            this.webApiServer = null;
+            getLogger().info("[WebProfile] Disabled (MongoClient not ready).");
+            return;
+        }
+
+        this.webProfileService = new fr.elias.oreoEssentials.modules.web.WebProfileService(this, this.homesMongoClient);
+
+        ProfileCreateCommand cmd = new ProfileCreateCommand(this);
+
+        var pc = getCommand("oecreate");
+        if (pc != null) {
+            pc.setExecutor(cmd);
+            pc.setTabCompleter(cmd);
+        } else {
+            getLogger().warning("[WebProfile] Command 'oecreate' not found in plugin.yml; skipping registration.");
+        }
+
+        this.webApiServer = new fr.elias.oreoEssentials.modules.web.WebApiServer(this, this.webProfileService);
+        this.webApiServer.start();
+
+        getLogger().info("[WebProfile] Enabled - /oecreate profile + WebApiServer started");
+    }
 
     public String getServerNameSafe() {
         try {
@@ -2818,6 +2860,9 @@ public final class OreoEssentials extends JavaPlugin {
         } catch (Exception e) {
             getLogger().warning("[bStats] Failed to initialize metrics: " + e.getMessage());
         }
+    }
+    public fr.elias.oreoEssentials.modules.web.WebProfileService getWebProfileService() {
+        return webProfileService;
     }
     public ModBridge getModBridge() { return modBridge; }
     public java.util.Map<java.util.UUID, Long> getRtpCooldownCache() { return rtpCooldownCache; }

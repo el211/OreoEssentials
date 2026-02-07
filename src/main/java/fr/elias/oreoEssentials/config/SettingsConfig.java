@@ -67,6 +67,9 @@ public class SettingsConfig {
     public boolean chatDiscordBridgeEnabled() {
         return featureOption("chat", "discord-bridge", false);
     }
+    public boolean webProfileEnabled() {
+        return getRoot().getBoolean("features.web-profile.enabled", false);
+    }
 
     public boolean bannedWordsEnabled() {
         String baseKey;

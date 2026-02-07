@@ -19,7 +19,10 @@ commands:
   spawn:
     description: Teleport to spawn
     permission: oreo.spawn
-
+  oecreate:
+    description: Create a web profile account.
+    usage: /oecreate profile
+    permission: oreo.webprofile.create
   tempfly:
     description: Toggle temporary flight
     usage: /<command> [on|off|time]
@@ -760,7 +763,8 @@ permissions:
   oreo.balance:             { default: true }
   oreo.balance.others:      { default: op }
   oreo.baltop:              { default: true }
-
+  oreo.webprofile.create:
+    default: true
   # Utilities & misc
   oreo.deathback:           { default: true }
   oreo.god:                 { default: op }
