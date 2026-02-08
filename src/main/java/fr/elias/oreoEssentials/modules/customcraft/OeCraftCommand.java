@@ -18,14 +18,20 @@ public final class OeCraftCommand implements CommandExecutor, TabCompleter {
     private final Plugin plugin;
     private final InventoryManager invMgr;
     private final CustomCraftingService service;
+    private final CraftActionsConfig actionsConfig;
 
     private static final MiniMessage MM = MiniMessage.miniMessage();
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     public OeCraftCommand(Plugin plugin, InventoryManager invMgr, CustomCraftingService service) {
+        this(plugin, invMgr, service, null);
+    }
+
+    public OeCraftCommand(Plugin plugin, InventoryManager invMgr, CustomCraftingService service, CraftActionsConfig actionsConfig) {
         this.plugin = plugin;
         this.invMgr = invMgr;
         this.service = service;
+        this.actionsConfig = actionsConfig;
     }
 
     @Override
@@ -44,9 +50,18 @@ public final class OeCraftCommand implements CommandExecutor, TabCompleter {
                         "<red>You don't have permission.</red>", Map.of());
                 return true;
             }
+
             service.loadAllAndRegister();
-            send(sender, "customcraft.messages.reloaded",
-                    "<green>Custom recipes reloaded.</green>", Map.of());
+
+            // Reload craft actions if available
+            if (actionsConfig != null) {
+                actionsConfig.reload();
+                send(sender, "customcraft.messages.reloaded",
+                        "<green>Custom recipes and craft actions reloaded.</green>", Map.of());
+            } else {
+                send(sender, "customcraft.messages.reloaded",
+                        "<green>Custom recipes reloaded.</green>", Map.of());
+            }
             return true;
         }
 

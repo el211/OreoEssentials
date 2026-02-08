@@ -30,7 +30,6 @@ public final class QuitMessagesListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent e) {
-        // Always clear vanilla quit line
         e.setQuitMessage(null);
 
         FileConfiguration c = plugin.getConfig();
@@ -70,6 +69,6 @@ public final class QuitMessagesListener implements Listener {
 
         boolean contains = list.stream().anyMatch(s -> s != null && s.equalsIgnoreCase(serverName));
         if ("whitelist".equalsIgnoreCase(mode)) return !contains;
-        return contains; // blacklist
+        return contains;
     }
 }

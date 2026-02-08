@@ -2,10 +2,9 @@ package fr.elias.oreoEssentials.modules.economy.ecocommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.modules.economy.EconomyService;
 import fr.elias.oreoEssentials.offline.OfflinePlayerCache;
 import fr.elias.oreoEssentials.util.Lang;
-import net.milkbowl.vault.economy.Economy;
-import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
@@ -38,8 +37,10 @@ public class PayCommand implements OreoCommand {
 
         final OreoEssentials plugin = OreoEssentials.get();
 
-        Economy econ = plugin.getVaultEconomy();
-        if (econ == null) {
+        EconomyService eco;
+        try {
+            eco = plugin.getEcoBootstrap().api();
+        } catch (Throwable t) {
             from.sendMessage(Lang.msg("economy.errors.no-economy", from));
             return true;
         }
@@ -60,24 +61,15 @@ public class PayCommand implements OreoCommand {
             return true;
         }
 
-        double balance = econ.getBalance(from);
+        double balance = eco.getBalance(from.getUniqueId());
         if (balance + 1e-9 < amount) {
             from.sendMessage(Lang.msg("economy.pay.fail-insufficient",
                     Map.of("amount_formatted", fmt(amount), "currency_symbol", currencySymbol()), from));
             return true;
         }
 
-        try { if (!econ.hasAccount(target)) econ.createPlayerAccount(target); } catch (Throwable ignored) {}
 
-        EconomyResponse w = econ.withdrawPlayer(from, amount);
-        if (w == null || w.type != EconomyResponse.ResponseType.SUCCESS) {
-            from.sendMessage(Lang.msg("economy.errors.no-economy", from));
-            return true;
-        }
-
-        EconomyResponse d = econ.depositPlayer(target, amount);
-        if (d == null || d.type != EconomyResponse.ResponseType.SUCCESS) {
-            try { econ.depositPlayer(from, amount); } catch (Throwable ignored) {} // refund best-effort
+        if (!eco.transfer(from.getUniqueId(), target.getUniqueId(), amount)) {
             from.sendMessage(Lang.msg("economy.errors.no-economy", from));
             return true;
         }
@@ -88,18 +80,18 @@ public class PayCommand implements OreoCommand {
                 Map.of("target", targetName, "amount_formatted", fmt(amount), "currency_symbol", currencySymbol()),
                 from));
 
-        // receiver message text (no player context needed)
+
         String receiverMsg = Lang.msg("economy.pay.success-receiver",
                 Map.of("player", from.getName(), "amount_formatted", fmt(amount), "currency_symbol", currencySymbol()),
                 null
         );
 
-        // If target is on this server -> send now
+
         Player local = Bukkit.getPlayer(target.getUniqueId());
         if (local != null) {
             local.sendMessage(receiverMsg);
         } else {
-            // Cross-server -> send GLOBAL, any shard hosting the player will deliver it
+
             try {
                 var pm = plugin.getPacketManager();
                 if (pm != null && pm.isInitialized()) {

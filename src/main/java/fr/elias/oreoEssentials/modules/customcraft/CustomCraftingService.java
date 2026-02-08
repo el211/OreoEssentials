@@ -75,10 +75,7 @@ public final class CustomCraftingService {
     public Optional<CustomRecipe> get(String name) { return Optional.ofNullable(recipes.get(name)); }
     public Set<String> allNames() { return new TreeSet<>(recipes.keySet()); }
 
-    /**
-     * Returns the total number of custom recipes loaded
-     * @return number of recipes
-     */
+
     public int getRecipeCount() {
         return recipes.size();
     }
@@ -223,5 +220,10 @@ public final class CustomCraftingService {
     private void unregisterAll() {
         for (NamespacedKey k : keys.values()) Bukkit.removeRecipe(k);
         keys.clear();
+    }
+
+
+    public Plugin getPlugin() {
+        return plugin;
     }
 }

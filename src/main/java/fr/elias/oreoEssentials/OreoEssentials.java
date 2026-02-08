@@ -12,6 +12,7 @@ import fr.elias.oreoEssentials.modules.chat.*;
 import fr.elias.oreoEssentials.modules.clearlag.ClearLagManager;
 import fr.elias.oreoEssentials.commands.CommandManager;
 import fr.elias.oreoEssentials.commands.OeCommand;
+import fr.elias.oreoEssentials.modules.customcraft.CraftActionsConfig;
 import fr.elias.oreoEssentials.modules.freeze.FreezeCommand;
 import fr.elias.oreoEssentials.modules.afk.AfkCommand;
 import fr.elias.oreoEssentials.modules.afk.AfkPoolService;
@@ -203,7 +204,6 @@ public final class OreoEssentials extends JavaPlugin {
     private NotesChatListener notesChat;
     private fr.elias.oreoEssentials.modules.daily.DailyMongoStore dailyStore;
     private FreezeManager freezeManager;
-    private Economy economy;
     private EconomyBootstrap ecoBootstrap;
     private fr.elias.oreoEssentials.modules.integration.DiscordModerationNotifier discordMod;
     public fr.elias.oreoEssentials.modules.integration.DiscordModerationNotifier getDiscordMod() { return discordMod; }
@@ -238,6 +238,10 @@ public final class OreoEssentials extends JavaPlugin {
     public fr.elias.oreoEssentials.holograms.perplayer_nms.PerPlayerTextDisplayService getPerPlayerTextDisplayService() {
         return perPlayerTextDisplayService;
     }
+    public EconomyBootstrap getEconomy() { return ecoBootstrap; } // ou supprime-le carrément
+    public EconomyBootstrap getEcoBootstrap() {
+        return ecoBootstrap;
+    }
 
     private ConfigService configService;
     private StorageApi storage;
@@ -249,7 +253,7 @@ public final class OreoEssentials extends JavaPlugin {
     }
     private AutoRebootService autoRebootService;
     public AutoRebootService getAutoRebootService() { return autoRebootService; }
-
+    private CraftActionsConfig craftActionsConfig;
     private SellGuiManager sellGuiManager;
     public SellGuiManager getSellGuiManager() { return sellGuiManager; }
 
@@ -445,8 +449,17 @@ public final class OreoEssentials extends JavaPlugin {
 
         this.autoRebootService = new AutoRebootService(this);
         this.autoRebootService.start();
+        this.customCraftingService = new CustomCraftingService(this);
+        this.customCraftingService.loadAllAndRegister();
+        this.craftActionsConfig = new CraftActionsConfig(this);
 
-
+        getServer().getPluginManager().registerEvents(
+                new fr.elias.oreoEssentials.modules.customcraft.CustomCraftingListener(
+                        this.customCraftingService,
+                        this.craftActionsConfig
+                ),
+                this
+        );
         final String essentialsStorage = getConfig().getString("essentials.storage", "yaml").toLowerCase();
 
         final String economyType       = getConfig().getString("economy.type", "none").toLowerCase();
@@ -465,6 +478,7 @@ public final class OreoEssentials extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new FreezeListener(freezeService), this
         );
+
         this.commands = new CommandManager(this);
         if (settingsConfig.isEnabled("tempfly")) {
             this.tempFlyConfig = new fr.elias.oreoEssentials.modules.tempfly.TempFlyConfig(getDataFolder());
@@ -472,14 +486,12 @@ public final class OreoEssentials extends JavaPlugin {
 
             var tempFlyCmd = new TempFlyCommand(tempFlyService);
             this.commands.register(tempFlyCmd);
-
             if (getCommand("tempfly") != null) {
                 getCommand("tempfly").setTabCompleter(tempFlyCmd);
             }
             if (getCommand("tfly") != null) {
                 getCommand("tfly").setTabCompleter(tempFlyCmd);
             }
-
             getLogger().info("[TempFly] Enabled with tab completion.");
         } else {
             unregisterCommandHard("tempfly");
@@ -490,10 +502,8 @@ public final class OreoEssentials extends JavaPlugin {
         var settingsCmd = new fr.elias.oreoEssentials.commands.core.admins.OeSettingsCommand(this);
         this.commands.register(settingsCmd);
         getLogger().info("[Settings] GUI command registered (/oesettings).");
-
         this.invlookManager = new InvlookManager();
         getServer().getPluginManager().registerEvents(new InvlookListener(this), this);
-
         getLogger().info(
                 "[BOOT] storage=" + essentialsStorage
                         + " economyType=" + economyType
@@ -501,7 +511,6 @@ public final class OreoEssentials extends JavaPlugin {
                         + " rabbit=" + rabbitEnabled
                         + " server.name=" + localServerName
         );
-
         if (redisEnabled) {
             this.redis = new RedisManager(
                     getConfig().getString("redis.host", "localhost"),
@@ -518,8 +527,6 @@ public final class OreoEssentials extends JavaPlugin {
             getLogger().info("[REDIS] Disabled.");
         }
 
-        this.ecoBootstrap = new EconomyBootstrap(this);
-        this.ecoBootstrap.enable();
         if (economyEnabled) {
             this.database = null;
 
@@ -565,79 +572,64 @@ public final class OreoEssentials extends JavaPlugin {
                 case "none" -> this.database = null;
                 default -> { }
             }
+        }
 
-            if (this.database != null) {
-                if (getServer().getPluginManager().getPlugin("Vault") == null) {
-                    getLogger().severe("[ECON] Vault not found but economy.enabled=true. Disabling plugin.");
-                    getServer().getPluginManager().disablePlugin(this);
-                    return;
-                }
+// NOW initialize EconomyBootstrap (it can use this.database)
+        this.ecoBootstrap = new EconomyBootstrap(this);
+        this.ecoBootstrap.enable();
 
-                try {
-                    getServer().getServicesManager().unregister(
-                            net.milkbowl.vault.economy.Economy.class,
-                            this
-                    );
-                } catch (Throwable ignored) {}
-
-                VaultEconomyProvider vaultProvider = new VaultEconomyProvider(this);
-                getServer().getServicesManager().register(
-                        net.milkbowl.vault.economy.Economy.class,
-                        vaultProvider,
-                        this,
-                        org.bukkit.plugin.ServicePriority.Highest
-                );
-
-                var rsp = getServer().getServicesManager()
-                        .getRegistration(net.milkbowl.vault.economy.Economy.class);
-                if (rsp == null) {
-                    getLogger().severe("[ECON] Failed to hook Vault Economy.");
-                } else {
-                    this.vaultEconomy = rsp.getProvider();
-                    getLogger().info("[ECON] Vault economy integration enabled at HIGHEST priority.");
-                }
-
-                Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
-                Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
-
-                this.offlinePlayerCache = new OfflinePlayerCache();
-
-                this.database.populateCache(offlinePlayerCache);
-                Bukkit.getScheduler().runTaskTimerAsynchronously(
-                        this,
-                        () -> this.database.populateCache(offlinePlayerCache),
-                        20L * 60,
-                        20L * 300
-                );
-
-                if (this.database != null) {
-                    var moneyCmd  = new MoneyCommand(this);
-                    var payCmd    = new PayCommand();
-                    var chequeCmd = new ChequeCommand(this);
-
-                    this.commands
-                            .register(moneyCmd)
-                            .register(payCmd)
-                            .register(chequeCmd);
-
-                    if (getCommand("money") != null) {
-                        getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
-                    }
-                    if (getCommand("pay") != null) {
-                        getCommand("pay").setTabCompleter(
-                                new PayTabCompleter(this)
-                        );
-                    }
-                    if (getCommand("cheque") != null) {
-                        getCommand("cheque").setTabCompleter(
-                                new ChequeTabCompleter()
-                        );
-                    }
-                }
-
-            } else {
-                getLogger().warning("[ECON] Enabled but no database selected/connected; economy commands unavailable.");
+// Rest of the economy code...
+        if (economyEnabled && this.database != null) {
+            if (getServer().getPluginManager().getPlugin("Vault") == null) {
+                getLogger().severe("[ECON] Vault not found but economy.enabled=true. Disabling plugin.");
+                getServer().getPluginManager().disablePlugin(this);
+                return;
             }
+
+            var rsp = getServer().getServicesManager()
+                    .getRegistration(net.milkbowl.vault.economy.Economy.class);
+            if (rsp == null) {
+                getLogger().severe("[ECON] Failed to hook Vault Economy.");
+            } else {
+                this.vaultEconomy = rsp.getProvider();
+                getLogger().info("[ECON] Vault economy integration enabled at HIGHEST priority.");
+            }
+
+            Bukkit.getPluginManager().registerEvents(new PlayerDataListener(this), this);
+            Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
+
+            this.offlinePlayerCache = new OfflinePlayerCache();
+            this.database.populateCache(offlinePlayerCache);
+
+            Bukkit.getScheduler().runTaskTimerAsynchronously(
+                    this,
+                    () -> this.database.populateCache(offlinePlayerCache),
+                    20L * 60,
+                    20L * 300
+            );
+
+            // Register commands...
+            var moneyCmd  = new MoneyCommand(this);
+            var payCmd    = new PayCommand();
+            var chequeCmd = new ChequeCommand(this);
+
+            this.commands
+                    .register(moneyCmd)
+                    .register(payCmd)
+                    .register(chequeCmd);
+
+            if (getCommand("money") != null) {
+                getCommand("money").setTabCompleter(new MoneyTabCompleter(this));
+            }
+            if (getCommand("pay") != null) {
+                getCommand("pay").setTabCompleter(new PayTabCompleter(this));
+            }
+            if (getCommand("cheque") != null) {
+                getCommand("cheque").setTabCompleter(new ChequeTabCompleter());
+            }
+
+        } else if (economyEnabled) {
+            getLogger().warning("[ECON] Enabled but no database selected/connected; economy commands unavailable.");
         } else {
             getLogger().info("[ECON] Disabled. Skipping Vault, DB, and economy commands.");
             this.database = null;
@@ -646,25 +638,20 @@ public final class OreoEssentials extends JavaPlugin {
         try {
             java.io.File f = new java.io.File(getDataFolder(), "command-control.yml");
             if (!f.exists()) saveResource("command-control.yml", false);
-
             var yml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(f);
-
             var commandControl = new fr.elias.oreoEssentials.modules.commandcontrol.CommandControlService();
             commandControl.load(yml);
-
             if (commandControl.isEnabled()) {
                 Bukkit.getPluginManager().registerEvents(
                         new fr.elias.oreoEssentials.modules.commandcontrol.CommandControlListener(this, commandControl),
                         this
                 );
-
                 if (commandControl.isHideFromTab()) {
                     Bukkit.getPluginManager().registerEvents(
                             new fr.elias.oreoEssentials.modules.commandcontrol.CommandControlTabHideListener(commandControl),
                             this
                     );
                 }
-
                 getLogger().info("[CommandControl] Enabled (hideFromTab=" + commandControl.isHideFromTab() + ")");
             } else {
                 getLogger().info("[CommandControl] Disabled.");
@@ -1851,6 +1838,7 @@ public final class OreoEssentials extends JavaPlugin {
                 .register(new TpCommand(teleportService))
                 .register(new ZEssentialsHomesImportCommand(this, storage, homeDirectory))
                 .register(new MoveCommand(teleportService))
+                .register(new EcoMigrateCommand(this))
                 .register(new fr.elias.oreoEssentials.modules.currency.commands.CurrencyAdminCommand(this));
         if (pwCmd != null) {
             this.commands.register(pwCmd);
@@ -2635,6 +2623,7 @@ public final class OreoEssentials extends JavaPlugin {
         getLogger().info("║                                                            ║");
         getLogger().info("╚════════════════════════════════════════════════════════════╝");
     }
+
     public IpTracker getIpTracker() { return ipTracker; }
     public FreezeManager getFreezeManager() { return freezeManager; }
     public PlayerNotesManager getNotesManager() { return notesManager; }
@@ -2827,7 +2816,6 @@ public final class OreoEssentials extends JavaPlugin {
     public RtpPendingService getRtpPendingService() { return rtpPendingService; }
     public fr.elias.oreoEssentials.modules.rtp.RtpCrossServerBridge getRtpBridge() { return rtpBridge; }
     public fr.elias.oreoEssentials.modules.shards.OreoShardsModule getShardsModule() { return shardsModule; }
-    public EconomyBootstrap getEcoBootstrap() { return ecoBootstrap; }
     public Economy getVaultEconomy() { return vaultEconomy; }
     public CurrencyPlaceholderExpansion getCurrencyPlaceholders() {
         return currencyPlaceholders;

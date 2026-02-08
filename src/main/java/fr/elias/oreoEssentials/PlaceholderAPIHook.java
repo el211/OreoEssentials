@@ -1,5 +1,6 @@
 package fr.elias.oreoEssentials;
 
+import fr.elias.oreoEssentials.modules.economy.EconomyService;
 import fr.elias.oreoEssentials.modules.kits.Kit;
 import fr.elias.oreoEssentials.modules.kits.KitsManager;
 import fr.elias.oreoEssentials.modules.playervaults.PlayerVaultsConfig;
@@ -8,7 +9,6 @@ import fr.elias.oreoEssentials.modules.playtime.PlaytimeRewardsService;
 import fr.elias.oreoEssentials.modules.playtime.PlaytimeTracker;
 import fr.elias.oreoEssentials.util.Lang;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
-import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Statistic;
@@ -23,13 +23,10 @@ import java.util.stream.Collectors;
 
 public class PlaceholderAPIHook extends PlaceholderExpansion {
     private final OreoEssentials plugin;
-    private final Economy economy;
     private boolean debug;
 
     public PlaceholderAPIHook(OreoEssentials plugin) {
         this.plugin = plugin;
-        var reg = plugin.getServer().getServicesManager().getRegistration(Economy.class);
-        this.economy = (reg != null) ? reg.getProvider() : null;
         this.debug = plugin.getConfig().getBoolean("placeholder-debug", false);
     }
 
@@ -69,24 +66,26 @@ public class PlaceholderAPIHook extends PlaceholderExpansion {
 
         debugLog("Processing placeholder: %oreo_" + idRaw + "% for player: " + player.getName());
 
-        // Economy placeholders
+        // Economy placeholders - NOW USING EconomyService!
         if (id.equals("balance")) {
-            if (economy == null) {
-                debugLog("Economy is null for 'balance'");
+            EconomyService eco = getEconomyService();
+            if (eco == null || player.getUniqueId() == null) {
+                debugLog("Economy is null or player UUID is null for 'balance'");
                 return "0";
             }
-            double bal = economy.getBalance(player);
+            double bal = eco.getBalance(player.getUniqueId());
             String result = String.valueOf(bal);
             debugLog("balance = " + result);
             return result;
         }
 
         if (id.equals("balance_formatted")) {
-            if (economy == null) {
-                debugLog("Economy is null for 'balance_formatted'");
+            EconomyService eco = getEconomyService();
+            if (eco == null || player.getUniqueId() == null) {
+                debugLog("Economy is null or player UUID is null for 'balance_formatted'");
                 return "0";
             }
-            double bal = economy.getBalance(player);
+            double bal = eco.getBalance(player.getUniqueId());
             DecimalFormat df = new DecimalFormat("#,##0.##");
             String result = df.format(bal);
             debugLog("balance_formatted = " + result);
@@ -381,6 +380,16 @@ public class PlaceholderAPIHook extends PlaceholderExpansion {
     private void debugLog(String message) {
         if (debug) {
             plugin.getLogger().info("[PLACEHOLDER DEBUG] " + message);
+        }
+    }
+
+    // NEW: Get EconomyService
+    private EconomyService getEconomyService() {
+        try {
+            return plugin.getEcoBootstrap().api();
+        } catch (Throwable t) {
+            debugLog("Failed to get EconomyService: " + t.getMessage());
+            return null;
         }
     }
 

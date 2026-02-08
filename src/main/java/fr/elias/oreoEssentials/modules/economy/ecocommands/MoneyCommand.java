@@ -2,9 +2,9 @@ package fr.elias.oreoEssentials.modules.economy.ecocommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.modules.economy.EconomyService;
 import fr.elias.oreoEssentials.util.Async;
 import fr.elias.oreoEssentials.util.Lang;
-import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
@@ -19,16 +19,9 @@ import java.util.*;
 public class MoneyCommand implements CommandExecutor, OreoCommand {
 
     private final OreoEssentials plugin;
-    private final Economy vault;
 
     public MoneyCommand(OreoEssentials plugin) {
         this.plugin = plugin;
-        Economy found = null;
-        try {
-            var rsp = plugin.getServer().getServicesManager().getRegistration(Economy.class);
-            if (rsp != null) found = rsp.getProvider();
-        } catch (Throwable ignored) {}
-        this.vault = found;
     }
 
     @Override
@@ -71,87 +64,69 @@ public class MoneyCommand implements CommandExecutor, OreoCommand {
                 return true;
             }
 
-
-            if (plugin.getDatabase() != null) {
-                Async.run(() -> {
-                    UUID targetId = plugin.getOfflinePlayerCache().getId(targetName);
-                    if (targetId == null) {
-                        sendSync(sender, Lang.msg("economy.errors.player-not-found",
-                                Map.of("target", targetName), sender instanceof Player ? (Player) sender : null));
-                        return;
-                    }
-
-                    switch (sub) {
-                        case "give" -> plugin.getDatabase().giveBalance(targetId, targetName, amount);
-                        case "take" -> plugin.getDatabase().takeBalance(targetId, targetName, amount);
-                        case "set"  -> plugin.getDatabase().setBalance(targetId, targetName, amount);
-                    }
-
-                    double newBal = plugin.getDatabase().getBalance(targetId);
-
-                    Map<String, String> sVars = new HashMap<>();
-                    sVars.put("target", targetName);
-                    sVars.put("amount_formatted", fmt(amount));
-                    sVars.put("currency_symbol", currencySymbol());
-                    String senderPath = switch (sub) {
-                        case "give" -> "economy.money.give.sender";
-                        case "take" -> "economy.money.take.sender";
-                        default -> "economy.money.set.sender";
-                    };
-                    sendSync(sender, Lang.msg(senderPath, sVars, sender instanceof Player ? (Player) sender : null));
-
-                    Map<String, String> rVars = new HashMap<>();
-                    rVars.put("amount_formatted", fmt(amount));
-                    rVars.put("balance_formatted", fmt(newBal));
-                    rVars.put("currency_symbol", currencySymbol());
-                    String receiverPath = switch (sub) {
-                        case "give" -> "economy.money.give.receiver";
-                        case "take" -> "economy.money.take.receiver";
-                        default -> "economy.money.set.receiver";
-                    };
-
-                    String receiverMsg = Lang.msg(receiverPath, rVars, null);
-                    notifyReceiverCrossServer(targetId, receiverMsg);
-
-                });
-                return true;
-            }
-
-
-            if (vault == null) {
+            // Use EconomyService
+            EconomyService eco;
+            try {
+                eco = plugin.getEcoBootstrap().api();
+            } catch (Throwable t) {
                 sender.sendMessage(Lang.msg("economy.errors.no-economy", sender instanceof Player ? (Player) sender : null));
                 return true;
             }
 
-            OfflinePlayer off = Bukkit.getOfflinePlayer(targetName);
-
-            switch (sub) {
-                case "give" -> vault.depositPlayer(off, amount);
-                case "take" -> vault.withdrawPlayer(off, amount);
-                case "set" -> {
-                    double cur = safeVaultBalance(off);
-                    double diff = amount - cur;
-                    if (Math.abs(diff) > 1e-9) {
-                        if (diff > 0) vault.depositPlayer(off, diff);
-                        else vault.withdrawPlayer(off, -diff);
+            Async.run(() -> {
+                UUID targetId = plugin.getOfflinePlayerCache().getId(targetName);
+                if (targetId == null) {
+                    OfflinePlayer op = Bukkit.getOfflinePlayer(targetName);
+                    if (op != null && op.hasPlayedBefore()) {
+                        targetId = op.getUniqueId();
                     }
                 }
-            }
 
-            Map<String, String> sVars = new HashMap<>();
-            sVars.put("target", targetName);
-            sVars.put("amount_formatted", fmt(amount));
-            sVars.put("currency_symbol", currencySymbol());
-            String senderPath = switch (sub) {
-                case "give" -> "economy.money.give.sender";
-                case "take" -> "economy.money.take.sender";
-                default -> "economy.money.set.sender";
-            };
-            sender.sendMessage(Lang.msg(senderPath, sVars, sender instanceof Player ? (Player) sender : null));
+                if (targetId == null) {
+                    sendSync(sender, Lang.msg("economy.errors.player-not-found",
+                            Map.of("target", targetName), sender instanceof Player ? (Player) sender : null));
+                    return;
+                }
 
-            UUID targetId = off.getUniqueId();
-            if (targetId != null) {
-                double newBal = safeVaultBalance(off);
+                final UUID finalTargetId = targetId;
+
+                switch (sub) {
+                    case "give" -> {
+                        if (!eco.deposit(finalTargetId, amount)) {
+                            sendSync(sender, Lang.msg("economy.errors.no-economy", sender instanceof Player ? (Player) sender : null));
+                            return;
+                        }
+                    }
+                    case "take" -> {
+                        if (!eco.withdraw(finalTargetId, amount)) {
+                            sendSync(sender, Lang.msg("economy.money.take.insufficient",
+                                    Map.of("target", targetName), sender instanceof Player ? (Player) sender : null));
+                            return;
+                        }
+                    }
+                    case "set" -> {
+                        double current = eco.getBalance(finalTargetId);
+                        double diff = amount - current;
+                        if (diff > 0) {
+                            eco.deposit(finalTargetId, diff);
+                        } else if (diff < 0) {
+                            eco.withdraw(finalTargetId, -diff);
+                        }
+                    }
+                }
+
+                double newBal = eco.getBalance(finalTargetId);
+
+                Map<String, String> sVars = new HashMap<>();
+                sVars.put("target", targetName);
+                sVars.put("amount_formatted", fmt(amount));
+                sVars.put("currency_symbol", currencySymbol());
+                String senderPath = switch (sub) {
+                    case "give" -> "economy.money.give.sender";
+                    case "take" -> "economy.money.take.sender";
+                    default -> "economy.money.set.sender";
+                };
+                sendSync(sender, Lang.msg(senderPath, sVars, sender instanceof Player ? (Player) sender : null));
 
                 Map<String, String> rVars = new HashMap<>();
                 rVars.put("amount_formatted", fmt(amount));
@@ -164,9 +139,8 @@ public class MoneyCommand implements CommandExecutor, OreoCommand {
                 };
 
                 String receiverMsg = Lang.msg(receiverPath, rVars, null);
-                notifyReceiverCrossServer(targetId, receiverMsg);
-            }
-
+                notifyReceiverCrossServer(finalTargetId, receiverMsg);
+            });
             return true;
         }
 
@@ -174,11 +148,9 @@ public class MoneyCommand implements CommandExecutor, OreoCommand {
         return true;
     }
 
-
     private void notifyReceiverCrossServer(UUID targetUuid, String message) {
         if (targetUuid == null || message == null || message.isBlank()) return;
 
-        // Same server?
         Player local = Bukkit.getPlayer(targetUuid);
         if (local != null) {
             sendSync(local, message);
@@ -208,61 +180,55 @@ public class MoneyCommand implements CommandExecutor, OreoCommand {
         }
     }
 
-
     private void showSelfBalance(Player player) {
-        if (plugin.getDatabase() != null) {
-            Async.run(() -> {
-                double bal = plugin.getDatabase().getBalance(player.getUniqueId());
-                Map<String, String> vars = new HashMap<>();
-                vars.put("balance_formatted", fmt(bal));
-                vars.put("currency_symbol", currencySymbol());
-                sendSync(player, Lang.msg("economy.money.view-self", vars, player));
-            });
+        EconomyService eco;
+        try {
+            eco = plugin.getEcoBootstrap().api();
+        } catch (Throwable t) {
+            player.sendMessage(Lang.msg("economy.errors.no-economy", player));
             return;
         }
-        if (vault != null) {
+
+        Async.run(() -> {
+            double bal = eco.getBalance(player.getUniqueId());
             Map<String, String> vars = new HashMap<>();
-            vars.put("balance_formatted", fmt(safeVaultBalance(player)));
+            vars.put("balance_formatted", fmt(bal));
             vars.put("currency_symbol", currencySymbol());
-            player.sendMessage(Lang.msg("economy.money.view-self", vars, player));
-            return;
-        }
-        player.sendMessage(Lang.msg("economy.errors.no-economy", player));
+            sendSync(player, Lang.msg("economy.money.view-self", vars, player));
+        });
     }
 
     private void showOtherBalance(CommandSender sender, String targetName) {
-        if (plugin.getDatabase() != null) {
-            Async.run(() -> {
-                UUID id = plugin.getOfflinePlayerCache().getId(targetName);
-                if (id == null) {
-                    sendSync(sender, Lang.msg("economy.errors.player-not-found",
-                            Map.of("target", targetName), sender instanceof Player ? (Player) sender : null));
-                    return;
-                }
-                double bal = plugin.getDatabase().getBalance(id);
-                Map<String, String> vars = new HashMap<>();
-                vars.put("target", targetName);
-                vars.put("balance_formatted", fmt(bal));
-                vars.put("currency_symbol", currencySymbol());
-                sendSync(sender, Lang.msg("economy.money.view-other", vars, sender instanceof Player ? (Player) sender : null));
-            });
+        EconomyService eco;
+        try {
+            eco = plugin.getEcoBootstrap().api();
+        } catch (Throwable t) {
+            sender.sendMessage(Lang.msg("economy.errors.no-economy", sender instanceof Player ? (Player) sender : null));
             return;
         }
-        if (vault != null) {
-            OfflinePlayer off = Bukkit.getOfflinePlayer(targetName);
+
+        Async.run(() -> {
+            UUID id = plugin.getOfflinePlayerCache().getId(targetName);
+            if (id == null) {
+                OfflinePlayer op = Bukkit.getOfflinePlayer(targetName);
+                if (op != null && op.hasPlayedBefore()) {
+                    id = op.getUniqueId();
+                }
+            }
+
+            if (id == null) {
+                sendSync(sender, Lang.msg("economy.errors.player-not-found",
+                        Map.of("target", targetName), sender instanceof Player ? (Player) sender : null));
+                return;
+            }
+
+            double bal = eco.getBalance(id);
             Map<String, String> vars = new HashMap<>();
             vars.put("target", targetName);
-            vars.put("balance_formatted", fmt(safeVaultBalance(off)));
+            vars.put("balance_formatted", fmt(bal));
             vars.put("currency_symbol", currencySymbol());
-            sender.sendMessage(Lang.msg("economy.money.view-other", vars, sender instanceof Player ? (Player) sender : null));
-            return;
-        }
-        sender.sendMessage(Lang.msg("economy.errors.no-economy", sender instanceof Player ? (Player) sender : null));
-    }
-
-    private double safeVaultBalance(OfflinePlayer player) {
-        try { return vault.getBalance(player); }
-        catch (Throwable ignored) { return 0.0; }
+            sendSync(sender, Lang.msg("economy.money.view-other", vars, sender instanceof Player ? (Player) sender : null));
+        });
     }
 
     private void sendSync(CommandSender who, String text) {
@@ -270,7 +236,6 @@ public class MoneyCommand implements CommandExecutor, OreoCommand {
         if (Bukkit.isPrimaryThread()) who.sendMessage(text);
         else Bukkit.getScheduler().runTask(plugin, () -> who.sendMessage(text));
     }
-
 
     private String fmt(double v) {
         int decimals = (int) Math.round(Lang.getDouble("economy.format.decimals", 2.0));
@@ -296,7 +261,6 @@ public class MoneyCommand implements CommandExecutor, OreoCommand {
             return Double.parseDouble(raw);
         } catch (Exception e) { return null; }
     }
-
 
     @Override
     public String name() {

@@ -107,7 +107,6 @@ public class PlayerNametagManager implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         if (!enabled) return;
 
-        // Remove from all viewers' scoreboards
         removePlayerFromAllScoreboards(event.getPlayer());
     }
 

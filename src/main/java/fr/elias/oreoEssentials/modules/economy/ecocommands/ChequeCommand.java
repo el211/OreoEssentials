@@ -2,9 +2,9 @@ package fr.elias.oreoEssentials.modules.economy.ecocommands;
 
 import fr.elias.oreoEssentials.OreoEssentials;
 import fr.elias.oreoEssentials.commands.OreoCommand;
+import fr.elias.oreoEssentials.modules.economy.EconomyService;
 import fr.elias.oreoEssentials.util.Async;
 import fr.elias.oreoEssentials.util.Lang;
-import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -26,17 +26,13 @@ import java.util.*;
 public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
 
     private final OreoEssentials plugin;
-    private final Economy vault;
     private final NamespacedKey chequeKey;
 
     public ChequeCommand(OreoEssentials plugin) {
         this.plugin = plugin;
-        var rsp = plugin.getServer().getServicesManager().getRegistration(Economy.class);
-        this.vault = (rsp != null ? rsp.getProvider() : null);
         this.chequeKey = new NamespacedKey(plugin, "cheque_amount");
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
     }
-
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
@@ -72,46 +68,38 @@ public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
                 return true;
             }
 
-            if (plugin.getDatabase() != null) {
-                UUID id = player.getUniqueId();
-                Async.run(() -> {
-                    double bal = plugin.getDatabase().getBalance(id);
-                    if (bal + 1e-9 < amount) {
-                        runSync(() -> player.sendMessage(
-                                Lang.msg("economy.cheque.create.fail-insufficient",
-                                        Map.of("amount_formatted", fmt(amount),
-                                                "currency_symbol", currencySymbol()),
-                                        player)));
-                        return;
-                    }
-                    plugin.getDatabase().setBalance(id, player.getName(), bal - amount);
-                    runSync(() -> {
-                        giveChequeItem(player, amount);
-                        player.sendMessage(Lang.msg("economy.cheque.create.success",
-                                Map.of("amount_formatted", fmt(amount),
-                                        "currency_symbol", currencySymbol()), player));
-                    });
-                });
+            EconomyService eco;
+            try {
+                eco = plugin.getEcoBootstrap().api();
+            } catch (Throwable t) {
+                player.sendMessage(Lang.msg("economy.errors.no-economy", player));
                 return true;
             }
 
-            if (vault != null) {
-                double bal = vault.getBalance(player);
+            UUID id = player.getUniqueId();
+            Async.run(() -> {
+                double bal = eco.getBalance(id);
                 if (bal + 1e-9 < amount) {
-                    player.sendMessage(Lang.msg("economy.cheque.create.fail-insufficient",
+                    runSync(() -> player.sendMessage(
+                            Lang.msg("economy.cheque.create.fail-insufficient",
+                                    Map.of("amount_formatted", fmt(amount),
+                                            "currency_symbol", currencySymbol()),
+                                    player)));
+                    return;
+                }
+
+                if (!eco.withdraw(id, amount)) {
+                    runSync(() -> player.sendMessage(Lang.msg("economy.errors.no-economy", player)));
+                    return;
+                }
+
+                runSync(() -> {
+                    giveChequeItem(player, amount);
+                    player.sendMessage(Lang.msg("economy.cheque.create.success",
                             Map.of("amount_formatted", fmt(amount),
                                     "currency_symbol", currencySymbol()), player));
-                    return true;
-                }
-                vault.withdrawPlayer(player, amount);
-                giveChequeItem(player, amount);
-                player.sendMessage(Lang.msg("economy.cheque.create.success",
-                        Map.of("amount_formatted", fmt(amount),
-                                "currency_symbol", currencySymbol()), player));
-                return true;
-            }
-
-            player.sendMessage(Lang.msg("economy.errors.no-economy", player));
+                });
+            });
             return true;
         }
 
@@ -134,7 +122,6 @@ public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
         return true;
     }
 
-
     @EventHandler
     public void onUseCheque(PlayerInteractEvent e) {
         if (!e.getAction().name().contains("RIGHT_CLICK")) return;
@@ -151,43 +138,38 @@ public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
         redeemCheque(p, item, amt);
     }
 
-
     private void redeemCheque(Player player, ItemStack item, double amount) {
-        // DB preferred
-        if (plugin.getDatabase() != null) {
-            Async.run(() -> {
-                UUID id = player.getUniqueId();
-                double bal = plugin.getDatabase().getBalance(id);
-                plugin.getDatabase().setBalance(id, player.getName(), bal + amount);
-                runSync(() -> {
-                    removeOne(item);
-                    player.sendMessage(Lang.msg("economy.cheque.redeem.success",
-                            Map.of("amount_formatted", fmt(amount),
-                                    "balance_formatted", fmt(bal + amount),
-                                    "currency_symbol", currencySymbol()), player));
-                });
+        EconomyService eco;
+        try {
+            eco = plugin.getEcoBootstrap().api();
+        } catch (Throwable t) {
+            player.sendMessage(Lang.msg("economy.errors.no-economy", player));
+            return;
+        }
+
+        Async.run(() -> {
+            UUID id = player.getUniqueId();
+
+            if (!eco.deposit(id, amount)) {
+                runSync(() -> player.sendMessage(Lang.msg("economy.errors.no-economy", player)));
+                return;
+            }
+
+            double bal = eco.getBalance(id);
+            runSync(() -> {
+                removeOne(item);
+                player.sendMessage(Lang.msg("economy.cheque.redeem.success",
+                        Map.of("amount_formatted", fmt(amount),
+                                "balance_formatted", fmt(bal),
+                                "currency_symbol", currencySymbol()), player));
             });
-            return;
-        }
-
-        if (vault != null) {
-            vault.depositPlayer(player, amount);
-            removeOne(item);
-            player.sendMessage(Lang.msg("economy.cheque.redeem.success",
-                    Map.of("amount_formatted", fmt(amount),
-                            "balance_formatted", fmt(vault.getBalance(player)),
-                            "currency_symbol", currencySymbol()), player));
-            return;
-        }
-
-        player.sendMessage(Lang.msg("economy.errors.no-economy", player));
+        });
     }
 
     private void giveChequeItem(Player player, double amount) {
         ItemStack cheque = new ItemStack(Material.PAPER, 1);
         ItemMeta meta = cheque.getItemMeta();
         if (meta != null) {
-            // Display name/lore left as legacy colors; items don't render MiniMessage
             meta.setDisplayName("§6Cheque: §e" + currencySymbol() + fmt(amount));
             meta.setLore(List.of("§7Right-click to redeem this cheque."));
             meta.getPersistentDataContainer().set(chequeKey, PersistentDataType.DOUBLE, amount);
@@ -211,7 +193,6 @@ public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
         int amt = stack.getAmount();
         stack.setAmount(Math.max(0, amt - 1));
     }
-
 
     private void runSync(Runnable r) {
         if (Bukkit.isPrimaryThread()) r.run();
@@ -242,7 +223,6 @@ public class ChequeCommand implements CommandExecutor, Listener, OreoCommand {
     private String currencySymbol() {
         return Lang.get("economy.currency.symbol", "$");
     }
-
 
     @Override public String name() { return "cheque"; }
     @Override public List<String> aliases() { return List.of(); }

@@ -26,12 +26,10 @@ import java.util.*;
 public final class CraftDesignerMenu implements InventoryProvider {
     private final CustomCraftingService service;
     private final String recipeName;
-
     private final ItemStack[] grid = new ItemStack[9];
     private ItemStack result = null;
     private boolean shapeless = false;
     private String permission = null;
-
     private static final MiniMessage MM = MiniMessage.miniMessage();
     private static final LegacyComponentSerializer LEGACY_SEC = LegacyComponentSerializer.legacySection();
 

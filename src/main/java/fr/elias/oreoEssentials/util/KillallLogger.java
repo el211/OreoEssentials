@@ -65,7 +65,6 @@ public class KillallLogger {
     }
 
     public List<String> tail(int limit) {
-        // simple reverse read
         List<String> all = new ArrayList<>();
         if (!file.exists()) return all;
         try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
@@ -74,7 +73,6 @@ public class KillallLogger {
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to read killall log: " + e.getMessage());
         }
-        // skip header
         int start = Math.max(1, all.size() - limit);
         return all.subList(start, all.size());
     }

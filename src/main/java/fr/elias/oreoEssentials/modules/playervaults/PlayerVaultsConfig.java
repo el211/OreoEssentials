@@ -6,13 +6,7 @@ import org.bukkit.configuration.ConfigurationSection;
 
 import java.util.*;
 
-/**
- * Immutable config snapshot for PlayerVaults.
- * Modernized sound handling:
- * - Config stores sounds as STRING KEYS (e.g., "minecraft:ui.button.click").
- * - Legacy names like "UI_BUTTON_CLICK" are auto-converted to "minecraft:ui.button.click".
- * - Old enum getters are kept for backward-compat without using Sound.valueOf(...).
- */
+
 public final class PlayerVaultsConfig {
 
     private static final String MINECRAFT_NS = "minecraft:";
@@ -23,7 +17,6 @@ public final class PlayerVaultsConfig {
 
     private final int maxVaults;
 
-    // SLOTS mode (not rows)
     private final int slotsCap;
     private final int defaultSlots;
 
@@ -32,7 +25,6 @@ public final class PlayerVaultsConfig {
     private final String openSoundKey;
     private final String denySoundKey;
 
-    // menu text
     private final String menuTitle;
     private final String menuItemUnlockedName;
     private final String menuItemLockedName;
@@ -115,27 +107,22 @@ public final class PlayerVaultsConfig {
     public int maxVaults() { return maxVaults; }
 
     public int slotsCap() { return slotsCap; }
-    /** Alias so code that calls slotCap() compiles without edits. */
     public int slotCap() { return slotsCap; }
 
     public int defaultSlots() { return defaultSlots; }
 
     public String denyMessage() { return denyMessage; }
 
-    /** Modern string key for open sound (use with player.playSound(loc, key, vol, pitch)). */
     public String openSoundKey() { return openSoundKey; }
-    /** Modern string key for deny sound (use with player.playSound(loc, key, vol, pitch)). */
     public String denySoundKey() { return denySoundKey; }
 
 
 
-    /** @deprecated Use {@link #openSoundKey()} and string-based playSound. */
     @Deprecated(forRemoval = true)
     public Sound openSound() {
         return legacyGuessEnum(openSoundKey, Sound.UI_BUTTON_CLICK);
     }
 
-    /** @deprecated Use {@link #denySoundKey()} and string-based playSound. */
     @Deprecated(forRemoval = true)
     public Sound denySound() {
         return legacyGuessEnum(denySoundKey, Sound.ENTITY_VILLAGER_NO);
@@ -149,7 +136,6 @@ public final class PlayerVaultsConfig {
 
     public String vaultTitle() { return vaultTitle; }
 
-    /** How many vault IDs are auto-unlocked for this rank (fallback to "default" or 0). */
     public int unlockedCountFor(String rankOrNull) {
         if (rankOrNull != null) {
             Integer v = accessGlobal.get(rankOrNull.toLowerCase(Locale.ROOT));
@@ -158,7 +144,6 @@ public final class PlayerVaultsConfig {
         return clamp(accessGlobal.getOrDefault("default", 0), 0, maxVaults);
     }
 
-    /** Slots rule for a specific vault id and rank. Checks rank first, then "default". Returns -1 if none. */
     public int slotsFromConfig(int vaultId, String rankOrNull) {
         Map<String, Integer> ranks = slotsPerVault.get(vaultId);
         if (ranks == null) return -1;
@@ -175,13 +160,7 @@ public final class PlayerVaultsConfig {
         return (sec != null && sec.isString(key)) ? sec.getString(key, def) : def;
     }
 
-    /**
-     * Normalize any input into a namespaced modern sound key.
-     * Accepts:
-     * - "minecraft:ui.button.click" → as-is
-     * - "ui.button.click"           → "minecraft:ui.button.click"
-     * - "UI_BUTTON_CLICK"           → "minecraft:ui.button.click"
-     */
+
     private static String normalizeSoundKey(String raw) {
         if (raw == null) return "minecraft:ui.button.click";
         final String s = raw.trim();
@@ -197,11 +176,7 @@ public final class PlayerVaultsConfig {
         return MINECRAFT_NS + dotted;
     }
 
-    /**
-     * Best-effort mapping from a modern key to a legacy enum without using valueOf.
-     * Only maps a few common ones; otherwise returns the provided default.
-     * Why: avoid deprecated Sound.valueOf and future removal.
-     */
+
     private static Sound legacyGuessEnum(String key, Sound def) {
         if (key == null) return def;
         final String k = key.toLowerCase(Locale.ROOT);

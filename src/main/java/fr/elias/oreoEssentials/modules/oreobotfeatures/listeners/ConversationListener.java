@@ -25,7 +25,7 @@ public final class ConversationListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler(priority = EventPriority.MONITOR) // runs after formatter; event may be cancelled
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onChat(AsyncPlayerChatEvent e) {
         FileConfiguration c = plugin.getConfig();
         ConfigurationSection root = c.getConfigurationSection("conversations");
@@ -40,7 +40,7 @@ public final class ConversationListener implements Listener {
         final String msg = raw.toLowerCase(Locale.ROOT);
 
         for (String botKey : root.getKeys(false)) {
-            if (botKey.equalsIgnoreCase("enabled")) continue; // skip master key
+            if (botKey.equalsIgnoreCase("enabled")) continue;
 
             ConfigurationSection bot = root.getConfigurationSection(botKey);
             if (bot == null) continue;
@@ -48,7 +48,7 @@ public final class ConversationListener implements Listener {
             if (!bot.getBoolean("enabled", true)) continue;
 
             String callName = bot.getString("custom_call_name", "").toLowerCase(Locale.ROOT);
-            if (callName.isEmpty() || !msg.contains(callName)) continue; // must mention the bot
+            if (callName.isEmpty() || !msg.contains(callName)) continue;
 
             String selfReply = bot.getString("self_mention_reply", null);
 

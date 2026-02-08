@@ -16,18 +16,18 @@ import java.util.UUID;
 
 public final class MongoPlayerVaultsStorage implements PlayerVaultsStorage {
     private final MongoCollection<Document> col;
-    private final String serverName; // for scoping if you want per-server; or store "global"
+    private final String serverName;
 
     public MongoPlayerVaultsStorage(com.mongodb.client.MongoClient client, String db, String collection, String serverName) {
         this.col = client.getDatabase(db).getCollection(collection);
-        this.serverName = serverName; // or "global"
+        this.serverName = serverName;
     }
 
     @Override
     public VaultSnapshot load(UUID playerId, int vaultId) {
         Document doc = col.find(Filters.and(
                 Filters.eq("uuid", playerId.toString()),
-                Filters.eq("server", "global") // keep global; change if per-server
+                Filters.eq("server", "global")
         )).first();
         if (doc == null) return null;
         Document v = doc.get("vaults", Document.class);

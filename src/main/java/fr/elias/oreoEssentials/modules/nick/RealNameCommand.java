@@ -28,7 +28,6 @@ public class RealNameCommand implements OreoCommand {
 
         String nick = ChatColor.stripColor(args[0]);
 
-        // Try online players by display name first
         for (Player online : Bukkit.getOnlinePlayers()) {
             String disp = ChatColor.stripColor(online.getDisplayName());
             if (disp != null && disp.equalsIgnoreCase(nick)) {
@@ -39,7 +38,6 @@ public class RealNameCommand implements OreoCommand {
             }
         }
 
-        // Fallback: try exact match to account name (if user typed account as "nick")
         OfflinePlayer op = Bukkit.getOfflinePlayer(nick);
         if (op != null && op.getName() != null) {
             Lang.send(sender, "realname.found",
